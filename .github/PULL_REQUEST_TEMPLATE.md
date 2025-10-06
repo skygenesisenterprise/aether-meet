@@ -1,6 +1,6 @@
 # Pull Request
 
-Thank you for contributing to **Aether Calendar**!  
+Thank you for contributing to **Aether Meet**!  
 Please fill out the following information to help us review your changes effectively.
 
 ---
