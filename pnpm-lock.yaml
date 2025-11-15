@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@heroicons/react':
+        specifier: ^2.2.0
+        version: 2.2.0(react@19.1.0)
+      '@skygenesisenterprise/enterprise-node':
+        specifier: ^1.3.0
+        version: 1.3.0
       next:
         specifier: 15.5.4
         version: 15.5.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -19,31 +25,34 @@ importers:
         version: 19.1.0(react@19.1.0)
     devDependencies:
       '@eslint/eslintrc':
-        specifier: ^3
+        specifier: ^3.3.1
         version: 3.3.1
       '@tailwindcss/postcss':
-        specifier: ^4
+        specifier: ^4.1.14
         version: 4.1.14
       '@types/node':
-        specifier: ^20
+        specifier: ^20.19.19
         version: 20.19.19
       '@types/react':
-        specifier: ^19
+        specifier: ^19.2.0
         version: 19.2.0
       '@types/react-dom':
-        specifier: ^19
+        specifier: ^19.2.0
         version: 19.2.0(@types/react@19.2.0)
       eslint:
-        specifier: ^9
+        specifier: ^9.37.0
         version: 9.37.0(jiti@2.6.1)
       eslint-config-next:
         specifier: 15.5.4
         version: 15.5.4(eslint@9.37.0(jiti@2.6.1))(typescript@5.9.3)
+      lucide-react:
+        specifier: ^0.553.0
+        version: 0.553.0(react@19.1.0)
       tailwindcss:
-        specifier: ^4
+        specifier: ^4.1.14
         version: 4.1.14
       typescript:
-        specifier: ^5
+        specifier: ^5.9.3
         version: 5.9.3
 
 packages:
@@ -98,6 +107,11 @@ packages:
   '@eslint/plugin-kit@0.4.0':
     resolution: {integrity: sha512-sB5uyeq+dwCWyPi31B2gQlVlo+j5brPlWx4yZBrEaRo/nhdDE8Xke1gsGgtiBdaBTxuTkceLVuVt/pclrasb0A==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@heroicons/react@2.2.0':
+    resolution: {integrity: sha512-LMcepvRaS9LYHJGsF0zzmgKCUim/X3N/DQKc4jepAXJ7l8QxJ1PmxJzqplF2Z3FE4PqBAIGyJAQ/w4B5dsqbtQ==}
+    peerDependencies:
+      react: '>= 16 || ^19.0.0-rc'
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -339,6 +353,10 @@ packages:
 
   '@rushstack/eslint-patch@1.13.0':
     resolution: {integrity: sha512-2ih5qGw5SZJ+2fLZxP6Lr6Na2NTIgPRL/7Kmyuw0uIyBQnuhQ8fi8fzUTd38eIQmqp+GYLC00cI6WgtqHxBwmw==}
+
+  '@skygenesisenterprise/enterprise-node@1.3.0':
+    resolution: {integrity: sha512-1cqZR9kbMSLJGaJq/THqxkHja+kAiYaoHaW4yGj4rFcaeno6hoZoFVBd1u9OyqnI4oe3VwprFDF16X9qfmIIUw==}
+    engines: {node: '>=18.0.0', pnpm: '>=8.0.0'}
 
   '@swc/helpers@0.5.15':
     resolution: {integrity: sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==}
@@ -1341,6 +1359,11 @@ packages:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
 
+  lucide-react@0.553.0:
+    resolution: {integrity: sha512-BRgX5zrWmNy/lkVAe0dXBgd7XQdZ3HTf+Hwe3c9WK6dqgnj9h+hxV+MDncM88xDWlCq27+TKvHGE70ViODNILw==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   magic-string@0.30.19:
     resolution: {integrity: sha512-2N21sPY9Ws53PZvsEpVtNuSW+ScYbQdp4b9qUaL+9QkHUrGFKo56Lg9Emg5s9V/qrtNBmiR01sYhUOwu3H+VOw==}
 
@@ -1849,6 +1872,10 @@ snapshots:
       '@eslint/core': 0.16.0
       levn: 0.4.1
 
+  '@heroicons/react@2.2.0(react@19.1.0)':
+    dependencies:
+      react: 19.1.0
+
   '@humanfs/core@0.19.1': {}
 
   '@humanfs/node@0.16.7':
@@ -2026,6 +2053,8 @@ snapshots:
   '@rtsao/scc@1.1.0': {}
 
   '@rushstack/eslint-patch@1.13.0': {}
+
+  '@skygenesisenterprise/enterprise-node@1.3.0': {}
 
   '@swc/helpers@0.5.15':
     dependencies:
@@ -3176,6 +3205,10 @@ snapshots:
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
+
+  lucide-react@0.553.0(react@19.1.0):
+    dependencies:
+      react: 19.1.0
 
   magic-string@0.30.19:
     dependencies:

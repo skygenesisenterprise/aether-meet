@@ -1,0 +1,117 @@
+# Vision & Positionnement
+- [ ] Définir le positionnement d’Aether Meet comme alternative libre à MS Teams
+- [ ] Décrire les cas d’usage (entreprises, écoles, collectivités, communautés OSS)
+- [ ] Identifier les bénéfices open-source (auto-hébergement, transparence, modularité)
+- [ ] Définir les objectifs du produit
+
+# Fonctionnalités Utilisateur
+## Messagerie instantanée
+- [ ] Implémenter canaux publics
+- [ ] Implémenter canaux privés
+- [ ] Implémenter messages directs (DM)
+- [ ] Gérer les groupes de travail
+- [ ] Ajouter les fils de discussion / threads
+- [ ] Ajouter réactions emoji
+- [ ] Ajouter épingles / favoris
+- [ ] Intégrer recherche avancée (messages + fichiers)
+- [ ] Support upload & aperçu fichiers
+
+## Réunions vidéo
+- [ ] Créer réunion instantanée
+- [ ] Permettre la planification de réunion
+- [ ] Générer liens publics/privés
+- [ ] Ajouter salle d’attente (lobby)
+- [ ] Gérer participants (mute, kick, rôles)
+- [ ] Implémenter vue grille
+- [ ] Implémenter vue intervenant
+- [ ] Ajouter mode focus
+- [ ] Ajouter “lever la main”
+- [ ] Ajouter réactions animées
+- [ ] Partage d’écran complet
+- [ ] Partage fenêtre/app
+- [ ] Partage d’onglet navigateur
+- [ ] Ajouter tableau blanc collaboratif
+- [ ] Activer enregistrement
+- [ ] Intégrer transcription (optionnelle)
+
+## Collaboration
+- [ ] Intégrer partage de fichiers
+- [ ] Intégrer co-édition docs Aether Office
+- [ ] Ajouter notes collaboratives
+- [ ] Ajouter historique d’activité
+- [ ] Ajouter intégrations (agenda, tâches, wiki)
+
+## Notifications & Statuts
+- [ ] Statuts prédéfinis (en ligne, occupé, DND)
+- [ ] Statuts personnalisés
+- [ ] Notifications desktop
+- [ ] Notifications mobile
+- [ ] Résumé intelligent des messages importants
+
+## Administration
+- [ ] Gestion des équipes / organisations
+- [ ] Gestion des rôles (admin, modérateur, utilisateur, invité)
+- [ ] Paramètres de sécurité
+- [ ] Gestion des permissions
+- [ ] Support multi-serveurs / instances auto-hébergées
+
+# Interface Utilisateur (UI)
+## Écran principal
+- [ ] Implémenter barre latérale gauche (équipes, canaux, DM)
+- [ ] Implémenter zone centrale (messages)
+- [ ] Ajouter barre supérieure (recherche, navigation)
+- [ ] Ajouter barre d’écriture (éditeur de message)
+- [ ] Prévoir volet latéral droit (infos canal, fichiers)
+
+## Interface de réunion vidéo
+- [ ] Barre inférieure (caméra, micro, partage, chat, paramètres)
+- [ ] Panneau participants
+- [ ] Panneau chat de réunion
+- [ ] Zone vidéo centrale dynamique
+- [ ] Notifications en réunion (main levée, arrivée, message)
+
+## Tableau blanc collaboratif
+- [ ] Outils de dessin
+- [ ] Outils texte
+- [ ] Curseurs multi-utilisateurs
+- [ ] Système de pages ou calques
+
+## Paramètres utilisateur
+- [ ] Gestion profil
+- [ ] Thèmes clair / sombre
+- [ ] Personnalisation thème
+- [ ] Raccourcis clavier
+- [ ] Gestion périphériques audio/vidéo
+
+# Style visuel (UI Design)
+- [ ] Créer un design moderne et épuré
+- [ ] Icônes vectorielles simples
+- [ ] Interface modulaire et responsive
+- [ ] Palette sobre et personnalisable
+- [ ] Conformité UX open-source (clarté, neutralité)
+
+# UX (Expérience Utilisateur)
+- [ ] Optimiser flow création/réunion
+- [ ] Simplifier navigation chat ↔ réunion ↔ fichiers
+- [ ] Intégrer accessibilité (contraste, ARIA, clavier)
+- [ ] Minimiser nombre de clics pour actions essentielles
+
+# Architecture fonctionnelle
+- [ ] Définir modules principaux (chat, vidéo, fichiers…)
+- [ ] Décrire relation entre modules
+- [ ] Créer schéma de navigation
+- [ ] Définir parcours utilisateur (user journeys)
+- [ ] Définir API internes & externes
+- [ ] Définir modèle de données de base
+
+# Inspirations visuelles (à analyser)
+- [ ] Structure Slack (canaux & threads)
+- [ ] Organisation Teams (équipes / fichiers / réunions)
+- [ ] Visioconférence Zoom / Google Meet
+- [ ] Tableau blanc Miro / Figma
+- [ ] Notifications Discord
+
+# Documentation finale
+- [ ] Rédiger une spécification complète pour développeurs
+- [ ] Rédiger guide UI/UX pour designers
+- [ ] Produire annexes : parcours utilisateurs, wireframes, architecture
