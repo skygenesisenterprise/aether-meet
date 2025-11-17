@@ -9,12 +9,12 @@ import DirectChat from '../components/direct-chat';
 import PermissionWelcome from '../components/permission-welcome';
 
 export default function ConversationsPage() {
-  const [selectedConversation, setSelectedConversation] = useState<string | null>('2');
-  const [pinnedConversations, setPinnedConversations] = useState<Set<string>>(new Set(['1'])); // Example: conversation 1 is pinned by default
+  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const [pinnedConversations, setPinnedConversations] = useState<Set<string>>(new Set());
   const [showPermissionWelcome, setShowPermissionWelcome] = useState(false);
 
   useEffect(() => {
-    // Check if it's the first visit
+    // Check if it's first visit
     const hasVisitedBefore = localStorage.getItem('aether-meet-visited');
     
     if (!hasVisitedBefore) {
@@ -41,20 +41,24 @@ export default function ConversationsPage() {
               onPermissionsSkipped={handlePermissionsSkipped}
             />
           )}
-          <div className="flex h-full">
+          <div className="flex h-full bg-surface">
             {/* Messages List - Gauche */}
-            <MessagesList 
-              selectedConversation={selectedConversation}
-              onSelectConversation={setSelectedConversation}
-              pinnedConversations={pinnedConversations}
-            />
+            <div className="w-80 flex-shrink-0 h-full">
+              <MessagesList 
+                selectedConversation={selectedConversation}
+                onSelectConversation={setSelectedConversation}
+                pinnedConversations={pinnedConversations}
+              />
+            </div>
             
             {/* Direct Chat - Droite */}
-            <DirectChat 
-              conversationId={selectedConversation} 
-              pinnedConversations={pinnedConversations}
-              setPinnedConversations={setPinnedConversations}
-            />
+            <div className="flex-1 min-w-0 h-full">
+              <DirectChat 
+                conversationId={selectedConversation} 
+                pinnedConversations={pinnedConversations}
+                setPinnedConversations={setPinnedConversations}
+              />
+            </div>
           </div>
         </CallProvider>
       </ReadStatusProvider>
