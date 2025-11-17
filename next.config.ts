@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
       // Rediriger localhost:3000 vers aether-meet.local:3000
       {
         source: '/:path*',
-        destination: 'http://aether-meet.local:3000/:path*',
+        destination: 'http://meet.local:3000/:path*',
       },
     ];
   },

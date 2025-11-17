@@ -10,12 +10,9 @@ import IncomingCallModal from './incoming-call-modal';
 import {
   PhoneIcon,
   VideoCameraIcon,
-  MicrophoneIcon,
   PaperAirplaneIcon,
   PaperClipIcon,
-  FaceSmileIcon,
-  EllipsisVerticalIcon,
-  SpeakerWaveIcon
+  FaceSmileIcon
 } from '@heroicons/react/24/outline';
 
 interface Message {
@@ -39,180 +36,259 @@ interface DirectChatProps {
   setPinnedConversations?: React.Dispatch<React.SetStateAction<Set<string>>>;
 }
 
+// Données des conversations synchronisées avec messages-list.tsx
 const conversationsData: { [key: string]: { name: string; messages: Message[]; type: 'direct' | 'group'; participants?: string[] } } = {
   '1': {
-    name: 'Équipe Marketing',
-    type: 'group',
-    participants: ['Sophie Martin', 'Thomas Bernard', 'Lucie Dubois'],
+    name: 'Alice Dubois',
+    type: 'direct',
     messages: [
       {
         id: '1',
-        content: 'Bonjour équipe ! J\'ai mis à jour le rapport trimestriel.',
-        sender: 'Sophie Martin',
-        timestamp: '09:15',
+        content: 'Salut ! Comment ça va aujourd\'hui ?',
+        sender: 'Alice Dubois',
+        timestamp: '14:15',
         isOwn: false,
         type: 'text',
         reactions: [
-          { emoji: '👍', count: 2, users: ['Moi', 'Thomas Bernard'] },
-          { emoji: '😊', count: 1, users: ['Lucie Dubois'] }
+          { emoji: '👋', count: 1, users: ['Moi'] }
         ]
       },
       {
         id: '2',
-        content: 'Super Sophie ! Je vais le regarder tout de suite.',
+        content: 'Bonjour Alice ! Ça va bien, merci. Et toi ?',
         sender: 'Moi',
-        timestamp: '09:18',
+        timestamp: '14:20',
         isOwn: true,
         type: 'text',
         reactions: [
-          { emoji: '👍', count: 1, users: ['Sophie Martin'] }
+          { emoji: '😊', count: 1, users: ['Alice Dubois'] }
         ]
       },
       {
         id: '3',
-        content: 'Le rapport est prêt pour review',
-        sender: 'Sophie Martin',
-        timestamp: '10:30',
+        content: 'Super ! On se voit cet après-midi ?',
+        sender: 'Alice Dubois',
+        timestamp: '14:30',
         isOwn: false,
         type: 'text'
       }
     ]
   },
   '2': {
-    name: 'Jean Dupont',
-    type: 'direct',
-    messages: [
-      {
-        id: '1',
-        content: 'Salut ! Comment ça va aujourd\'hui ?',
-        sender: 'Jean Dupont',
-        timestamp: '09:30',
-        isOwn: false,
-        type: 'text',
-        reactions: [
-          { emoji: '👋', count: 1, users: ['Moi'] }
-        ]
-      },
-      {
-        id: '2',
-        content: 'Bonjour Jean ! Ça va bien, merci. Et toi ?',
-        sender: 'Moi',
-        timestamp: '09:32',
-        isOwn: true,
-        type: 'text',
-        reactions: [
-          { emoji: '😊', count: 1, users: ['Jean Dupont'] }
-        ]
-      },
-      {
-        id: '3',
-        content: 'Super ! Je voulais te parler du projet Alpha. As-tu eu le temps de regarder les documents ?',
-        sender: 'Jean Dupont',
-        timestamp: '09:35',
-        isOwn: false,
-        type: 'text'
-      },
-      {
-        id: '4',
-        content: 'Oui, je les ai regardés ce matin. J\'ai quelques suggestions à te proposer.',
-        sender: 'Moi',
-        timestamp: '09:40',
-        isOwn: true,
-        type: 'text'
-      },
-      {
-        id: '5',
-        content: 'Excellent ! On peut en discuter lors de la réunion de 14h ?',
-        sender: 'Jean Dupont',
-        timestamp: '09:42',
-        isOwn: false,
-        type: 'text',
-        reactions: [
-          { emoji: '👍', count: 1, users: ['Moi'] },
-          { emoji: '🎉', count: 1, users: ['Moi'] }
-        ]
-      },
-      {
-        id: '6',
-        content: 'Merci pour ton aide !',
-        sender: 'Jean Dupont',
-        timestamp: '09:45',
-        isOwn: false,
-        type: 'text'
-      }
-    ]
-  },
-  '3': {
-    name: 'Projet Alpha',
+    name: 'Équipe Projet',
     type: 'group',
-    participants: ['Chef de projet', 'Développeurs', 'Designers'],
+    participants: ['Alice', 'Bob', 'Charlie', 'David'],
     messages: [
       {
         id: '1',
-        content: 'Réunion à 14h aujourd\'hui',
-        sender: 'Chef de projet',
-        timestamp: '08:00',
+        content: 'Bonjour équipe ! Réunion à 15h aujourd\'hui',
+        sender: 'Bob',
+        timestamp: '13:30',
         isOwn: false,
         type: 'text',
         reactions: [
-          { emoji: '👍', count: 3, users: ['Moi', 'Développeur1', 'Designer1'] },
-          { emoji: '📅', count: 2, users: ['Développeur2', 'Designer2'] }
+          { emoji: '👍', count: 3, users: ['Moi', 'Alice', 'Charlie'] },
+          { emoji: '📅', count: 2, users: ['David', 'Bob'] }
         ]
       },
       {
         id: '2',
         content: 'Présent !',
         sender: 'Moi',
-        timestamp: '08:05',
+        timestamp: '13:35',
         isOwn: true,
+        type: 'text'
+      },
+      {
+        id: '3',
+        content: 'La réunion est confirmée pour 15h',
+        sender: 'Bob',
+        timestamp: '13:45',
+        isOwn: false,
         type: 'text'
       }
     ]
   },
-  '4': {
-    name: 'Marie Laurent',
+  '3': {
+    name: 'Charlie Martin',
     type: 'direct',
     messages: [
       {
         id: '1',
-        content: 'As-tu vu les derniers documents ?',
-        sender: 'Marie Laurent',
+        content: 'Salut ! Peux-tu regarder le rapport que je t\'ai envoyé ?',
+        sender: 'Charlie Martin',
         timestamp: 'Hier',
+        isOwn: false,
+        type: 'text'
+      },
+      {
+        id: '2',
+        content: 'rapport.pdf',
+        sender: 'Charlie Martin',
+        timestamp: 'Hier',
+        isOwn: false,
+        type: 'file',
+        fileName: 'rapport.pdf',
+        fileSize: '2.4 MB'
+      }
+    ]
+  },
+  '4': {
+    name: 'Support Technique',
+    type: 'direct',
+    messages: [
+      {
+        id: '1',
+        content: 'Bonjour, j\'ai un problème avec ma connexion',
+        sender: 'Moi',
+        timestamp: 'Lun',
+        isOwn: true,
+        type: 'text'
+      },
+      {
+        id: '2',
+        content: 'Bonjour ! Je vais vous aider tout de suite.',
+        sender: 'Support Tech',
+        timestamp: 'Lun',
+        isOwn: false,
+        type: 'text',
+        reactions: [
+          { emoji: '👍', count: 1, users: ['Moi'] }
+        ]
+      },
+      {
+        id: '3',
+        content: 'Votre ticket a été résolu',
+        sender: 'Support Tech',
+        timestamp: 'Lun',
         isOwn: false,
         type: 'text'
       }
     ]
   },
   '5': {
-    name: 'Support Technique',
+    name: 'Département Marketing',
     type: 'group',
+    participants: ['Marie', 'Thomas', 'Sophie', 'Lucie'],
     messages: [
       {
         id: '1',
-        content: 'Ticket #1234 résolu',
-        sender: 'Support Tech',
-        timestamp: 'Lun',
+        content: 'Bonjour équipe ! Nouvelles campagnes à valider',
+        sender: 'Marie',
+        timestamp: 'Dim',
         isOwn: false,
         type: 'text',
         reactions: [
-          { emoji: '✅', count: 1, users: ['Moi'] }
+          { emoji: '👍', count: 2, users: ['Moi', 'Thomas'] }
         ]
+      },
+      {
+        id: '2',
+        content: 'Marie: Nouvelles campagnes à valider',
+        sender: 'Marie',
+        timestamp: 'Dim',
+        isOwn: false,
+        type: 'text'
       }
     ]
   },
   '6': {
+    name: 'Sophie Laurent',
+    type: 'direct',
+    messages: [
+      {
+        id: '1',
+        content: 'Salut ! As-tu vu les derniers documents ?',
+        sender: 'Sophie Laurent',
+        timestamp: '12:00',
+        isOwn: false,
+        type: 'text'
+      },
+      {
+        id: '2',
+        content: 'Merci pour votre aide !',
+        sender: 'Sophie Laurent',
+        timestamp: '12:15',
+        isOwn: false,
+        type: 'text',
+        reactions: [
+          { emoji: '❤️', count: 1, users: ['Moi'] }
+        ]
+      }
+    ]
+  },
+  '7': {
+    name: 'Team DevOps',
+    type: 'group',
+    participants: ['Alex', 'Sarah', 'Mike', 'Julie'],
+    messages: [
+      {
+        id: '1',
+        content: 'Déploiement réussi en production',
+        sender: 'Alex',
+        timestamp: '11:30',
+        isOwn: false,
+        type: 'text',
+        reactions: [
+          { emoji: '🎉', count: 4, users: ['Moi', 'Sarah', 'Mike', 'Julie'] },
+          { emoji: '✅', count: 2, users: ['Sarah', 'Mike'] }
+        ]
+      }
+    ]
+  },
+  '8': {
     name: 'Thomas Bernard',
     type: 'direct',
     messages: [
       {
         id: '1',
-        content: 'À plus tard !',
+        content: 'Peux-tu review ma PR ?',
         sender: 'Thomas Bernard',
-        timestamp: 'Dim',
+        timestamp: '10:45',
+        isOwn: false,
+        type: 'text'
+      }
+    ]
+  },
+  '9': {
+    name: 'Client Premium',
+    type: 'direct',
+    messages: [
+      {
+        id: '1',
+        content: 'Bonjour, je souhaite souscrire à l\'offre premium',
+        sender: 'Client Premium',
+        timestamp: 'Ven',
+        isOwn: false,
+        type: 'text'
+      },
+      {
+        id: '2',
+        content: 'Nouveau contrat signé 🎉',
+        sender: 'Client Premium',
+        timestamp: 'Ven',
         isOwn: false,
         type: 'text',
         reactions: [
-          { emoji: '👋', count: 1, users: ['Moi'] }
+          { emoji: '🎉', count: 1, users: ['Moi'] }
+        ]
+      }
+    ]
+  },
+  '10': {
+    name: 'Réunion Quotidienne',
+    type: 'group',
+    participants: ['Équipe A', 'Équipe B', 'Product Owner', 'Scrum Master'],
+    messages: [
+      {
+        id: '1',
+        content: 'Daily terminée, bon travail équipe !',
+        sender: 'Scrum Master',
+        timestamp: '09:00',
+        isOwn: false,
+        type: 'text',
+        reactions: [
+          { emoji: '👍', count: 8, users: ['Moi', 'Équipe A', 'Équipe B', 'Product Owner'] }
         ]
       }
     ]
@@ -222,8 +298,6 @@ const conversationsData: { [key: string]: { name: string; messages: Message[]; t
 export default function DirectChat({ conversationId, pinnedConversations = new Set(), setPinnedConversations }: DirectChatProps) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>(conversationId ? conversationsData[conversationId]?.messages || [] : []);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiPickerPosition, setEmojiPickerPosition] = useState({ top: 0, left: 0 });
@@ -239,10 +313,7 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
   const { 
     startCall, 
     currentCall, 
-    isInCall, 
-    incomingCall,
-    acceptCall, 
-    rejectCall 
+    incomingCall
   } = useCall();
 
   const scrollToBottom = () => {
@@ -341,7 +412,7 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
               // Request both audio and video permissions
               await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
               console.log('Media permissions granted successfully');
-            } catch (error) {
+      } catch (error) {
               console.warn('Media permissions denied:', error);
             }
           }
@@ -505,11 +576,26 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
     setShowEmojiPicker(false);
   };
 
+  // Helper functions
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase())
+      .slice(0, 2)
+      .join('');
+  };
+
+  const getAvatarColor = (type: 'direct' | 'group') => {
+    return type === 'group' ? 'from-purple-400 to-purple-600' : 'from-blue-400 to-blue-600';
+  };
+
   const formatCallDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+
 
   const handleCallStart = async (type: 'audio' | 'video') => {
     if (!conversationId) return;
@@ -634,7 +720,7 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
 
   if (!conversationId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-surface">
+      <div className="flex-1 flex items-center justify-center bg-surface h-full">
         <div className="text-center">
           <div className="w-24 h-24 bg-surface-elevated rounded-full flex items-center justify-center mx-auto mb-4">
             <PhoneIcon className="h-12 w-12 text-secondary" />
@@ -649,34 +735,54 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
   return (
     <div className="flex-1 flex flex-col bg-surface">
       {/* Chat Header */}
-      <div className="h-16 bg-surface-elevated border-b border-theme flex items-center justify-between px-6">
+      <div className="h-16 bg-surface-elevated border-b border-theme flex items-center justify-between px-6 shadow-sm">
         <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-            <span className="text-white font-medium">
-              {conversationsData[conversationId as string]?.name.split(' ').map(n => n[0]).join('') || '??'}
-            </span>
+          {/* Avatar */}
+          <div className="relative">
+            <div className="w-10 h-10 relative">
+              {conversationsData[conversationId as string]?.type === 'group' ? (
+                <div className="w-full h-full bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center shadow-sm">
+                  <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.448 0A5.002 5.002 0 0112 14.586m0 0a5.002 5.002 0 019.448 0" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center shadow-sm relative overflow-hidden">
+                  <span className="text-white font-semibold text-sm">
+                    {conversationsData[conversationId as string]?.name.split(' ').map(n => n[0]).join('') || '??'}
+                  </span>
+                  <div className="absolute inset-0 bg-white/10"></div>
+                </div>
+              )}
+              {/* Online status indicator */}
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-surface shadow-sm"></div>
+            </div>
           </div>
-          <div>
+          
+          {/* Conversation Info */}
+          <div className="flex-1 min-w-0">
             <div className="flex items-center space-x-2">
-              <h3 className="font-medium text-primary">{conversationsData[conversationId as string]?.name || 'Conversation'}</h3>
+              <h3 className="font-semibold text-primary truncate">
+                {conversationsData[conversationId as string]?.name || 'Conversation'}
+              </h3>
               {callStatus !== 'idle' && (
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-1.5 px-2 py-1 bg-surface rounded-full">
                   {callStatus === 'ringing' && (
                     <>
                       <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-yellow-600 dark:text-yellow-400">Sonnerie...</span>
+                      <span className="text-xs text-yellow-600 dark:text-yellow-400 font-medium">Sonnerie...</span>
                     </>
                   )}
                   {callStatus === 'connecting' && (
                     <>
                       <div className="w-2 h-2 bg-blue-400 rounded-full animate-spin"></div>
-                      <span className="text-xs text-blue-600 dark:text-blue-400">Connexion...</span>
+                      <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Connexion...</span>
                     </>
                   )}
                   {callStatus === 'connected' && (
                     <>
                       <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                      <span className="text-xs text-green-600 dark:text-green-400">{formatCallDuration(callDuration)}</span>
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">{formatCallDuration(callDuration)}</span>
                     </>
                   )}
                 </div>
@@ -743,17 +849,18 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 transition-all duration-300">
-        {messages.map((msg) => (
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-surface to-surface/95">
+        {messages.map((msg, index) => (
           <div
             key={msg.id}
-            className={`flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${msg.isOwn ? 'justify-end' : 'justify-start'} animate-fadeIn`}
+            style={{ animationDelay: `${index * 50}ms` }}
           >
             <div
-              className={`relative group max-w-xs lg:max-w-md px-4 py-2 rounded-lg transition-all duration-200 hover:scale-105 ${
+              className={`relative group max-w-xs lg:max-w-md px-4 py-3 rounded-2xl transition-all duration-200 hover:scale-[1.02] hover:shadow-lg ${
                 msg.isOwn
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-elevated text-primary border border-theme'
+                  ? 'bg-gradient-to-br from-accent to-accent-hover text-white rounded-br-none'
+                  : 'bg-surface-elevated text-primary border border-theme/50 rounded-bl-none shadow-sm'
               }`}
               onMouseEnter={() => {
                 setHoveredMessage(msg.id);
@@ -957,7 +1064,7 @@ export default function DirectChat({ conversationId, pinnedConversations = new S
             );
           }
           return null;
-        } catch (error) {
+        } catch {
           return null;
         }
       })()}

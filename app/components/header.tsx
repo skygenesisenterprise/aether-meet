@@ -15,7 +15,7 @@ export default function Header() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const { userStatus, setUserStatus, isOnline, lastSeen } = useUserStatus();
+  const { userStatus, setUserStatus } = useUserStatus();
 
   const currentStatus = statusOptions.find(option => option.value === userStatus) || statusOptions[0];
 

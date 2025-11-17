@@ -1,0 +1,89 @@
+[
+  {
+    "id": "1",
+    "name": "Alice Dubois",
+    "lastMessage": "Super ! On se voit cet après-midi ?",
+    "time": "14:30",
+    "unread": 2,
+    "isOnline": true,
+    "type": "direct",
+    "status": "online"
+  },
+  {
+    "id": "2",
+    "name": "Équipe Projet",
+    "lastMessage": "Bob: La réunion est confirmée pour 15h",
+    "time": "13:45",
+    "type": "group",
+    "status": "online"
+  },
+  {
+    "id": "3",
+    "name": "Charlie Martin",
+    "lastMessage": "rapport.pdf",
+    "time": "Hier",
+    "type": "direct",
+    "status": "away",
+    "lastSeen": "Vu il y a 2 heures"
+  },
+  {
+    "id": "4",
+    "name": "Support Technique",
+    "lastMessage": "Votre ticket a été résolu",
+    "time": "Lun",
+    "unread": 1,
+    "type": "direct",
+    "status": "offline"
+  },
+  {
+    "id": "5",
+    "name": "Département Marketing",
+    "lastMessage": "Marie: Nouvelles campagnes à valider",
+    "time": "Dim",
+    "type": "group",
+    "status": "online"
+  },
+  {
+    "id": "6",
+    "name": "Sophie Laurent",
+    "lastMessage": "Merci pour votre aide !",
+    "time": "12:15",
+    "unread": 3,
+    "isOnline": true,
+    "type": "direct",
+    "status": "online"
+  },
+  {
+    "id": "7",
+    "name": "Team DevOps",
+    "lastMessage": "Déploiement réussi en production",
+    "time": "11:30",
+    "type": "group",
+    "status": "online"
+  },
+  {
+    "id": "8",
+    "name": "Thomas Bernard",
+    "lastMessage": "Peux-tu review ma PR ?",
+    "time": "10:45",
+    "type": "direct",
+    "status": "busy"
+  },
+  {
+    "id": "9",
+    "name": "Client Premium",
+    "lastMessage": "Nouveau contrat signé 🎉",
+    "time": "Ven",
+    "unread": 1,
+    "type": "direct",
+    "status": "offline"
+  },
+  {
+    "id": "10",
+    "name": "Réunion Quotidienne",
+    "lastMessage": "Daily terminée, bon travail équipe !",
+    "time": "09:00",
+    "type": "group",
+    "status": "online"
+  }
+]

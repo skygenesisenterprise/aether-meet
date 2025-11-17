@@ -41,20 +41,18 @@ export default function ConversationsPage() {
               onPermissionsSkipped={handlePermissionsSkipped}
             />
           )}
-          <div className="flex h-full bg-surface">
+          <div className="flex h-screen bg-surface">
             {/* Messages List - Gauche */}
-            <div className="w-80 flex-shrink-0 h-full">
-              <MessagesList 
-                selectedConversation={selectedConversation}
-                onSelectConversation={setSelectedConversation}
-                pinnedConversations={pinnedConversations}
-              />
-            </div>
+            <MessagesList 
+              selectedConversation={selectedConversation}
+              onSelectConversation={setSelectedConversation}
+              pinnedConversations={pinnedConversations}
+            />
             
             {/* Direct Chat - Droite */}
             <div className="flex-1 min-w-0 h-full">
               <DirectChat 
-                conversationId={selectedConversation} 
+                conversationId={selectedConversation}
                 pinnedConversations={pinnedConversations}
                 setPinnedConversations={setPinnedConversations}
               />

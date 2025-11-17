@@ -31,7 +31,7 @@ export default function PermissionWelcome({ onPermissionsGranted, onPermissionsS
       
       setPermissionStatus('granted');
       setTimeout(() => onPermissionsGranted(), 1000);
-    } catch (error) {
+    } catch {
       setPermissionStatus('idle');
     }
   };
@@ -45,7 +45,7 @@ export default function PermissionWelcome({ onPermissionsGranted, onPermissionsS
       
       setPermissionStatus('granted');
       setTimeout(() => onPermissionsGranted(), 1500);
-    } catch (error) {
+    } catch {
       setPermissionStatus('denied');
       setIsRequesting(false);
     }
@@ -93,7 +93,7 @@ export default function PermissionWelcome({ onPermissionsGranted, onPermissionsS
             Bienvenue sur Aether Meet
           </h2>
           <p className="text-secondary">
-            Pour profiter pleinement des appels audio et vidéo, nous avons besoin d'accéder à votre microphone et votre caméra.
+            Pour profiter pleinement des appels audio et vidéo, nous avons besoin d&apos;accéder à votre microphone et votre caméra.
           </p>
         </div>
 

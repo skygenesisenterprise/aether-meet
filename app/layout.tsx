@@ -78,7 +78,7 @@ export default function RootLayout({
               <Header />
               
               {/* Main Content - Page content */}
-              <main className="flex-1 overflow-auto bg-surface">
+              <main className="flex-1 overflow-hidden bg-surface">
                 <PageTransition>
                   {children}
                 </PageTransition>

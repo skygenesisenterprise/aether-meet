@@ -93,7 +93,7 @@ export function ReadStatusProvider({ children }: { children: ReactNode }) {
 
   const getTotalUnreadCount = useCallback(() => {
     // Simplified calculation - in real app, sum all unread messages across all conversations
-    const conversations = ['1', '2', '3', '4', '5', '6']; // Mock conversation IDs
+    const conversations = ['1', '2', '3', '4', '5', '6', '7', '8']; // Mock conversation IDs
     return conversations.reduce((total, convId) => total + getUnreadCount(convId), 0);
   }, [getUnreadCount]);
 
