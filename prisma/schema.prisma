@@ -1,0 +1,348 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  username          String   @unique
+  firstName         String
+  lastName          String
+  avatar            String?
+  bio               String?
+  status            UserStatus @default(OFFLINE)
+  lastSeen          DateTime?
+  emailVerified     Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  sentMessages      Message[] @relation("MessageSender")
+  directConversations1 DirectConversation[] @relation("DirectConversationUser1")
+  directConversations2 DirectConversation[] @relation("DirectConversationUser2")
+  groupMemberships  GroupMember[]
+  ownedGroups       Group[] @relation("GroupOwner")
+  callParticipants  CallParticipant[]
+  reactions         MessageReaction[]
+  readReceipts      MessageReadReceipt[]
+  typingIndicators  TypingIndicator[]
+  files             File[]
+  notifications     Notification[]
+  permissions       UserPermission[]
+  sessions          UserSession[]
+
+  @@map("users")
+}
+
+model DirectConversation {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user2Id   String
+  isPinned  Boolean  @default(false) @map("is_pinned")
+  archivedAt DateTime? @map("archived_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user1     User     @relation("DirectConversationUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2     User     @relation("DirectConversationUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+  messages  Message[]
+  calls     Call[]
+
+  @@unique([user1Id, user2Id])
+  @@map("direct_conversations")
+}
+
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  avatar      String?
+  ownerId     String   @map("owner_id")
+  isPrivate   Boolean  @default(false) @map("is_private")
+  maxMembers  Int      @default(200)
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  owner       User     @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  messages    Message[]
+  calls       Call[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id         String   @id @default(cuid())
+  groupId    String   @map("group_id")
+  userId     String   @map("user_id")
+  role       GroupRole @default(MEMBER)
+  joinedAt   DateTime @default(now()) @map("joined_at")
+  leftAt     DateTime? @map("left_at")
+  isMuted    Boolean  @default(false) @map("is_muted")
+  mutedUntil DateTime? @map("muted_until")
+
+  // Relations
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@map("group_members")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  content        String
+  senderId       String       @map("sender_id")
+  conversationId String?      @map("conversation_id")
+  groupId        String?      @map("group_id")
+  type           MessageType  @default(TEXT)
+  replyToId      String?      @map("reply_to_id")
+  isEdited       Boolean      @default(false) @map("is_edited")
+  editedAt       DateTime?    @map("edited_at")
+  isDeleted      Boolean      @default(false) @map("is_deleted")
+  deletedAt      DateTime?    @map("deleted_at")
+  isPinned       Boolean      @default(false) @map("is_pinned")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation   DirectConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  group          Group?       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  replyTo        Message?     @relation("MessageReply", fields: [replyToId], references: [id])
+  replies        Message[]    @relation("MessageReply")
+  reactions      MessageReaction[]
+  readReceipts   MessageReadReceipt[]
+  files          File[]
+
+  @@map("messages")
+}
+
+model MessageReaction {
+  id         String   @id @default(cuid())
+  messageId  String   @map("message_id")
+  userId     String   @map("user_id")
+  emoji      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
+}
+
+model MessageReadReceipt {
+  id         String   @id @default(cuid())
+  messageId  String   @map("message_id")
+  userId     String   @map("user_id")
+  readAt     DateTime @default(now()) @map("read_at")
+
+  // Relations
+  message    Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("message_read_receipts")
+}
+
+model Call {
+  id             String     @id @default(cuid())
+  conversationId String?    @map("conversation_id")
+  groupId        String?    @map("group_id")
+  initiatorId    String     @map("initiator_id")
+  type           CallType
+  status         CallStatus @default(INITIATED)
+  startedAt      DateTime?  @map("started_at")
+  endedAt        DateTime?  @map("ended_at")
+  duration       Int?       // Duration in seconds
+  recordingUrl   String?    @map("recording_url")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  conversation   DirectConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  group          Group?       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  initiator      User         @relation("CallInitiator", fields: [initiatorId], references: [id])
+  participants   CallParticipant[]
+
+  @@map("calls")
+}
+
+model CallParticipant {
+  id         String           @id @default(cuid())
+  callId     String           @map("call_id")
+  userId     String           @map("user_id")
+  status     CallParticipantStatus @default(JOINED)
+  joinedAt   DateTime         @default(now()) @map("joined_at")
+  leftAt     DateTime?        @map("left_at")
+  isMuted    Boolean          @default(false) @map("is_muted")
+  isVideoOn  Boolean          @default(false) @map("is_video_on")
+  screenShare Boolean          @default(false) @map("screen_share")
+
+  // Relations
+  call       Call             @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@map("call_participants")
+}
+
+model File {
+  id           String     @id @default(cuid())
+  messageId    String     @map("message_id")
+  uploaderId   String     @map("uploader_id")
+  filename     String
+  originalName String     @map("original_name")
+  mimeType     String     @map("mime_type")
+  size         Int        // Size in bytes
+  path         String
+  url          String?
+  thumbnailUrl String?    @map("thumbnail_url")
+  isPublic     Boolean    @default(false) @map("is_public")
+  downloadedAt DateTime?  @map("downloaded_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  message      Message    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader     User       @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@map("files")
+}
+
+model TypingIndicator {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  conversationId String?  @map("conversation_id")
+  groupId        String?  @map("group_id")
+  isTyping       Boolean  @default(true) @map("is_typing")
+  lastTypedAt    DateTime @default(now()) @map("last_typed_at")
+  expiresAt      DateTime @map("expires_at")
+
+  // Relations
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("typing_indicators")
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String           @map("user_id")
+  title      String
+  message    String
+  type       NotificationType
+  data       Json?            // Additional data for the notification
+  isRead     Boolean          @default(false) @map("is_read")
+  readAt     DateTime?        @map("read_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model UserPermission {
+  id         String           @id @default(cuid())
+  userId     String           @map("user_id")
+  resource   String           // Resource name (e.g., "groups", "calls")
+  action     String           // Action name (e.g., "create", "read", "update", "delete")
+  granted    Boolean          @default(true)
+  grantedBy  String?          @map("granted_by")
+  grantedAt  DateTime         @default(now()) @map("granted_at")
+  expiresAt  DateTime?        @map("expires_at")
+
+  // Relations
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, resource, action])
+  @@map("user_permissions")
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  token        String   @unique
+  refreshToken String?  @map("refresh_token")
+  userAgent    String?  @map("user_agent")
+  ipAddress    String?  @map("ip_address")
+  isActive     Boolean  @default(true) @map("is_active")
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+// Enums
+enum UserStatus {
+  ONLINE
+  AWAY
+  BUSY
+  OFFLINE
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  AUDIO
+  VIDEO
+  SYSTEM
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum CallType {
+  AUDIO
+  VIDEO
+  SCREEN_SHARE
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  CONNECTED
+  ENDED
+  REJECTED
+  MISSED
+}
+
+enum CallParticipantStatus {
+  INVITED
+  JOINED
+  LEFT
+  REJECTED
+  MISSED
+}
+
+enum NotificationType {
+  MESSAGE
+  MENTION
+  REACTION
+  CALL
+  GROUP_INVITE
+  SYSTEM
+}
