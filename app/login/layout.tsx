@@ -1,7 +1,7 @@
 "use client";
 
 import { Geist, Geist_Mono } from "next/font/google";
-import { AuthProvider } from "../context/JwtAuthContext";
+import { AuthProvider } from "../contexts/JwtAuthContext";
 import { Toaster } from "../components/ui/toaster";
 import "../styles/globals.css";
 
