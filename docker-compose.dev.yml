@@ -1,10 +1,10 @@
 services:
-  aetherbank:
+  aethermeet:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: aetherbank:latest
-    container_name: aetherbank
+    image: aethermeet:latest
+    container_name: aethermeet
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -50,7 +50,7 @@ services:
 
   db:
     image: postgres:16-alpine
-    container_name: aetherbank-db
+    container_name: aethermeet-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: aether
