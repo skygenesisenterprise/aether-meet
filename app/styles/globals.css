@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: oklch(0.5 0.2 25);
-  --color-primary-foreground: oklch(0.98 0.01 25);
+  --color-primary: oklch(0.6 0.2 240);
+  --color-primary-foreground: oklch(1 0 0);
   --color-secondary: oklch(0.25 0.15 25);
   --color-secondary-foreground: oklch(0.98 0.01 25);
   --color-muted: oklch(0.96 0.01 25);
@@ -11,15 +11,15 @@
   --color-accent-foreground: oklch(0.2 0.1 25);
   --color-destructive: oklch(0.55 0.25 25);
   --color-destructive-foreground: oklch(0.98 0.01 25);
-  --color-border: oklch(0.9 0.02 25);
-  --color-input: oklch(0.9 0.02 25);
-  --color-ring: oklch(0.5 0.2 25);
+  --color-border: oklch(0.85 0.02 25);
+  --color-input: oklch(0.85 0.02 25);
+  --color-ring: oklch(0.6 0.2 240);
   --color-background: oklch(1 0 0);
-  --color-foreground: oklch(0.15 0.03 25);
+  --color-foreground: oklch(0.15 0.01 25);
   --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.15 0.03 25);
+  --color-card-foreground: oklch(0.15 0.01 25);
   --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.15 0.03 25);
+  --color-popover-foreground: oklch(0.15 0.01 25);
   --radius-sm: 0.25rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -34,5 +34,83 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+}
+
+@layer components {
+  .auth-panel {
+    @apply min-h-screen flex;
+  }
+
+  .auth-image-panel {
+    @apply hidden lg:flex lg:w-1/2 relative overflow-hidden;
+  }
+
+  .auth-form-panel {
+    @apply flex-1 flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16 bg-background;
+  }
+
+  .auth-card {
+    @apply mx-auto w-full max-w-sm;
+  }
+
+  .auth-title {
+    @apply font-serif text-3xl font-bold text-foreground tracking-tight;
+  }
+
+  .auth-subtitle {
+    @apply mt-2 text-sm text-muted-foreground;
+  }
+
+  .auth-label {
+    @apply text-xs font-semibold uppercase tracking-wider text-foreground;
+  }
+
+  .auth-input {
+    @apply h-11 border-border bg-background focus-visible:ring-primary;
+  }
+
+  .auth-button-primary {
+    @apply w-full h-11 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-sm tracking-wide;
+  }
+
+  .auth-button-outline {
+    @apply w-full h-11 border-border bg-background hover:bg-accent hover:text-accent-foreground font-semibold text-sm;
+  }
+
+  .auth-divider {
+    @apply relative my-6;
+  }
+
+  .auth-divider-line {
+    @apply w-full border-t border-border;
+  }
+
+  .auth-divider-text {
+    @apply relative flex justify-center;
+  }
+
+  .auth-footer-link {
+    @apply text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1;
+  }
+
+  .auth-accent-bar {
+    @apply w-8 h-0.5 bg-primary;
+  }
+
+  .auth-accent-bar-lg {
+    @apply w-12 h-0.5 bg-primary;
+  }
+
+  .auth-quote {
+    @apply font-serif text-2xl font-medium leading-relaxed text-pretty;
+  }
+
+  .auth-quote-author {
+    @apply mt-4 text-sm text-white/60 font-sans;
+  }
+
+  .auth-error {
+    @apply mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/50 text-destructive text-sm;
   }
 }

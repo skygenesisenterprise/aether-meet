@@ -1,10 +1,10 @@
 services:
-  aetherbank:
+  aethermeet:
     build:
       context: .
       dockerfile: Dockerfile.cloud
-    image: aetherbank:latest
-    container_name: aetherbank
+    image: aethermeet:latest
+    container_name: aethermeet
     restart: unless-stopped
     ports:
       - "3000:3000"

@@ -18,11 +18,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | Astoria Govnerment",
-    default: "Astoria Govnerment - The Official Government of Astoria",
+    template: "%s | Aether Meet",
+    default: "Aether Meet - The Official Meeting Platform of Aether",
   },
   description:
-    "The Official Government of Astoria.",
+    "The Official Meeting Platform of Aether.",
   icons: {
     icon: [
       {
