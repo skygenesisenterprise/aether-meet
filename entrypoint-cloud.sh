@@ -1,232 +1,318 @@
 #!/bin/sh
 set -e
 
-# =============================================================================
-# Aether Bank - Production Service Entry Point
-# =============================================================================
-
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:/go/bin:/root/go/bin:/root/.local/share/corepack"
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
 export NODE_ENV="${NODE_ENV:-production}"
+export USE_EMBEDDED_DB="${USE_EMBEDDED_DB:-false}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
+export HTTP_ACCESS_LOGS="${HTTP_ACCESS_LOGS:-false}"
+export API_ACCESS_LOGS="${API_ACCESS_LOGS:-false}"
+export PRISMA_SCHEMA_DEPLOY="${PRISMA_SCHEMA_DEPLOY:-true}"
+export PRISMA_SCHEMA_DEPLOY_STRATEGY="${PRISMA_SCHEMA_DEPLOY_STRATEGY:-push}"
+export ALLOW_MIGRATION_FAILURE="${ALLOW_MIGRATION_FAILURE:-false}"
 
-# =============================================================================
-# Configuration
-# =============================================================================
-
-DB_HOST="${DB_HOST:-db}"
-DB_PORT="${DB_PORT:-5432}"
-DB_USER="${DB_USER:-aether}"
-DB_NAME="${DB_NAME:-etheria_account}"
-DB_PASSWORD="${DB_PASSWORD:-${POSTGRES_PASSWORD:-password}}"
-
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-API_PORT="${API_PORT:-8080}"
-
-# =============================================================================
-# Logging Functions
-# =============================================================================
-
-log_info() {
-    echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $1"
+timestamp_utc() {
+    date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
-log_success() {
-    echo "[✓]  $(date '+%Y-%m-%d %H:%M:%S') - $1"
+should_log() {
+    requested_level="$1"
+
+    case "${LOG_LEVEL:-info}" in
+        debug)
+            return 0
+            ;;
+        info)
+            [ "${requested_level}" != "debug" ]
+            ;;
+        warn)
+            [ "${requested_level}" = "warn" ] || [ "${requested_level}" = "error" ]
+            ;;
+        error)
+            [ "${requested_level}" = "error" ]
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+log_debug() {
+    if should_log debug; then
+        echo "[DEBUG] $(timestamp_utc) - $1"
+    fi
+}
+
+log_info() {
+    if should_log info; then
+        echo "[INFO] $(timestamp_utc) - $1"
+    fi
 }
 
 log_warn() {
-    echo "[!]  $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    if should_log warn; then
+        echo "[WARN] $(timestamp_utc) - $1" >&2
+    fi
 }
 
 log_error() {
-    echo "[X]  $(date '+%Y-%m-%d %H:%M:%S') - $1" >&2
+    if should_log error; then
+        echo "[ERROR] $(timestamp_utc) - $1" >&2
+    fi
 }
 
-# =============================================================================
-# Header Display
-# =============================================================================
+configure_redis_from_url() {
+    if [ -z "${REDIS_URL:-}" ]; then
+        return 0
+    fi
 
-display_header() {
-    echo ""
-    echo "╔══════════════════════════════════════════════════════════════════════╗"
-    echo "║                    Aether Bank System                             ║"
-    echo "║               Enterprise Account Management                        ║"
-    echo "║                   Version 1.0.0-production                        ║"
-    echo "╚══════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    log_info "Frontend: http://localhost:${FRONTEND_PORT}"
-    log_info "API:      http://localhost:${API_PORT}"
-    log_info "Database: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
-    echo ""
+    redis_url="${REDIS_URL#redis://}"
+    redis_url="${redis_url#rediss://}"
+    redis_authority="${redis_url%%/*}"
+    redis_db="${redis_url#*/}"
+    redis_db="${redis_db%%\?*}"
+
+    credentials=""
+    redis_host_port="${redis_authority}"
+    if [ "${redis_authority#*@}" != "${redis_authority}" ]; then
+        credentials="${redis_authority%@*}"
+        redis_host_port="${redis_authority#*@}"
+    fi
+
+    if [ -n "${credentials}" ]; then
+        case "${credentials}" in
+            *:*)
+                export REDIS_PASSWORD="${credentials#*:}"
+                ;;
+            *)
+                export REDIS_PASSWORD="${credentials}"
+                ;;
+        esac
+    fi
+
+    case "${redis_host_port}" in
+        \[*\]:*)
+            export REDIS_HOST="${redis_host_port%\]:*}"
+            export REDIS_HOST="${REDIS_HOST#\[}"
+            export REDIS_PORT="${redis_host_port##*\]:}"
+            ;;
+        *:*)
+            export REDIS_HOST="${redis_host_port%%:*}"
+            export REDIS_PORT="${redis_host_port#*:}"
+            ;;
+        *)
+            export REDIS_HOST="${redis_host_port}"
+            ;;
+    esac
+
+    if [ -n "${redis_db}" ] && [ "${redis_db}" != "${redis_url}" ]; then
+        export REDIS_DB="${redis_db}"
+    fi
 }
 
-# =============================================================================
-# Database Setup (External PostgreSQL)
-# =============================================================================
+configure_runtime() {
+    configure_redis_from_url
 
-wait_for_database() {
-    log_info "Waiting for database to be ready..."
+    if [ -n "${SECRET_KEY:-}" ] && [ -z "${SYSTEM_KEY:-}" ]; then
+        export SYSTEM_KEY="${SECRET_KEY}"
+    fi
 
-    MAX_RETRIES=60
-    RETRY_COUNT=0
+    export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+    export API_PORT="${API_PORT:-8080}"
+    export SERVER_PORT="${SERVER_PORT:-${API_PORT}}"
+    export REDIS_PORT="${REDIS_PORT:-6379}"
+    export REDIS_DB="${REDIS_DB:-0}"
+    export REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-company-website:v1}"
+    export REDIS_ENABLED="${REDIS_ENABLED:-true}"
+    export REDIS_REQUIRED="${REDIS_REQUIRED:-false}"
+    export GIN_MODE="${GIN_MODE:-release}"
+    export ENVIRONMENT="${ENVIRONMENT:-production}"
+    export LOG_LEVEL="${LOG_LEVEL:-info}"
+    export HTTP_ACCESS_LOGS="${HTTP_ACCESS_LOGS:-false}"
+    export API_ACCESS_LOGS="${API_ACCESS_LOGS:-false}"
+    export PRISMA_SCHEMA_DEPLOY="${PRISMA_SCHEMA_DEPLOY:-true}"
+    export PRISMA_SCHEMA_DEPLOY_STRATEGY="${PRISMA_SCHEMA_DEPLOY_STRATEGY:-push}"
+    export ALLOW_MIGRATION_FAILURE="${ALLOW_MIGRATION_FAILURE:-false}"
 
-    while ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c '\q' 2>/dev/null; do
-        RETRY_COUNT=$((RETRY_COUNT + 1))
+    case "${LOG_LEVEL}" in
+        debug|info|warn|error)
+            ;;
+        *)
+            log_warn "Invalid LOG_LEVEL '${LOG_LEVEL}'; expected debug, info, warn, or error"
+            ;;
+    esac
 
-        if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-            log_error "Database not available after ${MAX_RETRIES} attempts"
+    case "${PRISMA_SCHEMA_DEPLOY}" in
+        true|false)
+            ;;
+        *)
+            log_warn "Invalid PRISMA_SCHEMA_DEPLOY '${PRISMA_SCHEMA_DEPLOY}'; using true"
+            export PRISMA_SCHEMA_DEPLOY="true"
+            ;;
+    esac
+
+    case "${PRISMA_SCHEMA_DEPLOY_STRATEGY}" in
+        push|migrate)
+            ;;
+        *)
+            log_warn "Invalid PRISMA_SCHEMA_DEPLOY_STRATEGY '${PRISMA_SCHEMA_DEPLOY_STRATEGY}'; using push"
+            export PRISMA_SCHEMA_DEPLOY_STRATEGY="push"
+            ;;
+    esac
+
+    case "${ALLOW_MIGRATION_FAILURE}" in
+        true|false)
+            ;;
+        *)
+            log_warn "Invalid ALLOW_MIGRATION_FAILURE '${ALLOW_MIGRATION_FAILURE}'; using false"
+            export ALLOW_MIGRATION_FAILURE="false"
+            ;;
+    esac
+}
+
+log_redis_configuration() {
+    if [ "${REDIS_ENABLED:-false}" = "true" ]; then
+        log_info "Redis enabled at ${REDIS_HOST:-redis}:${REDIS_PORT:-6379}/${REDIS_DB:-0}"
+        if [ -z "${REDIS_URL:-}" ]; then
+            log_warn "REDIS_URL is not configured; backend will use Redis host/port settings"
+        fi
+    else
+        log_info "Redis disabled"
+    fi
+
+    if [ "${REDIS_ENABLED:-false}" = "true" ] &&
+       [ "${REDIS_REQUIRED:-false}" != "true" ]; then
+        log_warn "Redis is optional; backend may continue without cache"
+    fi
+}
+
+find_prisma_bin() {
+    for bin in /app/prisma/node_modules/.bin/prisma ./node_modules/.bin/prisma; do
+        if [ -x "${bin}" ]; then
+            echo "${bin}"
+            return 0
+        fi
+    done
+
+    if command -v prisma >/dev/null 2>&1; then
+        command -v prisma
+        return 0
+    fi
+
+    if command -v npx >/dev/null 2>&1; then
+        echo "npx prisma"
+        return 0
+    fi
+
+    return 1
+}
+
+run_prisma_schema_deploy() {
+    if [ "${PRISMA_SCHEMA_DEPLOY:-true}" != "true" ]; then
+        log_info "Prisma schema deployment disabled"
+        return 0
+    fi
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        log_error "DATABASE_URL is required to deploy the Prisma schema"
+        return 1
+    fi
+
+    if [ ! -f /app/prisma/schema.prisma ]; then
+        log_error "Prisma schema not found at /app/prisma/schema.prisma"
+        return 1
+    fi
+
+    cd /app/prisma
+    prisma_bin="$(find_prisma_bin || true)"
+
+    if [ -z "${prisma_bin}" ]; then
+        log_error "Prisma CLI is not available"
+        return 1
+    fi
+
+    case "${PRISMA_SCHEMA_DEPLOY_STRATEGY:-push}" in
+        migrate)
+            log_info "Deploying Prisma migrations to external database"
+            # shellcheck disable=SC2086
+            DATABASE_URL="${DATABASE_URL}" ${prisma_bin} migrate deploy
+            ;;
+        push)
+            log_info "Pushing Prisma schema to external database"
+            log_warn "Prisma db push may alter the external database schema directly"
+            # shellcheck disable=SC2086
+            DATABASE_URL="${DATABASE_URL}" ${prisma_bin} db push --accept-data-loss --skip-generate
+            ;;
+    esac
+
+    log_info "Prisma database schema is deployed"
+}
+
+run_server() {
+    configure_runtime
+
+    log_info "Company Website server starting"
+    log_info "Frontend listening on 0.0.0.0:${FRONTEND_PORT}"
+
+    if [ ! -d /app/out ]; then
+        log_error "Static frontend build not found at /app/out"
+        return 1
+    fi
+
+    http_server_args="/app/out -a 0.0.0.0 -p ${FRONTEND_PORT} -c-1 -e html"
+    if [ "${HTTP_ACCESS_LOGS}" != "true" ]; then
+        http_server_args="${http_server_args} --silent"
+    fi
+
+    log_info "Starting static frontend"
+
+    # shellcheck disable=SC2086
+    exec http-server ${http_server_args}
+}
+
+run_worker() {
+    configure_runtime
+
+    log_info "Company Website worker starting"
+    log_info "Backend API configured for 0.0.0.0:${SERVER_PORT}"
+
+    if [ ! -x /app/server/etheriatimes-api ]; then
+        log_error "Go backend binary not found at /app/server/etheriatimes-api"
+        return 1
+    fi
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        log_error "DATABASE_URL is required for the Go API worker"
+        return 1
+    fi
+
+    if ! run_prisma_schema_deploy; then
+        if [ "${ALLOW_MIGRATION_FAILURE}" = "true" ]; then
+            log_warn "Prisma schema deployment failed; continuing because ALLOW_MIGRATION_FAILURE=true"
+        else
+            log_error "Prisma schema deployment failed"
             return 1
         fi
-
-        log_info "Waiting for database... (${RETRY_COUNT}/${MAX_RETRIES})"
-        sleep 2
-    done
-
-    log_success "Database connected"
-    return 0
-}
-
-run_migrations() {
-    log_info "Running database migrations..."
-
-    PRISMA_DIR="/app/server/prisma"
-
-    if [ -d "$PRISMA_DIR" ]; then
-        cd "$PRISMA_DIR"
-
-        if [ -f "schema.prisma" ]; then
-            log_info "Generating Prisma client..."
-            PGPASSWORD="$DB_PASSWORD" npx prisma generate 2>/dev/null || log_warn "Prisma generate failed"
-
-            log_info "Running database migrations..."
-            PGPASSWORD="$DB_PASSWORD" DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}" \
-                npx prisma db push --accept-data-loss 2>/dev/null || log_warn "Prisma db push failed"
-        fi
-
-        log_success "Database migrations complete"
-    else
-        log_warn "Prisma directory not found"
-    fi
-}
-
-# =============================================================================
-# Service Starters
-# =============================================================================
-
-start_frontend() {
-    log_info "Starting Next.js (production mode) on port ${FRONTEND_PORT}..."
-
-    cd /app/app
-
-    export PORT="$FRONTEND_PORT"
-    export NEXT_PUBLIC_BASE_PATH=""
-    export NEXT_TELEMETRY_DISABLED=1
-
-    node server.js &
-    NEXT_PID=$!
-    echo "$NEXT_PID" > /tmp/next.pid
-
-    log_info "Next.js started (PID: $NEXT_PID)"
-
-    sleep 3
-
-    if kill -0 "$NEXT_PID" 2>/dev/null; then
-        log_success "Next.js is ready"
-    else
-        log_error "Next.js failed to start"
-        return 1
     fi
 
-    return 0
+    log_redis_configuration
+    log_info "Starting Go backend"
+
+    exec /app/server/etheriatimes-api
 }
 
-start_api() {
-    log_info "Starting Go API server on port ${API_PORT}..."
+role="${1:-server}"
 
-    cd /app
-
-    export SERVER_PORT="$API_PORT"
-    export ENVIRONMENT="production"
-
-    ./server/etheriatimes-api &
-    API_PID=$!
-    echo "$API_PID" > /tmp/api.pid
-
-    log_info "Go API server started (PID: $API_PID)"
-
-    sleep 3
-
-    if kill -0 "$API_PID" 2>/dev/null; then
-        log_success "Go API server is ready"
-    else
-        log_error "Go API server failed to start"
-        return 1
-    fi
-
-    return 0
-}
-
-# =============================================================================
-# Service Monitor
-# =============================================================================
-
-monitor_services() {
-    log_success "All services started successfully!"
-    echo ""
-    echo "══════════════════════════════════════════════════════════════════════"
-    echo "  Services are running. Press Ctrl+C to stop."
-    echo "══════════════════════════════════════════════════════════════════════"
-    echo ""
-
-    while true; do
-        if ! kill -0 "$NEXT_PID" 2>/dev/null || ! kill -0 "$API_PID" 2>/dev/null; then
-            log_error "A service has stopped unexpectedly!"
-            break
-        fi
-        sleep 5
-    done
-}
-
-# =============================================================================
-# Cleanup Handler
-# =============================================================================
-
-cleanup() {
-    echo ""
-    log_info "Stopping services..."
-
-    if [ -f /tmp/next.pid ]; then
-        kill "$(cat /tmp/next.pid)" 2>/dev/null || true
-        rm -f /tmp/next.pid
-    fi
-
-    if [ -f /tmp/api.pid ]; then
-        kill "$(cat /tmp/api.pid)" 2>/dev/null || true
-        rm -f /tmp/api.pid
-    fi
-
-    log_info "All services stopped"
-    exit 0
-}
-
-# =============================================================================
-# Main Execution
-# =============================================================================
-
-main() {
-    display_header
-
-    if wait_for_database; then
-        run_migrations
-    else
-        log_error "Database not available, starting without migrations..."
-    fi
-
-    start_frontend || log_error "Frontend failed to start"
-    start_api || log_error "API failed to start"
-
-    monitor_services
-}
-
-trap cleanup SIGINT SIGTERM
-
-main
+case "${role}" in
+    server)
+        shift || true
+        run_server "$@"
+        ;;
+    worker)
+        shift || true
+        run_worker "$@"
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac

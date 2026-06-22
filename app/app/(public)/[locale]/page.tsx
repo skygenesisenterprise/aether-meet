@@ -1,9 +1,23 @@
-"use client"; 
+import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
+import { HomePage } from "@/components/public/home/home-page";
 
-export default function HomePage() {
-  return (
-    <div className="flex-1 flex items-center justify-center">
-      <h1 className="text-4xl font-bold">Welcome to the Home Page!</h1>
-    </div>
-  );
+interface HomePageParams {
+  params: Promise<{ locale: string }>;
+}
+
+export async function generateMetadata({ params }: HomePageParams): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "Public.home.page.metadata" });
+
+  return {
+    title: t("title"),
+    description: t("description"),
+  };
+}
+
+export default async function PublicHomePage({ params }: HomePageParams) {
+  const { locale } = await params;
+
+  return <HomePage locale={locale} />;
 }

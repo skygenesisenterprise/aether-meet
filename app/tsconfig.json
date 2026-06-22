@@ -27,8 +27,12 @@
       "@/styles/*": ["./styles/*"],
       "@/hooks/*": ["./hooks/*"],
       "@/services/*": ["./services"],
-      "@/options/*": ["./options/*"],
-      "@/i18n/*": ["./i18n/*"]
+      "@/i18n/*": ["./i18n/*"],
+      "@/types/*": ["./types/*"],
+      "@/config/*": ["./config/*"],
+      "@/content/*": ["./content/*"],
+      "@/data/*": ["./data/*"],
+      "@/utils/*": ["./utils/*"],
     },
     "types": ["next", "node"],
     "allowImportingTsExtensions": true
@@ -41,7 +45,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"],
+  "exclude": ["node_modules", "test/**"],
   "ts-node": {
     "esm": true,
     "compilerOptions": {

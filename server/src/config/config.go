@@ -7,6 +7,28 @@ import (
 	"time"
 )
 
+// Default mail server hosts embedded in the engine.
+// The application does not rely solely on environment variables.
+const (
+	DefaultMailHostPrimary   = "mail.skygenesisenterprise.net"
+	DefaultMailHostSecondary = "mail.skygenesisenterprise.com"
+)
+
+// ResolveMailHost returns the appropriate mail server host based on the email domain.
+func ResolveMailHost(email string) string {
+	parts := strings.Split(email, "@")
+	if len(parts) < 2 {
+		return DefaultMailHostPrimary
+	}
+	domain := strings.ToLower(parts[1])
+	switch domain {
+	case "skygenesisenterprise.com":
+		return DefaultMailHostSecondary
+	default:
+		return DefaultMailHostPrimary
+	}
+}
+
 type Config struct {
 	Stalwart StalwartConfig
 	JWT      JWTConfig
@@ -14,7 +36,26 @@ type Config struct {
 	Server   ServerConfig
 	Log      LogConfig
 	Mail     MailConfig
-	Database DatabaseConfig
+	Redis    RedisConfig
+
+	Port      string
+	SystemKey string
+}
+
+type RedisConfig struct {
+	Enabled        bool
+	Required       bool
+	URL            string
+	Host           string
+	Port           string
+	Password       string
+	DB             int
+	KeyPrefix      string
+	DefaultTTL     int
+	ConnectTimeout int
+	ReadTimeout    int
+	WriteTimeout   int
+	MaxRetries     int
 }
 
 type StalwartConfig struct {
@@ -41,16 +82,7 @@ type ServerConfig struct {
 	Port    int
 	Mode    string
 	Timeout time.Duration
-	URL     string
 }
-
-type Environment string
-
-const (
-	EnvLocal      Environment = "local"
-	EnvProduction Environment = "production"
-	EnvStaging    Environment = "staging"
-)
 
 type LogConfig struct {
 	Level  string
@@ -63,6 +95,21 @@ type MailConfig struct {
 	IMAP            IMAPConfig
 	SMTP            SMTPConfig
 	POP3            POP3Config
+	OAuth           OAuthConfig
+}
+
+type OAuthConfig struct {
+	RedirectURL string
+	Google      OAuthProviderConfig
+	Microsoft   OAuthProviderConfig
+	Proton      OAuthProviderConfig
+}
+
+type OAuthProviderConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Tenant       string
 }
 
 type IMAPConfig struct {
@@ -86,14 +133,10 @@ type POP3Config struct {
 	SkipVerify bool
 }
 
-type DatabaseConfig struct {
-	URL string
-}
-
 func Load() *Config {
-	return &Config{
+	cfg := &Config{
 		Stalwart: StalwartConfig{
-			Host:       getEnv("STALWART_HOST", "mail.skygenesisenterprise.net"),
+			Host:       getEnv("STALWART_HOST", DefaultMailHostPrimary),
 			HTTPPort:   getEnvInt("STALWART_HTTP_PORT", 8080),
 			JMAPPort:   getEnvInt("STALWART_JMAP_PORT", 8081),
 			IMAPPort:   getEnvInt("STALWART_IMAP_PORT", 993),
@@ -113,7 +156,6 @@ func Load() *Config {
 			Port:    getEnvInt("SERVER_PORT", 8080),
 			Mode:    getEnv("GIN_MODE", "debug"),
 			Timeout: getEnvDuration("SERVER_TIMEOUT", 30*time.Second),
-			URL:     getServerURL(),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
@@ -123,28 +165,69 @@ func Load() *Config {
 		Mail: MailConfig{
 			DefaultProvider: getEnv("MAIL_PROVIDER", "stalwart"),
 			IMAP: IMAPConfig{
-				Host:       getEnv("IMAP_HOST", "mail.skygenesisenterprise.net"),
+				Host:       getEnv("IMAP_HOST", DefaultMailHostPrimary),
 				Port:       getEnvInt("IMAP_PORT", 993),
 				UseTLS:     getEnvBool("IMAP_USE_TLS", true),
 				SkipVerify: getEnvBool("IMAP_SKIP_VERIFY", false),
 			},
 			SMTP: SMTPConfig{
-				Host:       getEnv("SMTP_HOST", "mail.skygenesisenterprise.net"),
+				Host:       getEnv("SMTP_HOST", DefaultMailHostPrimary),
 				Port:       getEnvInt("SMTP_PORT", 587),
 				UseTLS:     getEnvBool("SMTP_USE_TLS", true),
 				SkipVerify: getEnvBool("SMTP_SKIP_VERIFY", false),
 			},
 			POP3: POP3Config{
-				Host:       getEnv("POP3_HOST", "mail.skygenesisenterprise.net"),
+				Host:       getEnv("POP3_HOST", DefaultMailHostPrimary),
 				Port:       getEnvInt("POP3_PORT", 995),
 				UseTLS:     getEnvBool("POP3_USE_TLS", true),
 				SkipVerify: getEnvBool("POP3_SKIP_VERIFY", false),
 			},
-		},
-		Database: DatabaseConfig{
-			URL: getEnv("DATABASE_URL", "postgresql://aether:password@localhost:5432/etheria_account"),
+			OAuth: OAuthConfig{
+				RedirectURL: getEnv("OAUTH_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/callback"),
+				Google: OAuthProviderConfig{
+					ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+					ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+					RedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/google/callback"),
+				},
+				Microsoft: OAuthProviderConfig{
+					ClientID:     getEnv("MICROSOFT_CLIENT_ID", ""),
+					ClientSecret: getEnv("MICROSOFT_CLIENT_SECRET", ""),
+					RedirectURL:  getEnv("MICROSOFT_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/microsoft/callback"),
+					Tenant:       getEnv("MICROSOFT_TENANT", "common"),
+				},
+				Proton: OAuthProviderConfig{
+					ClientID:     getEnv("PROTON_CLIENT_ID", ""),
+					ClientSecret: getEnv("PROTON_CLIENT_SECRET", ""),
+					RedirectURL:  getEnv("PROTON_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/proton/callback"),
+				},
+			},
 		},
 	}
+
+	cfg.Redis = RedisConfig{
+		Enabled:        getEnvBool("REDIS_ENABLED", false),
+		Required:       getEnvBool("REDIS_REQUIRED", false),
+		URL:            getEnv("REDIS_URL", ""),
+		Host:           getEnv("REDIS_HOST", "localhost"),
+		Port:           getEnv("REDIS_PORT", "6379"),
+		Password:       getEnv("REDIS_PASSWORD", ""),
+		DB:             getEnvInt("REDIS_DB", 0),
+		KeyPrefix:      getEnv("REDIS_KEY_PREFIX", "company-website:v1"),
+		DefaultTTL:     getEnvInt("REDIS_DEFAULT_TTL", 300),
+		ConnectTimeout: getEnvInt("REDIS_CONNECT_TIMEOUT", 5),
+		ReadTimeout:    getEnvInt("REDIS_READ_TIMEOUT", 3),
+		WriteTimeout:   getEnvInt("REDIS_WRITE_TIMEOUT", 3),
+		MaxRetries:     getEnvInt("REDIS_MAX_RETRIES", 3),
+	}
+
+	cfg.Port = strconv.Itoa(cfg.Server.Port)
+	cfg.SystemKey = getEnv("SYSTEM_KEY", "")
+
+	return cfg
+}
+
+func LoadConfig() *Config {
+	return Load()
 }
 
 func getEnv(key, defaultValue string) string {
@@ -184,51 +267,4 @@ func getEnvSlice(key string, defaultValue []string) []string {
 		return strings.Split(value, ",")
 	}
 	return defaultValue
-}
-
-func detectEnvironment() Environment {
-	env := strings.ToLower(os.Getenv("ENVIRONMENT"))
-	switch env {
-	case "production", "prod":
-		return EnvProduction
-	case "staging":
-		return EnvStaging
-	default:
-		return EnvLocal
-	}
-}
-
-func getServerURL() string {
-	explicitURL := os.Getenv("SERVER_URL")
-	if explicitURL != "" {
-		return explicitURL
-	}
-
-	env := detectEnvironment()
-	port := getEnvInt("SERVER_PORT", 8080)
-
-	switch env {
-	case EnvProduction:
-		return "https://api.account.skygenesisenterprise.com"
-	case EnvStaging:
-		return "https://api-staging.account.skygenesisenterprise.com"
-	default:
-		return "http://localhost:" + strconv.Itoa(port)
-	}
-}
-
-func GetEnvironment() Environment {
-	return detectEnvironment()
-}
-
-func IsProduction() bool {
-	return detectEnvironment() == EnvProduction
-}
-
-func IsLocal() bool {
-	return detectEnvironment() == EnvLocal
-}
-
-func IsStaging() bool {
-	return detectEnvironment() == EnvStaging
 }

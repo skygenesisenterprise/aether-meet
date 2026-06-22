@@ -13,12 +13,10 @@ import { routing } from "@/i18n/routing";
 
 const localeNames: Record<(typeof routing.locales)[number], string> = {
   fr: "Français (FR)",
-  be_fr: "Français (BE)",
-  be_nl: "Nederlands (BE)",
-  ch_fr: "Français (CH)",
   en: "English",
   es: "Español",
   de: "Deutsch",
+  ja: "日本語",
 };
 
 export function LanguageSwitcher() {

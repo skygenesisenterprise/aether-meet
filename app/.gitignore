@@ -37,3 +37,13 @@ dist/
 # Nextjs build output
 .next/
 out/
+
+messages/backup/
+
+# Capacitor build output
+android/
+ios/
+
+# Storybook build output
+storybook-static/
+.source
