@@ -5,7 +5,7 @@ import {
   ContactRound,
   FileText,
   FolderKanban,
-  HardDrive,
+  Cloud,
   House,
   ListTodo,
   MessageCircleMore,
@@ -84,7 +84,6 @@ export interface SharedFile {
 }
 
 export const platformNavItems: PlatformNavItem[] = [
-  { label: "Accueil", href: "/home", icon: House },
   { label: "Activité", href: "/notifications", icon: Bell, badge: 5 },
   { label: "Conversations", href: "/chat", icon: MessageCircleMore, badge: 4 },
   { label: "Tâches", href: "/tasks", icon: ListTodo },
@@ -92,7 +91,7 @@ export const platformNavItems: PlatformNavItem[] = [
   { label: "Équipes", href: "/teams", icon: UsersRound },
   { label: "Calendrier", href: "/calendar", icon: CalendarDays },
   { label: "Appels", href: "/calls", icon: Phone, badge: 2 },
-  { label: "Fichiers", href: "/drive", icon: HardDrive },
+  { label: "Drive", href: "/drive", icon: Cloud },
   { label: "Documents", href: "/documents", icon: FileText },
   { label: "Contacts", href: "/contacts", icon: ContactRound },
   { label: "Ressources", href: "/resources", icon: BookOpenText },

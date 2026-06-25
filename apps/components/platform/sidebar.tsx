@@ -33,22 +33,14 @@ function DesktopNavLink({
       <TooltipTrigger asChild>
         <Link
           href={href}
-          className={cn(
-            "group relative flex h-14.25 flex-col items-center justify-center gap-0.75 text-[#b6b7ba] transition-colors hover:bg-white/4 hover:text-white",
-            active && "text-[#8b89ff]"
-          )}
+          className="group relative flex h-14.25 flex-col items-center justify-center gap-0.75 text-[#b6b7ba] transition-colors hover:bg-white/4 hover:text-white"
           aria-current={active ? "page" : undefined}
         >
           {active ? (
             <span className="absolute left-0 h-10 w-0.5 rounded-r-full bg-[#7775ff]" />
           ) : null}
-          <span
-            className={cn(
-              "relative flex size-7 items-center justify-center rounded-full transition-colors",
-              active && "bg-[#5d5bd4] text-white"
-            )}
-          >
-            <Icon className="size-4.5" strokeWidth={active ? 2.1 : 1.7} />
+          <span className="relative flex size-7 items-center justify-center rounded-full transition-colors">
+            <Icon className="size-4.5" strokeWidth={1.7} />
             {badge ? (
               <span className="absolute -right-1.5 -top-1 flex min-w-4 items-center justify-center rounded-full bg-[#5d5bd4] px-1 text-[9px] font-semibold leading-4 text-white ring-2 ring-[#0d0e10]">
                 {badge}

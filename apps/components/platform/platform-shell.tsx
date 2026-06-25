@@ -14,6 +14,7 @@ interface PlatformShellProps {
 export function PlatformShell({ children }: PlatformShellProps) {
   const pathname = usePathname();
   const isImmersiveRoute = pathname.startsWith("/calls/room");
+  const showContextPanel = !pathname.startsWith("/notifications");
 
   if (isImmersiveRoute) {
     return (
@@ -29,7 +30,7 @@ export function PlatformShell({ children }: PlatformShellProps) {
       <div className="flex min-h-0 flex-1">
         <AdminSidebar />
         <div className="flex min-w-0 flex-1">
-          <ContextPanel />
+          {showContextPanel ? <ContextPanel /> : null}
           <main className="min-w-0 flex-1 overflow-auto bg-[#1f2022] pb-16 md:pb-0">{children}</main>
         </div>
       </div>
