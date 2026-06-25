@@ -1,22 +1,36 @@
 import { getRequestConfig } from "next-intl/server";
 import { routing } from "./routing";
 import fr from "../messages/fr.json";
-import be_fr from "../messages/be_fr.json";
-import be_nl from "../messages/be_nl.json";
-import ch_fr from "../messages/ch_fr.json";
-import en from "../messages/en.json";
-import es from "../messages/es.json";
-import de from "../messages/de.json";
+import ja from "../messages/ja.json";
 
 const messages = {
   fr,
-  be_fr,
-  be_nl,
-  ch_fr,
-  en,
-  es,
-  de,
+  ja: deepMerge(fr, ja),
 };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepMerge<T extends Record<string, unknown>, U extends Record<string, unknown>>(
+  base: T,
+  override: U,
+): T & U {
+  const result: Record<string, unknown> = { ...base };
+
+  for (const [key, value] of Object.entries(override)) {
+    const current = result[key];
+
+    if (isPlainObject(current) && isPlainObject(value)) {
+      result[key] = deepMerge(current, value);
+      continue;
+    }
+
+    result[key] = value;
+  }
+
+  return result as T & U;
+}
 
 export default getRequestConfig(async ({ requestLocale }) => {
   const locale = await requestLocale;

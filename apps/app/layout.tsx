@@ -46,11 +46,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html data-scroll-behavior="smooth" suppressHydrationWarning>
-      <body
-        suppressHydrationWarning
-        className={`${fontSans.variable} ${fontMono.variable} antialiased`}
-      >
+    <html
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+      className={`${fontSans.variable} ${fontMono.variable}`}
+    >
+      <body suppressHydrationWarning className="antialiased">
         <Providers>{children}</Providers>
         <Analytics />
       </body>

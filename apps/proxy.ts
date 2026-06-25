@@ -31,7 +31,30 @@ function isValidLocale(locale: string): locale is Locale {
 
 const AUTH_PATHS = ["/login", "/register"];
 const PROTECTED_PATHS = ["/dashboard", "/user"];
-const NO_LOCALE_PATHS = ["/pgp", "/discord", "/dashboard", "/user"];
+const PLATFORM_PATHS = [
+  "/home",
+  "/calendar",
+  "/calls",
+  "/chat",
+  "/drive",
+  "/notifications",
+  "/setings",
+  "/teams",
+];
+const NO_LOCALE_PATHS = ["/pgp", "/discord", "/dashboard", "/user", ...PLATFORM_PATHS];
+
+function isPlatformPath(pathname: string): boolean {
+  return PLATFORM_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function isLocalDevelopment(request: NextRequest): boolean {
+  if (process.env.NODE_ENV !== "development") {
+    return false;
+  }
+
+  const hostname = request.nextUrl.hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
 
 function isValidJWT(token: string | undefined): boolean {
   if (!token) return false;
@@ -43,6 +66,10 @@ export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const segments = pathname.split("/").filter(Boolean);
   const firstSegment = segments[0];
+
+  if (isLocalDevelopment(request) && isPlatformPath(pathname)) {
+    return NextResponse.next();
+  }
 
   if (pathname === "/" || pathname === "") {
     const country = getCountryFromRequest(request);
