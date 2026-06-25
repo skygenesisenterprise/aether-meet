@@ -1,7 +1,7 @@
 package services
 
 import (
-	"github.com/skygenesisenterprise/company-website/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 )
 
 type TagService struct {

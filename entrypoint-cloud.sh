@@ -345,24 +345,6 @@ run_worker() {
     exec /app/server/etheriatimes-api
 }
 
-run_bot() {
-    configure_runtime
-
-    log_info "Discord bot starting"
-
-    if [ ! -f /app/bot/index.js ]; then
-        log_error "Discord bot entrypoint not found at /app/bot/index.js"
-        return 1
-    fi
-
-    if [ ! -d /app/bot/node_modules ]; then
-        log_error "Discord bot dependencies not found at /app/bot/node_modules"
-        return 1
-    fi
-
-    exec node /app/bot/index.js
-}
-
 role="${1:-server}"
 
 case "${role}" in
@@ -373,10 +355,6 @@ case "${role}" in
     worker)
         shift || true
         run_worker "$@"
-        ;;
-    bot)
-        shift || true
-        run_bot "$@"
         ;;
     *)
         exec "$@"

@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/skygenesisenterprise/company-website/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 )
 
 type AttachmentService struct {

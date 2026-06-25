@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/skygenesisenterprise/company-website/server/src/models"
-	"github.com/skygenesisenterprise/company-website/server/src/utils"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
 type POP3Service struct {

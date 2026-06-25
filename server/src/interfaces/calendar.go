@@ -3,7 +3,7 @@ package interfaces
 import (
 	"time"
 
-	"github.com/skygenesisenterprise/company-website/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 )
 
 type CalendarRepository interface {

@@ -55,7 +55,7 @@ services:
       dockerfile: Dockerfile.cloud
       args:
         DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
-    image: skygenesisenterprise/discord-enterprise:${APP_IMAGE_TAG:-cloud}
+    image: skygenesisenterprise/aether-meet:${APP_IMAGE_TAG:-cloud}
     restart: unless-stopped
     env_file:
       - .env
@@ -83,7 +83,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-default-password}
       REDIS_DB: "0"
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
+      REDIS_KEY_PREFIX: aether-meet:v1
       REDIS_DEFAULT_TTL: "300"
     depends_on:
       postgresql:
@@ -113,7 +113,7 @@ services:
       dockerfile: Dockerfile.cloud
       args:
         DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
-    image: skygenesisenterprise/discord-enterprise:${APP_IMAGE_TAG:-cloud}
+    image: skygenesisenterprise/aether-meet:${APP_IMAGE_TAG:-cloud}
     restart: unless-stopped
     env_file:
       - .env
@@ -138,58 +138,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-default-password}
       REDIS_DB: "0"
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - type: volume
-        source: media
-        target: /media
-        volume:
-          nocopy: true
-      - type: volume
-        source: certs
-        target: /certs
-        volume:
-          nocopy: true
-      - type: volume
-        source: custom-templates
-        target: /templates
-        volume:
-          nocopy: true
-
-  discord:
-    build:
-      context: .
-      dockerfile: Dockerfile.cloud
-      args:
-        DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
-    image: skygenesisenterprise/discord-enterprise:${APP_IMAGE_TAG:-cloud}
-    restart: unless-stopped
-    env_file:
-      - .env
-    command: bot
-    environment:
-      NODE_ENV: production
-      USE_EMBEDDED_DB: "false"
-      HOST: ${DOMAIN_HOST:-localhost}
-      POSTGRESQL__HOST: postgresql
-      POSTGRESQL__PORT: "5432"
-      POSTGRESQL__USER: ${PG_USER:-postgres}
-      POSTGRESQL__NAME: ${PG_DB:-postgres}
-      POSTGRESQL__PASSWORD: ${PG_PASS:-postgres}
-      DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
-      REDIS_ENABLED: "true"
-      REDIS_REQUIRED: "false"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-default-password}
-      REDIS_DB: "0"
-      REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
+      REDIS_KEY_PREFIX: aether-meet:v1
     depends_on:
       postgresql:
         condition: service_healthy

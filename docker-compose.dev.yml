@@ -42,7 +42,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: skygenesisenterprise/discord-enterprise:latest-dev
+    image: skygenesisenterprise/aether-meet:latest-dev
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -57,7 +57,7 @@ services:
       REDIS_PASSWORD: ""
       REDIS_DB: "0"
       REDIS_URL: redis://default:@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
+      REDIS_KEY_PREFIX: aether-meet:v1
       SECRET_KEY: ${SECRET_KEY}
       LISTEN__TRUSTED_PROXY_CIDRS: 0.0.0.0/0,::/0
       HOST: ${DOMAIN_HOST}
@@ -80,7 +80,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: skygenesisenterprise/discord-enterprise:latest-dev
+    image: skygenesisenterprise/aether-meet:latest-dev
     restart: unless-stopped
     expose:
       - 8080
@@ -93,42 +93,7 @@ services:
       REDIS_PASSWORD: ""
       REDIS_DB: "0"
       REDIS_URL: redis://default:@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
-      SECRET_KEY: ${SECRET_KEY}
-      HOST: ${DOMAIN_HOST}
-      POSTGRESQL__HOST: postgresql
-      POSTGRESQL__USER: ${PG_USER}
-      POSTGRESQL__NAME: ${PG_DB}
-      POSTGRESQL__PASSWORD: ${PG_PASS}
-    volumes:
-      - media:/media
-      - certs:/certs
-      - custom-templates:/templates
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    entrypoint: ["/entrypoint.sh"]
-
-  discord:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    image: skygenesisenterprise/discord-enterprise:latest-dev
-    env_file:
-      - .env
-    restart: unless-stopped
-    command: bot
-    environment:
-      REDIS_ENABLED: "true"
-      REDIS_REQUIRED: "false"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: ""
-      REDIS_DB: "0"
-      REDIS_URL: redis://default:@redis:6379/0
-      REDIS_KEY_PREFIX: discord-enterprise:v1
+      REDIS_KEY_PREFIX: aether-meet:v1
       SECRET_KEY: ${SECRET_KEY}
       HOST: ${DOMAIN_HOST}
       POSTGRESQL__HOST: postgresql

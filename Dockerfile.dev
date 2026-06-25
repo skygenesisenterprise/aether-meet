@@ -102,9 +102,6 @@ COPY app/styles/              ./app/styles/
 COPY app/proxy.ts             ./app/proxy.ts
 COPY server/prisma/           ./server/prisma/
 COPY scripts/                 ./app/scripts/
-COPY bot/                     ./bot/
-
-RUN npm install --prefix /app/bot --no-audit --no-fund
 
 # ── Config dev ────────────────────────────────────────────────────────────────
 COPY .air.toml   ./
@@ -156,11 +153,6 @@ case "${1:-server}" in
         shift
         echo "[WARN] No dedicated worker process is implemented in this repository; keeping the worker container alive."
         exec tail -f /dev/null
-        ;;
-    bot)
-        shift
-        cd /app/bot
-        exec node --watch index.js "$@"
         ;;
     *)
         exec "$@"

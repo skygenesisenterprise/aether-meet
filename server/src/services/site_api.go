@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/skygenesisenterprise/company-website/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 )
 
 type SiteAPIService struct {

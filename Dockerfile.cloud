@@ -85,8 +85,6 @@ COPY --from=node-builder /app/app/out ./out
 
 # ── Node Modules & Prisma ───────────────────────────────────────────────────────
 COPY --from=node-builder /tmp/prisma/ ./prisma/
-COPY bot/ ./bot/
-RUN npm install --prefix /app/bot --omit=dev --no-audit --no-fund
 
 # ── Go API Server Binary ───────────────────────────────────────────────────────
 COPY --from=go-builder /app/server/etheriatimes-api ./server/etheriatimes-api

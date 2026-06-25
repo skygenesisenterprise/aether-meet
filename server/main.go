@@ -7,19 +7,169 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	redisclient "github.com/skygenesisenterprise/company-website/server/internal/redis"
-	"github.com/skygenesisenterprise/company-website/server/src/config"
-	"github.com/skygenesisenterprise/company-website/server/src/interfaces"
-	"github.com/skygenesisenterprise/company-website/server/src/middleware"
-	"github.com/skygenesisenterprise/company-website/server/src/routes"
-	"github.com/skygenesisenterprise/company-website/server/src/services"
+	redisclient "github.com/skygenesisenterprise/aether-meet/server/internal/redis"
+	"github.com/skygenesisenterprise/aether-meet/server/src/config"
+	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
+	"github.com/skygenesisenterprise/aether-meet/server/src/middleware"
+	"github.com/skygenesisenterprise/aether-meet/server/src/routes"
+	"github.com/skygenesisenterprise/aether-meet/server/src/services"
 	"gorm.io/gorm"
 )
+
+func envOrDefault(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func resolveDatabaseConfig() (host string, port string, user string, name string, password string) {
+	host = envOrDefault("DB_HOST", os.Getenv("POSTGRESQL__HOST"))
+	if host == "" {
+		host = "localhost"
+	}
+
+	port = envOrDefault("DB_PORT", os.Getenv("POSTGRESQL__PORT"))
+	if port == "" {
+		port = "5432"
+	}
+
+	user = envOrDefault("DB_USER", os.Getenv("POSTGRESQL__USER"))
+	if user == "" {
+		user = "aether"
+	}
+
+	name = envOrDefault("DB_NAME", os.Getenv("POSTGRESQL__NAME"))
+	if name == "" {
+		name = "etheria_account"
+	}
+
+	password = envOrDefault("DB_PASSWORD", os.Getenv("POSTGRESQL__PASSWORD"))
+	if password == "" {
+		password = envOrDefault("POSTGRES_PASSWORD", "password")
+	}
+
+	return host, port, user, name, password
+}
+
+func hasDatabaseConfig() bool {
+	keys := []string{
+		"DATABASE_URL",
+		"DB_HOST",
+		"DB_PORT",
+		"DB_USER",
+		"DB_NAME",
+		"DB_PASSWORD",
+		"POSTGRESQL__HOST",
+		"POSTGRESQL__PORT",
+		"POSTGRESQL__USER",
+		"POSTGRESQL__NAME",
+		"POSTGRESQL__PASSWORD",
+		"POSTGRES_PASSWORD",
+	}
+
+	for _, key := range keys {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func buildDatabaseDSN() string {
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		return dsn
+	}
+
+	if !hasDatabaseConfig() {
+		return ""
+	}
+
+	host, port, user, name, password := resolveDatabaseConfig()
+	return fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		host,
+		user,
+		password,
+		name,
+		port,
+	)
+}
+
+func shouldWaitForDatabase() bool {
+	return os.Getenv("WORKER_WAIT_FOR_DB") == "true"
+}
+
+func databaseRetryDelay() time.Duration {
+	raw := os.Getenv("DB_CONNECT_RETRY_DELAY")
+	if raw == "" {
+		return 3 * time.Second
+	}
+
+	delay, err := time.ParseDuration(raw)
+	if err != nil || delay <= 0 {
+		fmt.Printf("\033[1;33m[!] Warning: invalid DB_CONNECT_RETRY_DELAY=%q, using 3s\033[0m\n", raw)
+		return 3 * time.Second
+	}
+
+	return delay
+}
+
+func databaseMaxAttempts() int {
+	raw := os.Getenv("DB_CONNECT_MAX_ATTEMPTS")
+	if raw == "" {
+		return 0
+	}
+
+	attempts, err := strconv.Atoi(raw)
+	if err != nil || attempts < 0 {
+		fmt.Printf("\033[1;33m[!] Warning: invalid DB_CONNECT_MAX_ATTEMPTS=%q, using unlimited retries\033[0m\n", raw)
+		return 0
+	}
+
+	return attempts
+}
+
+func connectDatabaseWithRetry(dsn string, waitForDB bool) (interfaces.IDatabaseService, error) {
+	var (
+		dbService interfaces.IDatabaseService
+		err       error
+	)
+
+	maxAttempts := 1
+	if waitForDB {
+		maxAttempts = databaseMaxAttempts()
+	}
+
+	for attempt := 1; ; attempt++ {
+		dbService, err = services.NewDatabaseService(dsn)
+		if err == nil {
+			return dbService, nil
+		}
+
+		if !waitForDB {
+			return nil, err
+		}
+
+		if maxAttempts > 0 && attempt >= maxAttempts {
+			return nil, err
+		}
+
+		fmt.Printf("\033[1;33m[!] Database unavailable, retrying in %s (attempt %d): %v\033[0m\n",
+			databaseRetryDelay(),
+			attempt,
+			err,
+		)
+		time.Sleep(databaseRetryDelay())
+	}
+}
 
 func displayBanner() {
 	fmt.Printf("\n")
@@ -60,30 +210,7 @@ func main() {
 	useEmbeddedDB := os.Getenv("USE_EMBEDDED_DB") == "true"
 
 	if useEmbeddedDB {
-		dbHost := os.Getenv("DB_HOST")
-		if dbHost == "" {
-			dbHost = "localhost"
-		}
-		dbPort := os.Getenv("DB_PORT")
-		if dbPort == "" {
-			dbPort = "5432"
-		}
-		dbUser := os.Getenv("DB_USER")
-		if dbUser == "" {
-			dbUser = "aether"
-		}
-		dbName := os.Getenv("DB_NAME")
-		if dbName == "" {
-			dbName = "etheria_account"
-		}
-		dbPassword := os.Getenv("DB_PASSWORD")
-		if dbPassword == "" {
-			dbPassword = os.Getenv("POSTGRES_PASSWORD")
-			if dbPassword == "" {
-				dbPassword = "password"
-			}
-		}
-
+		dbHost, dbPort, dbUser, dbName, dbPassword := resolveDatabaseConfig()
 		dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
 			dbHost, dbUser, dbPassword, dbName, dbPort)
 
@@ -106,9 +233,9 @@ func main() {
 				fmt.Printf("\033[1;32m[✓] System key validated in database\033[0m\n")
 			}
 		}
-	} else if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+	} else if dsn := buildDatabaseDSN(); dsn != "" {
 		var err error
-		dbService, err = services.NewDatabaseService(dsn)
+		dbService, err = connectDatabaseWithRetry(dsn, shouldWaitForDatabase())
 		if err != nil {
 			fmt.Printf("\033[1;31m[✗] Failed to connect to database: %v\033[0m\n", err)
 			os.Exit(1)
@@ -126,7 +253,7 @@ func main() {
 			fmt.Printf("\033[1;32m[✓] System key validated in database\033[0m\n")
 		}
 	} else {
-		fmt.Printf("\033[1;33m[!] Warning: DATABASE_URL not set and USE_EMBEDDED_DB not enabled, running in database-less mode\033[0m\n")
+		fmt.Printf("\033[1;33m[!] Warning: no database configuration provided, running in database-less mode\033[0m\n")
 	}
 
 	rdbCfg := redisclient.Config{

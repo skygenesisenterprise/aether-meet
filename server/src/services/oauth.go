@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/skygenesisenterprise/company-website/server/src/config"
-	"github.com/skygenesisenterprise/company-website/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/config"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 )
 
 // Provider defines the interface for OAuth2 providers

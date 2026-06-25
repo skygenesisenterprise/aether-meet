@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/skygenesisenterprise/company-website/server/src/interfaces"
-	"github.com/skygenesisenterprise/company-website/server/src/middleware"
-	"github.com/skygenesisenterprise/company-website/server/src/models"
-	"github.com/skygenesisenterprise/company-website/server/src/services"
+	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
+	"github.com/skygenesisenterprise/aether-meet/server/src/middleware"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/services"
 )
 
 // SetupRoutes configure toutes les routes API.
