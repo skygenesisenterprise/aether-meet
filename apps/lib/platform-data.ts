@@ -24,10 +24,20 @@ export interface Person {
   status: "online" | "busy" | "away" | "offline";
 }
 
+export interface ChatMessage {
+  id: string;
+  author: string;
+  initials: string;
+  time: string;
+  content: string;
+}
+
 export interface Conversation {
   id: string;
   name: string;
   initials: string;
+  type: "channel" | "dm";
+  subtitle: string;
   preview: string;
   time: string;
   unread?: number;
@@ -112,6 +122,8 @@ export const conversations: Conversation[] = [
     id: "product",
     name: "Équipe produit",
     initials: "EP",
+    type: "channel",
+    subtitle: "8 membres · 4 en ligne",
     preview: "Elena : La nouvelle maquette est prête.",
     time: "09:42",
     unread: 3,
@@ -122,6 +134,8 @@ export const conversations: Conversation[] = [
     id: "marcus",
     name: "Marcus Chen",
     initials: "MC",
+    type: "dm",
+    subtitle: "En ligne",
     preview: "Je pousse la correction après la revue.",
     time: "08:15",
     unread: 1,
@@ -131,6 +145,8 @@ export const conversations: Conversation[] = [
     id: "launch",
     name: "Lancement Aether",
     initials: "LA",
+    type: "channel",
+    subtitle: "12 membres · 2 en ligne",
     preview: "Sarah : Réunion déplacée à 15 h.",
     time: "Hier",
     status: "online",
@@ -139,6 +155,8 @@ export const conversations: Conversation[] = [
     id: "security",
     name: "Sécurité & conformité",
     initials: "SC",
+    type: "channel",
+    subtitle: "6 membres · 1 en ligne",
     preview: "Noah a partagé un document.",
     time: "Lun.",
     status: "away",
@@ -253,6 +271,96 @@ export const sharedFiles: SharedFile[] = [
     size: "34 Mo",
   },
 ];
+
+export const conversationMessages: Record<string, ChatMessage[]> = {
+  product: [
+    {
+      id: "m1",
+      author: "Elena Martin",
+      initials: "EM",
+      time: "09:36",
+      content:
+        "J’ai terminé la nouvelle direction du client. Le shell est plus compact et le contexte reste visible pendant la navigation.",
+    },
+    {
+      id: "m2",
+      author: "Marcus Chen",
+      initials: "MC",
+      time: "09:39",
+      content:
+        "La séparation rail, panneau contextuel et espace actif est compatible avec nos routes actuelles. Je prépare les contrats API.",
+    },
+    {
+      id: "m3",
+      author: "Elena Martin",
+      initials: "EM",
+      time: "09:42",
+      content: "Parfait. Je joins les états mobile et réunion active avant la revue de 15 h.",
+    },
+  ],
+  marcus: [
+    {
+      id: "mc1",
+      author: "Marcus Chen",
+      initials: "MC",
+      time: "08:00",
+      content: "Tu peux review la PR quand tu as un moment ?",
+    },
+    {
+      id: "mc2",
+      author: "Marcus Chen",
+      initials: "MC",
+      time: "08:15",
+      content: "Je pousse la correction après la revue.",
+    },
+  ],
+  launch: [
+    {
+      id: "lc1",
+      author: "Sarah Kim",
+      initials: "SK",
+      time: "14:30",
+      content: "La réunion de lancement est déplacée à 15 h.",
+    },
+    {
+      id: "lc2",
+      author: "Elena Martin",
+      initials: "EM",
+      time: "14:45",
+      content: "J’ai mis à jour le deck avec les nouvelles slides.",
+    },
+    {
+      id: "lc3",
+      author: "Sarah Kim",
+      initials: "SK",
+      time: "Hier",
+      content: "Parfait, on se retrouve à 15 h.",
+    },
+  ],
+  security: [
+    {
+      id: "sc1",
+      author: "Noah Williams",
+      initials: "NW",
+      time: "Lun.",
+      content: "J’ai partagé un document sur les nouvelles exigences de conformité.",
+    },
+    {
+      id: "sc2",
+      author: "Marcus Chen",
+      initials: "MC",
+      time: "Lun.",
+      content: "Merci, je regarde ça et je reviens vers toi.",
+    },
+    {
+      id: "sc3",
+      author: "Noah Williams",
+      initials: "NW",
+      time: "Lun.",
+      content: "Il faudrait finaliser avant vendredi si possible.",
+    },
+  ],
+};
 
 export const recentMessages = [
   {

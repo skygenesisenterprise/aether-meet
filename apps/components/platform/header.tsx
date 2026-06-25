@@ -45,19 +45,19 @@ export function AdminHeader({ className }: AdminHeaderProps) {
   return (
     <header
       className={cn(
-        "relative flex h-[42px] shrink-0 items-center border-b border-white/5 bg-[#08090a] text-zinc-300",
+        "relative flex h-10.5 shrink-0 items-center border-b border-white/5 bg-[#08090a] text-zinc-300",
         className
       )}
     >
       <div className="flex h-full items-center">
-        <div className="flex h-full w-[68px] items-center justify-center">
+        <div className="flex h-full w-17 items-center justify-center">
           <Button
             variant="ghost"
             size="icon-sm"
             className="size-8 rounded-sm text-zinc-300 hover:bg-white/8 hover:text-white"
             aria-label="Ouvrir le lanceur d’applications Aether"
           >
-            <Grid3X3 className="size-[17px]" strokeWidth={1.8} />
+            <Grid3X3 className="size-4.25" strokeWidth={1.8} />
           </Button>
         </div>
 
@@ -66,7 +66,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
           className="flex h-full items-center gap-2 px-1 text-left hover:text-white"
           aria-label="Aether Meet"
         >
-          <span className="relative flex size-[22px] items-center justify-center rounded-[5px] bg-linear-to-br from-violet-500 to-indigo-600 text-[10px] font-bold text-white shadow-sm shadow-violet-950/40">
+          <span className="relative flex size-5.5 items-center justify-center rounded-[5px] bg-linear-to-br from-violet-500 to-indigo-600 text-[10px] font-bold text-white shadow-sm shadow-violet-950/40">
             A
             <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-[#08090a] bg-emerald-400" />
           </span>
@@ -76,7 +76,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
 
       <button
         type="button"
-        className="absolute left-1/2 flex h-[34px] w-[min(40vw,760px)] -translate-x-1/2 items-center gap-2 rounded-[4px] border border-zinc-600/70 bg-[#242527] px-6 text-left text-sm text-zinc-400 transition-colors hover:border-zinc-500 hover:bg-[#292a2d] focus-visible:border-violet-400 focus-visible:outline-none"
+        className="absolute left-1/2 flex h-8.5 w-[min(40vw,760px)] -translate-x-1/2 items-center gap-2 rounded-lg border border-zinc-600/70 bg-[#242527] px-6 text-left text-sm text-zinc-400 transition-colors hover:border-zinc-500 hover:bg-[#292a2d] focus-visible:border-violet-400 focus-visible:outline-none"
         aria-label="Ouvrir la recherche globale"
       >
         <Search className="size-3.5 shrink-0" />
@@ -90,7 +90,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
           className="size-8 rounded-sm text-zinc-400 hover:bg-white/8 hover:text-white"
           aria-label="Plus d’options"
         >
-          <MoreHorizontal className="size-[18px]" />
+          <MoreHorizontal className="size-4.5" />
         </Button>
 
         <DropdownMenu>

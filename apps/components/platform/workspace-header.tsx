@@ -21,7 +21,7 @@ export function WorkspaceHeader({
   return (
     <header
       className={cn(
-        "flex min-h-[62px] shrink-0 items-center justify-between gap-3 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4",
+        "flex min-h-15.5 shrink-0 items-center justify-between gap-3 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4",
         className
       )}
     >

@@ -1,7 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "./app" }
+    { "path": "./apps" }
   ],
   "compilerOptions": {
     "target": "ES2017",

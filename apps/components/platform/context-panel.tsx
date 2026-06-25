@@ -40,11 +40,12 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { conversations, teams } from "@/lib/platform-data";
 import { notifications } from "@/lib/platform-notifications";
+import { useChatStore } from "@/lib/chat-store";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 
 function PanelTitle({ title }: { title: string }) {
   return (
-    <div className="flex h-[62px] items-center justify-between border-b border-white/7 px-5">
+    <div className="flex h-15.5 items-center justify-between border-b border-white/7 px-5">
       <h2 className="text-base font-semibold tracking-tight text-zinc-100">{title}</h2>
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon-sm" className="rounded-lg">
@@ -61,6 +62,9 @@ function PanelTitle({ title }: { title: string }) {
 }
 
 function ChatPanel() {
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const setActiveConversation = useChatStore((s) => s.setActiveConversation);
+
   return (
     <>
       <PanelTitle title="Conversations" />
@@ -102,9 +106,10 @@ function ChatPanel() {
               <button
                 key={conversation.id}
                 type="button"
+                onClick={() => setActiveConversation(conversation.id)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
-                  conversation.active && "bg-violet-500/10"
+                  activeConversationId === conversation.id && "bg-violet-500/10"
                 )}
               >
                 <PresenceAvatar
@@ -396,7 +401,7 @@ function HomePanel() {
       </nav>
       <Separator />
       <div className="p-4">
-        <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/15 to-transparent p-4">
+        <div className="rounded-2xl border border-primary/20 bg-linear-to-br from-primary/15 to-transparent p-4">
           <Video className="size-5 text-primary" />
           <p className="mt-3 text-sm font-medium">Revue du nouveau client</p>
           <p className="mt-1 text-xs text-muted-foreground">Aujourd’hui à 15:00</p>
@@ -512,7 +517,7 @@ export function ContextPanel() {
   if (pathname.startsWith("/setings")) content = <SettingsPanel />;
 
   return (
-    <aside className="hidden h-full w-[360px] shrink-0 flex-col border-r border-white/7 bg-[#17191b] text-zinc-200 lg:flex">
+    <aside className="hidden h-full w-90 shrink-0 flex-col border-r border-white/7 bg-[#17191b] text-zinc-200 lg:flex">
       {content}
     </aside>
   );

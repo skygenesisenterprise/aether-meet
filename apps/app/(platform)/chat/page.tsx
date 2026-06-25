@@ -1,20 +1,27 @@
+"use client";
+
 import { ChevronDown, Info, MoreHorizontal, Phone, Search, UsersRound, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageComposer } from "@/components/platform/message-composer";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
-import { recentMessages } from "@/lib/platform-data";
+import { useChatStore } from "@/lib/chat-store";
+import { conversations, conversationMessages } from "@/lib/platform-data";
 
 export default function ChatPage() {
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const conversation = conversations.find((c) => c.id === activeConversationId) ?? conversations[0];
+  const messages = conversationMessages[activeConversationId] ?? [];
+
   return (
     <div className="flex h-full min-h-180 flex-col bg-[#232426]">
       <header className="flex min-h-15.5 flex-wrap items-center justify-between gap-2 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <PresenceAvatar initials="EP" status="online" className="size-8" />
+          <PresenceAvatar initials={conversation.initials} status={conversation.status} className="size-8" />
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">Équipe produit</h1>
-            <p className="truncate text-xs text-zinc-400">8 membres · 4 en ligne</p>
+            <h1 className="truncate text-sm font-semibold">{conversation.name}</h1>
+            <p className="truncate text-xs text-zinc-400">{conversation.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -34,22 +41,26 @@ export default function ChatPage() {
           >
             <Video className="size-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="hidden rounded-md sm:inline-flex"
-            aria-label="Rechercher dans la conversation"
-          >
-            <Search className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="hidden rounded-md sm:inline-flex"
-            aria-label="Afficher les membres"
-          >
-            <UsersRound className="size-4" />
-          </Button>
+          {conversation.type === "channel" && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="hidden rounded-md sm:inline-flex"
+              aria-label="Rechercher dans la conversation"
+            >
+              <Search className="size-4" />
+            </Button>
+          )}
+          {conversation.type === "channel" && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="hidden rounded-md sm:inline-flex"
+              aria-label="Afficher les membres"
+            >
+              <UsersRound className="size-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -63,18 +74,19 @@ export default function ChatPage() {
 
       <div className="flex h-10.5 shrink-0 items-center border-b border-violet-400/70 bg-[#252628] px-4 text-sm text-zinc-300">
         <span className="mr-2 text-zinc-400">À :</span>
-        <span className="truncate">Équipe produit, canal Design</span>
+        <span className="truncate">{conversation.name}</span>
+        {conversation.type === "channel" && <span className="truncate text-zinc-500">, canal Design</span>}
         <ChevronDown className="ml-auto size-4 text-zinc-500" />
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 bg-[#232426]">
+      <ScrollArea key={activeConversationId} className="min-h-0 flex-1 bg-[#232426]">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="h-px flex-1 bg-white/10" />
-            Aujourd’hui
+            {messages.length > 0 ? "Aujourd’hui" : "Aucun message"}
             <span className="h-px flex-1 bg-white/10" />
           </div>
-          {recentMessages.map((message) => (
+          {messages.map((message) => (
             <article key={message.id} className="group flex gap-3">
               <PresenceAvatar initials={message.initials} status="online" className="size-9" />
               <div className="min-w-0 flex-1">
@@ -96,20 +108,22 @@ export default function ChatPage() {
               </div>
             </article>
           ))}
-          <div className="rounded-md border border-primary/20 bg-primary/8 p-4">
-            <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-md bg-primary/15 text-primary">
-                <Video className="size-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">Revue du nouveau client</p>
-                <p className="text-xs text-muted-foreground">Aujourd’hui · 15:00 – 16:00</p>
+          {activeConversationId === "product" && (
+            <div className="rounded-md border border-primary/20 bg-primary/8 p-4">
+              <div className="flex items-center gap-3">
+                <span className="flex size-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+                  <Video className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Revue du nouveau client</p>
+                  <p className="text-xs text-muted-foreground">Aujourd’hui · 15:00 – 16:00</p>
+                </div>
+                <Button size="sm" className="rounded-md">
+                  Rejoindre
+                </Button>
               </div>
-              <Button size="sm" className="rounded-md">
-                Rejoindre
-              </Button>
             </div>
-          </div>
+          )}
         </div>
       </ScrollArea>
 
