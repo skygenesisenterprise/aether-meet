@@ -182,7 +182,11 @@ function ChatPanel() {
                 <button
                   key={conversation.id}
                   type="button"
-                  onClick={() => setActiveConversation(conversation.id)}
+                  onClick={() =>
+                    setActiveConversation(
+                      activeConversationId === conversation.id ? null : conversation.id
+                    )
+                  }
                   className={cn(
                     "flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
                     activeConversationId === conversation.id && "bg-violet-500/10"
@@ -198,12 +202,12 @@ function ChatPanel() {
                       <span className="truncate text-sm font-medium">{conversation.name}</span>
                       <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
                     </span>
-                    <span className="mt-0.5 flex items-center gap-2">
-                      <span className="truncate text-xs text-muted-foreground">
+                    <span className="mt-0.5 flex items-start gap-2">
+                      <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
                         {conversation.preview}
                       </span>
                       {conversation.unread ? (
-                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+                        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
                           {conversation.unread}
                         </span>
                       ) : null}

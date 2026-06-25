@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 import { AppWindow, MoreHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { platformNavItems } from "@/lib/platform-data";
+import { conversations, platformNavItems } from "@/lib/platform-data";
+import { useChatStore } from "@/lib/chat-store";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 function isActiveRoute(pathname: string, href: string) {
@@ -59,9 +60,26 @@ function DesktopNavLink({
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const settingsItem = platformNavItems.find((item) => item.href === "/setings");
-  const mainItems = platformNavItems.filter((item) => item.href !== "/setings");
-  const mobileItems = platformNavItems.filter((item) =>
+  const customConversations = useChatStore((s) => s.customConversations);
+  const chatUnreadCount = React.useMemo(() => {
+    const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
+    const mergedConversations = [
+      ...customConversations,
+      ...conversations.filter((conversation) => !customConversationIds.has(conversation.id)),
+    ];
+
+    return mergedConversations.reduce((total, conversation) => total + (conversation.unread ?? 0), 0);
+  }, [customConversations]);
+  const navItems = React.useMemo(
+    () =>
+      platformNavItems.map((item) =>
+        item.href === "/chat" ? { ...item, badge: chatUnreadCount || undefined } : item
+      ),
+    [chatUnreadCount]
+  );
+  const settingsItem = navItems.find((item) => item.href === "/setings");
+  const mainItems = navItems.filter((item) => item.href !== "/setings");
+  const mobileItems = navItems.filter((item) =>
     ["/home", "/chat", "/tasks", "/calendar", "/drive", "/setings"].includes(item.href)
   );
 

@@ -17,10 +17,10 @@ interface CreateConversationInput {
 }
 
 interface ChatState {
-  activeConversationId: string;
+  activeConversationId: string | null;
   customConversations: Conversation[];
   customMessages: Record<string, ChatMessage[]>;
-  setActiveConversation: (id: string) => void;
+  setActiveConversation: (id: string | null) => void;
   createConversation: (input: CreateConversationInput) => string;
   sendMessage: (conversationId: string, content: string) => void;
 }
@@ -66,7 +66,7 @@ const baseConversations = conversations;
 export const useChatStore = create<ChatState>()(
   persist(
     (set) => ({
-      activeConversationId: "product",
+      activeConversationId: null,
       customConversations: [],
       customMessages: {},
       setActiveConversation: (id) => set({ activeConversationId: id }),

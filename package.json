@@ -1,7 +1,7 @@
 {
   "name": "aether-meet",
   "version": "1.0.0",
-  "description": "Aether Meet is a lightweight, open-source client built for privacy, speed, and seamless integration within the Aether Office ecosystem.",
+  "description": "A modern enterprise collaboration platform for secure communication, meetings, and team productivity.",
   "private": true,
   "type": "module",
   "workspaces": [
