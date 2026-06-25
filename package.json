@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "app",
+    "apps",
     "tools",
     "options",
     "package/node",

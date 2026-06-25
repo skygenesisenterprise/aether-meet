@@ -110,8 +110,43 @@ configure_redis_from_url() {
     fi
 }
 
+configure_database_env() {
+    if [ -n "${PG_HOST:-}" ] && [ -z "${DB_HOST:-}" ]; then
+        export DB_HOST="${PG_HOST}"
+    fi
+    if [ -n "${PG_PORT:-}" ] && [ -z "${DB_PORT:-}" ]; then
+        export DB_PORT="${PG_PORT}"
+    fi
+    if [ -n "${PG_USER:-}" ] && [ -z "${DB_USER:-}" ]; then
+        export DB_USER="${PG_USER}"
+    fi
+    if [ -n "${PG_DB:-}" ] && [ -z "${DB_NAME:-}" ]; then
+        export DB_NAME="${PG_DB}"
+    fi
+    if [ -n "${PG_PASS:-}" ] && [ -z "${DB_PASSWORD:-}" ]; then
+        export DB_PASSWORD="${PG_PASS}"
+    fi
+
+    if [ -n "${POSTGRESQL__HOST:-}" ] && [ -z "${DB_HOST:-}" ]; then
+        export DB_HOST="${POSTGRESQL__HOST}"
+    fi
+    if [ -n "${POSTGRESQL__PORT:-}" ] && [ -z "${DB_PORT:-}" ]; then
+        export DB_PORT="${POSTGRESQL__PORT}"
+    fi
+    if [ -n "${POSTGRESQL__USER:-}" ] && [ -z "${DB_USER:-}" ]; then
+        export DB_USER="${POSTGRESQL__USER}"
+    fi
+    if [ -n "${POSTGRESQL__NAME:-}" ] && [ -z "${DB_NAME:-}" ]; then
+        export DB_NAME="${POSTGRESQL__NAME}"
+    fi
+    if [ -n "${POSTGRESQL__PASSWORD:-}" ] && [ -z "${DB_PASSWORD:-}" ]; then
+        export DB_PASSWORD="${POSTGRESQL__PASSWORD}"
+    fi
+}
+
 configure_runtime() {
     configure_redis_from_url
+    configure_database_env
 
     if [ -n "${SECRET_KEY:-}" ] && [ -z "${SYSTEM_KEY:-}" ]; then
         export SYSTEM_KEY="${SECRET_KEY}"
@@ -120,6 +155,11 @@ configure_runtime() {
     export FRONTEND_PORT="${FRONTEND_PORT:-3000}"
     export API_PORT="${API_PORT:-8080}"
     export SERVER_PORT="${SERVER_PORT:-${API_PORT}}"
+    export DB_HOST="${DB_HOST:-postgresql}"
+    export DB_PORT="${DB_PORT:-5432}"
+    export DB_USER="${DB_USER:-postgres}"
+    export DB_NAME="${DB_NAME:-postgres}"
+    export DB_PASSWORD="${DB_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}"
     export REDIS_PORT="${REDIS_PORT:-6379}"
     export REDIS_DB="${REDIS_DB:-0}"
     export REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-company-website:v1}"
@@ -168,6 +208,10 @@ configure_runtime() {
             export ALLOW_MIGRATION_FAILURE="false"
             ;;
     esac
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        export DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    fi
 }
 
 log_redis_configuration() {
@@ -241,7 +285,7 @@ run_prisma_schema_deploy() {
             log_info "Pushing Prisma schema to external database"
             log_warn "Prisma db push may alter the external database schema directly"
             # shellcheck disable=SC2086
-            DATABASE_URL="${DATABASE_URL}" ${prisma_bin} db push --accept-data-loss --skip-generate
+            DATABASE_URL="${DATABASE_URL}" ${prisma_bin} db push --accept-data-loss
             ;;
     esac
 
@@ -301,6 +345,24 @@ run_worker() {
     exec /app/server/etheriatimes-api
 }
 
+run_bot() {
+    configure_runtime
+
+    log_info "Discord bot starting"
+
+    if [ ! -f /app/bot/index.js ]; then
+        log_error "Discord bot entrypoint not found at /app/bot/index.js"
+        return 1
+    fi
+
+    if [ ! -d /app/bot/node_modules ]; then
+        log_error "Discord bot dependencies not found at /app/bot/node_modules"
+        return 1
+    fi
+
+    exec node /app/bot/index.js
+}
+
 role="${1:-server}"
 
 case "${role}" in
@@ -311,6 +373,10 @@ case "${role}" in
     worker)
         shift || true
         run_worker "$@"
+        ;;
+    bot)
+        shift || true
+        run_bot "$@"
         ;;
     *)
         exec "$@"
