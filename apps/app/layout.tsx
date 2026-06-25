@@ -16,8 +16,8 @@ const fontMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    template: "%s",
-    default: "Sky Genesis Enterprise",
+    template: "%s | Aether Meet",
+    default: "Aether Meet",
   },
   description:
     "The Official Sky Genesis Enterprise website. Learn about our products, services, and how we can help your business thrive in the digital age.",

@@ -34,7 +34,7 @@ function DesktopNavLink({
         <Link
           href={href}
           className={cn(
-            "group relative flex h-14.25 flex-col items-center justify-center gap-0.75 text-[#b6b7ba] transition-colors hover:bg-white/[0.035] hover:text-white",
+            "group relative flex h-14.25 flex-col items-center justify-center gap-0.75 text-[#b6b7ba] transition-colors hover:bg-white/4 hover:text-white",
             active && "text-[#8b89ff]"
           )}
           aria-current={active ? "page" : undefined}
@@ -69,11 +69,14 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const settingsItem = platformNavItems.find((item) => item.href === "/setings");
   const mainItems = platformNavItems.filter((item) => item.href !== "/setings");
+  const mobileItems = platformNavItems.filter((item) =>
+    ["/home", "/chat", "/tasks", "/calendar", "/drive", "/setings"].includes(item.href)
+  );
 
   return (
     <TooltipProvider delayDuration={150}>
       <aside className="hidden h-full w-17 shrink-0 flex-col border-r border-white/6 bg-[#0d0e10] text-zinc-300 md:flex">
-        <nav className="flex flex-1 flex-col items-stretch pt-1" aria-label="Applications">
+        <nav className="flex flex-1 flex-col items-stretch overflow-y-auto pt-1" aria-label="Applications">
           {mainItems.map((item) => (
             <DesktopNavLink key={item.href} {...item} pathname={pathname} />
           ))}
@@ -82,7 +85,7 @@ export function AdminSidebar() {
         <div className="border-t border-white/5 pb-1 pt-0.5">
           <button
             type="button"
-            className="flex h-11 w-full items-center justify-center text-[#9b9ca0] transition-colors hover:bg-white/[0.035] hover:text-white"
+            className="flex h-11 w-full items-center justify-center text-[#9b9ca0] transition-colors hover:bg-white/4 hover:text-white"
             aria-label="Plus d’applications"
           >
             <MoreHorizontal className="size-4.5" />
@@ -92,7 +95,7 @@ export function AdminSidebar() {
 
           <button
             type="button"
-            className="flex h-13 w-full flex-col items-center justify-center gap-1 text-[#b6b7ba] transition-colors hover:bg-white/[0.035] hover:text-white"
+            className="flex h-13 w-full flex-col items-center justify-center gap-1 text-[#b6b7ba] transition-colors hover:bg-white/4 hover:text-white"
             aria-label="Applications"
           >
             <span className="flex size-7 items-center justify-center rounded-[5px] border border-current">
@@ -104,10 +107,10 @@ export function AdminSidebar() {
       </aside>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-8 border-t border-white/10 bg-[#0d0e10]/98 px-1 backdrop-blur-xl md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-6 border-t border-white/10 bg-[#0d0e10]/98 px-1 backdrop-blur-xl md:hidden"
         aria-label="Navigation mobile"
       >
-        {platformNavItems.map((item) => {
+        {mobileItems.map((item) => {
           const active = isActiveRoute(pathname, item.href);
           const Icon = item.icon;
 

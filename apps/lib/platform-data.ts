@@ -1,7 +1,13 @@
 import {
   Bell,
+  BookOpenText,
   CalendarDays,
-  Files,
+  ContactRound,
+  FileText,
+  FolderKanban,
+  HardDrive,
+  House,
+  ListTodo,
   MessageCircleMore,
   Phone,
   Settings2,
@@ -26,6 +32,7 @@ export interface Person {
 
 export interface ChatMessage {
   id: string;
+  authorId: string;
   author: string;
   initials: string;
   time: string;
@@ -37,6 +44,7 @@ export interface Conversation {
   name: string;
   initials: string;
   type: "channel" | "dm";
+  memberIds: string[];
   subtitle: string;
   preview: string;
   time: string;
@@ -76,17 +84,29 @@ export interface SharedFile {
 }
 
 export const platformNavItems: PlatformNavItem[] = [
-  { label: "Accueil", href: "/home", icon: Sparkles },
+  { label: "Accueil", href: "/home", icon: House },
   { label: "Activité", href: "/notifications", icon: Bell, badge: 5 },
   { label: "Conversations", href: "/chat", icon: MessageCircleMore, badge: 4 },
+  { label: "Tâches", href: "/tasks", icon: ListTodo },
+  { label: "Projets", href: "/projects", icon: FolderKanban },
   { label: "Équipes", href: "/teams", icon: UsersRound },
   { label: "Calendrier", href: "/calendar", icon: CalendarDays },
   { label: "Appels", href: "/calls", icon: Phone, badge: 2 },
-  { label: "Fichiers", href: "/drive", icon: Files },
+  { label: "Fichiers", href: "/drive", icon: HardDrive },
+  { label: "Documents", href: "/documents", icon: FileText },
+  { label: "Contacts", href: "/contacts", icon: ContactRound },
+  { label: "Ressources", href: "/resources", icon: BookOpenText },
   { label: "Réglages", href: "/setings", icon: Settings2 },
 ];
 
 export const people: Person[] = [
+  {
+    id: "liam",
+    name: "Liam Ward",
+    initials: "LW",
+    role: "Product lead",
+    status: "online",
+  },
   {
     id: "elena",
     name: "Elena Martin",
@@ -123,6 +143,7 @@ export const conversations: Conversation[] = [
     name: "Équipe produit",
     initials: "EP",
     type: "channel",
+    memberIds: ["liam", "elena", "marcus", "sarah"],
     subtitle: "8 membres · 4 en ligne",
     preview: "Elena : La nouvelle maquette est prête.",
     time: "09:42",
@@ -135,6 +156,7 @@ export const conversations: Conversation[] = [
     name: "Marcus Chen",
     initials: "MC",
     type: "dm",
+    memberIds: ["liam", "marcus"],
     subtitle: "En ligne",
     preview: "Je pousse la correction après la revue.",
     time: "08:15",
@@ -146,6 +168,7 @@ export const conversations: Conversation[] = [
     name: "Lancement Aether",
     initials: "LA",
     type: "channel",
+    memberIds: ["liam", "elena", "sarah"],
     subtitle: "12 membres · 2 en ligne",
     preview: "Sarah : Réunion déplacée à 15 h.",
     time: "Hier",
@@ -156,6 +179,7 @@ export const conversations: Conversation[] = [
     name: "Sécurité & conformité",
     initials: "SC",
     type: "channel",
+    memberIds: ["liam", "marcus", "noah"],
     subtitle: "6 membres · 1 en ligne",
     preview: "Noah a partagé un document.",
     time: "Lun.",
@@ -276,6 +300,7 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
   product: [
     {
       id: "m1",
+      authorId: "elena",
       author: "Elena Martin",
       initials: "EM",
       time: "09:36",
@@ -284,6 +309,7 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
     },
     {
       id: "m2",
+      authorId: "marcus",
       author: "Marcus Chen",
       initials: "MC",
       time: "09:39",
@@ -292,15 +318,17 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
     },
     {
       id: "m3",
-      author: "Elena Martin",
-      initials: "EM",
+      authorId: "liam",
+      author: "Liam Ward",
+      initials: "LW",
       time: "09:42",
-      content: "Parfait. Je joins les états mobile et réunion active avant la revue de 15 h.",
+      content: "Parfait. Je prends la version de Elena pour la revue et je valide le flux mobile avant 15 h.",
     },
   ],
   marcus: [
     {
       id: "mc1",
+      authorId: "marcus",
       author: "Marcus Chen",
       initials: "MC",
       time: "08:00",
@@ -308,15 +336,17 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
     },
     {
       id: "mc2",
-      author: "Marcus Chen",
-      initials: "MC",
+      authorId: "liam",
+      author: "Liam Ward",
+      initials: "LW",
       time: "08:15",
-      content: "Je pousse la correction après la revue.",
+      content: "Oui, je passe dessus après le point produit. Je te laisse la correction si je vois autre chose.",
     },
   ],
   launch: [
     {
       id: "lc1",
+      authorId: "sarah",
       author: "Sarah Kim",
       initials: "SK",
       time: "14:30",
@@ -324,13 +354,15 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
     },
     {
       id: "lc2",
-      author: "Elena Martin",
-      initials: "EM",
+      authorId: "liam",
+      author: "Liam Ward",
+      initials: "LW",
       time: "14:45",
-      content: "J’ai mis à jour le deck avec les nouvelles slides.",
+      content: "J’ai mis à jour le deck avec les nouvelles slides et la séquence d’ouverture.",
     },
     {
       id: "lc3",
+      authorId: "sarah",
       author: "Sarah Kim",
       initials: "SK",
       time: "Hier",
@@ -340,6 +372,7 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
   security: [
     {
       id: "sc1",
+      authorId: "noah",
       author: "Noah Williams",
       initials: "NW",
       time: "Lun.",
@@ -347,13 +380,15 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
     },
     {
       id: "sc2",
-      author: "Marcus Chen",
-      initials: "MC",
+      authorId: "liam",
+      author: "Liam Ward",
+      initials: "LW",
       time: "Lun.",
-      content: "Merci, je regarde ça et je reviens vers toi.",
+      content: "Merci, je relis ça aujourd’hui et je reviens avec la liste des impacts côté produit.",
     },
     {
       id: "sc3",
+      authorId: "noah",
       author: "Noah Williams",
       initials: "NW",
       time: "Lun.",
@@ -365,6 +400,7 @@ export const conversationMessages: Record<string, ChatMessage[]> = {
 export const recentMessages = [
   {
     id: "m1",
+    authorId: "elena",
     author: "Elena Martin",
     initials: "EM",
     time: "09:36",
@@ -373,6 +409,7 @@ export const recentMessages = [
   },
   {
     id: "m2",
+    authorId: "marcus",
     author: "Marcus Chen",
     initials: "MC",
     time: "09:39",
@@ -381,9 +418,12 @@ export const recentMessages = [
   },
   {
     id: "m3",
-    author: "Elena Martin",
-    initials: "EM",
+    authorId: "liam",
+    author: "Liam Ward",
+    initials: "LW",
     time: "09:42",
-    content: "Parfait. Je joins les états mobile et réunion active avant la revue de 15 h.",
+    content: "Parfait. Je prends la version de Elena pour la revue et je valide le flux mobile avant 15 h.",
   },
 ] as const;
+
+export const currentUser = people[0];

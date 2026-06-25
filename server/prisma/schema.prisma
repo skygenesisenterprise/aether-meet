@@ -4,20 +4,34 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
   USER
-  EDITOR
   ADMIN
   OWNER
 }
 
-enum MembershipRole {
+enum AuthProvider {
+  CREDENTIALS
+  GITHUB
+  GOOGLE
+  MICROSOFT
+}
+
+enum VerificationPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  OAUTH_STATE
+  MAGIC_LINK
+}
+
+enum WorkspaceRole {
   OWNER
   ADMIN
   MEMBER
-  VIEWER
+  GUEST
 }
 
 enum MembershipStatus {
@@ -27,91 +41,47 @@ enum MembershipStatus {
   REMOVED
 }
 
-enum ArticleStatus {
-  DRAFT
-  REVIEW
-  SCHEDULED
-  PUBLISHED
-  ARCHIVED
+enum PresenceStatus {
+  ONLINE
+  BUSY
+  AWAY
+  OFFLINE
 }
 
-enum CommentStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  SPAM
-}
-
-enum NotificationType {
-  ARTICLE
-  BOOKMARK
+enum ThemeMode {
+  LIGHT
+  DARK
   SYSTEM
-  ACCOUNT
-  COMMENT
-  SECURITY
-  INTEGRATION
-  MAINTENANCE
 }
 
-enum NotificationPriority {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
+enum ChannelType {
+  TEAM
+  DIRECT
+  GROUP
+  ANNOUNCEMENT
 }
 
-enum SubscriptionPlan {
-  FREE
-  ESSENTIAL
-  PREMIUM
-  ENTERPRISE
+enum ChannelVisibility {
+  PUBLIC
+  PRIVATE
+  DIRECT
 }
 
-enum SubscriptionStatus {
-  ACTIVE
-  CANCELLED
-  EXPIRED
-  PAST_DUE
-  TRIALING
-}
-
-enum MailProvider {
-  INTERNAL
-  GOOGLE
-  MICROSOFT
-  PROTON
-  OTHER
-}
-
-enum MailboxType {
-  INBOX
-  SENT
-  DRAFTS
-  TRASH
-  SPAM
-  ARCHIVE
-  STARRED
-  ALL
-  CUSTOM
-}
-
-enum RecipientType {
-  FROM
-  TO
-  CC
-  BCC
-  REPLY_TO
+enum MessageType {
+  TEXT
+  SYSTEM
+  FILE
+  CALL
 }
 
 enum MeetingStatus {
-  DRAFT
   SCHEDULED
   LIVE
   COMPLETED
   CANCELED
 }
 
-enum ParticipantStatus {
+enum MeetingParticipantStatus {
   INVITED
   ACCEPTED
   DECLINED
@@ -119,1149 +89,423 @@ enum ParticipantStatus {
   LEFT
 }
 
-enum TodoPriority {
+enum NotificationType {
+  MESSAGE
+  MENTION
+  TEAM
+  MEETING
+  FILE
+  SECURITY
+  SYSTEM
+}
+
+enum NotificationPriority {
   LOW
   MEDIUM
   HIGH
   URGENT
 }
 
-enum WebhookStatus {
-  ACTIVE
-  DISABLED
-  FAILED
-}
-
-enum ScheduleStatus {
-  DRAFT
-  ACTIVE
-  PAUSED
-  RUNNING
-  CANCELED
-  COMPLETED
-}
-
-enum ApiKeyStatus {
-  ACTIVE
-  REVOKED
-  EXPIRED
-}
-
-enum ServiceStatus {
-  OPERATIONAL
-  DEGRADED
-  MAINTENANCE
-  OUTAGE
+enum FileKind {
+  DOCUMENT
+  PRESENTATION
+  SPREADSHEET
+  ARCHIVE
+  IMAGE
+  VIDEO
+  AUDIO
+  OTHER
 }
 
 model User {
-  id                   String                @id @default(uuid())
-  email                String                @unique
-  username             String?               @unique
-  name                 String
-  firstName            String?
-  lastName             String?
-  passwordHash         String?
-  avatarUrl            String?
-  role                 UserRole              @default(USER)
-  active               Boolean               @default(true)
-  emailVerifiedAt      DateTime?
-  lastLoginAt          DateTime?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  quota                UserQuota?
-  profile              UserProfile?
-  settings             UserSettings[]
-  vacationResponder    VacationResponder?
-  meetingSettings      MeetingSettings?
-  systemSubscription   UserSubscription?
-  organizations        OrganizationMember[]
-  mailAccounts         MailAccount[]
-  calendars            Calendar[]
-  calendarEvents       CalendarEvent[]
-  todoLists            TodoList[]
-  todos                Todo[]
-  meetings             Meeting[]
-  meetingParticipants  MeetingParticipant[]
-  meetingConversations MeetingConversation[]
-  conversationMessages ConversationMessage[]
-  notifications        Notification[]
-  contacts             Contact[]
-  signatures           Signature[]
-  filters              Filter[]
-  labels               Label[]
-  newsletters          Newsletter[]
-  articles             Article[]             @relation("ArticleAuthor")
-  comments             Comment[]             @relation("CommentAuthor")
-  bookmarks            Bookmark[]
-  readingHistory       ReadingHistory[]
-  media                Media[]               @relation("MediaUploader")
-  sessions             Session[]
-  devices              Device[]
-  securityActivities   SecurityActivity[]
-  apiKeys              ApiKey[]
-  auditLogs            AuditLog[]            @relation("AuditActor")
-  statusUpdates        PlatformStatus[]      @relation("StatusReporter")
-  incidentsReported    StatusIncident[]      @relation("IncidentReporter")
-  maintenancesReported StatusMaintenance[]   @relation("MaintenanceReporter")
-  pages                Page[]                @relation("PageAuthor")
-  dossiers             Dossier[]             @relation("DossierAuthor")
-}
-
-model UserQuota {
-  id         String   @id @default(uuid())
-  userId     String   @unique
-  usedBytes  BigInt   @default(0)
-  limitBytes BigInt   @default(0)
-  files      Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String              @id @default(uuid())
+  email             String              @unique
+  username          String?             @unique
+  name              String
+  passwordHash      String?
+  role              UserRole            @default(USER)
+  avatarUrl         String?
+  active            Boolean             @default(true)
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  profile           UserProfile?
+  settings          UserSettings?
+  authAccounts      AuthAccount[]
+  sessions          AuthSession[]
+  devices           Device[]
+  securityEvents    SecurityActivity[]
+  workspaceMembers  WorkspaceMember[]
+  invitedMembers    WorkspaceMember[]   @relation("WorkspaceMemberInviter")
+  ownedWorkspaces   Workspace[]         @relation("WorkspaceOwner")
+  createdTeams      Team[]              @relation("TeamCreator")
+  teamMembers       TeamMember[]
+  createdChannels   Channel[]           @relation("ChannelCreator")
+  channelMembers    ChannelMember[]
+  sentMessages      Message[]           @relation("MessageAuthor")
+  createdMeetings   Meeting[]           @relation("MeetingOrganizer")
+  meetingAttendees  MeetingParticipant[]
+  notifications     Notification[]
+  calendars         Calendar[]
+  calendarEvents    CalendarEvent[]     @relation("CalendarEventAuthor")
+  ownedFiles        FileAsset[]         @relation("FileOwner")
 }
 
 model UserProfile {
-  id                String          @id @default(uuid())
-  userId            String          @unique
-  gender            String?
-  phone             String?
-  birthDate         DateTime?
-  language          String?         @default("fr")
-  aetherId          String?         @unique
-  accountType       String?
-  profileVisibility String?         @default("private")
-  showEmail         Boolean         @default(false)
-  showPhone         Boolean         @default(false)
-  showActivity      Boolean         @default(false)
-  dataCollection    Boolean         @default(false)
-  personalizedAds   Boolean         @default(false)
-  analytics         Boolean         @default(true)
-  locationTracking  Boolean         @default(false)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  addresses         Address[]
-  passwords         PasswordItem[]
-  thirdPartyApps    ThirdPartyApp[]
+  id            String         @id @default(uuid())
+  userId        String         @unique
+  firstName     String?
+  lastName      String?
+  displayName   String?
+  title         String?
+  bio           String?
+  phone         String?
+  locale        String         @default("fr")
+  timeZone      String         @default("Europe/Paris")
+  statusMessage String?
+  presence      PresenceStatus @default(ONLINE)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Address {
-  id        String      @id @default(uuid())
-  profileId String
-  label     String
-  value     String
-  isPrimary Boolean     @default(false)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  profile   UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+model UserSettings {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  theme                ThemeMode @default(SYSTEM)
+  language             String    @default("fr")
+  emailNotifications   Boolean   @default(true)
+  mentionNotifications Boolean   @default(true)
+  meetingReminders     Boolean   @default(true)
+  soundEnabled         Boolean   @default(true)
+  cameraLabel          String?
+  microphoneLabel      String?
+  secureSession        Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model PasswordItem {
-  id        String      @id @default(uuid())
-  profileId String
-  name      String
-  username  String
-  password  String
-  url       String?
-  favorite  Boolean     @default(false)
-  category  String?
-  notes     String?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  profile   UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+model AuthAccount {
+  id                String       @id @default(uuid())
+  userId            String
+  provider          AuthProvider
+  providerAccountId String
+  email             String?
+  accessToken       String?
+  refreshToken      String?
+  scopes            String[]
+  tokenExpiresAt    DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId, provider])
+}
+
+model AuthSession {
+  id               String    @id @default(uuid())
+  userId           String
+  deviceId         String?
+  tokenHash        String    @unique
+  refreshTokenHash String?   @unique
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
+  lastActiveAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device           Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+}
+
+model VerificationToken {
+  id         String              @id @default(uuid())
+  identifier String
+  tokenHash  String              @unique
+  purpose    VerificationPurpose
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([identifier, purpose])
 }
 
 model Device {
-  id         String    @id @default(uuid())
-  userId     String
-  name       String
-  type       String
-  os         String?
-  browser    String?
-  ipAddress  String?
-  lastSeenAt DateTime?
-  isTrusted  Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessions   Session[]
-}
-
-model Session {
-  id        String    @id @default(uuid())
-  userId    String
-  deviceId  String?
-  token     String?   @unique
-  ipAddress String?
-  userAgent String?
-  expiresAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  id          String             @id @default(uuid())
+  userId      String
+  name        String
+  type        String
+  os          String?
+  browser     String?
+  ipAddress   String?
+  isTrusted   Boolean            @default(false)
+  lastSeenAt  DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions    AuthSession[]
 }
 
 model SecurityActivity {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
   type        String
   title       String
   description String?
-  device      String?
   ipAddress   String?
-  occurredAt  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent   String?
+  occurredAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
 }
 
-model ThirdPartyApp {
-  id          String      @id @default(uuid())
-  profileId   String
-  name        String
-  accessLevel String
-  connectedAt DateTime    @default(now())
-  metadata    Json?
-  profile     UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-}
-
-model Organization {
-  id        String               @id @default(uuid())
-  name      String
-  domain    String?
-  logoUrl   String?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
-  members   OrganizationMember[]
-  domains   OrganizationDomain[]
-  contacts  Contact[]
-
-  @@unique([name, domain])
-}
-
-model OrganizationMember {
-  id             String           @id @default(uuid())
-  organizationId String
-  userId         String
-  role           MembershipRole   @default(MEMBER)
-  status         MembershipStatus @default(INVITED)
-  invitedAt      DateTime?
-  joinedAt       DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, userId])
-}
-
-model OrganizationDomain {
-  id             String       @id @default(uuid())
-  organizationId String
-  domain         String       @unique
-  verified       Boolean      @default(false)
-  verifiedAt     DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-}
-
-model MailAccount {
-  id            String         @id @default(uuid())
-  userId        String
-  email         String
-  name          String
-  provider      MailProvider   @default(INTERNAL)
-  imapHost      String?
-  imapPort      Int?
-  smtpHost      String?
-  smtpPort      Int?
-  useTls        Boolean        @default(true)
-  useStartTls   Boolean        @default(false)
-  isPrimary     Boolean        @default(false)
-  signature     String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identities    MailIdentity[]
-  mailboxes     Mailbox[]
-  threads       MailThread[]
-  emails        Email[]
-  contacts      Contact[]
-  tags          Tag[]
-  contactGroups ContactGroup[]
-  filterRules   FilterRule[]
-  userSettings  UserSettings[]
-
-  @@unique([userId, email])
-}
-
-model MailIdentity {
-  id           String      @id @default(uuid())
-  accountId    String
-  name         String
-  email        String
-  replyTo      String?
-  bcc          String?
-  signature    String?
-  signatureSet Boolean     @default(false)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  account      MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-}
-
-model Mailbox {
-  id            String      @id @default(uuid())
-  accountId     String
-  parentId      String?
-  name          String
-  path          String
-  type          MailboxType @default(CUSTOM)
-  sortOrder     Int         @default(0)
-  totalEmails   BigInt      @default(0)
-  unreadEmails  BigInt      @default(0)
-  totalThreads  BigInt      @default(0)
-  unreadThreads BigInt      @default(0)
-  isSubscribed  Boolean     @default(true)
-  isSelectable  Boolean     @default(true)
-  isSystem      Boolean     @default(false)
-  rights        String[]
-  icon          String?
-  color         String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  account       MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  parent        Mailbox?    @relation("MailboxHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children      Mailbox[]   @relation("MailboxHierarchy")
-  emails        Email[]
-
-  @@unique([accountId, path])
-}
-
-model MailThread {
-  id              String              @id @default(uuid())
-  accountId       String
-  subject         String
-  totalEmails     Int                 @default(0)
-  hasAttachments  Boolean             @default(false)
-  isRead          Boolean             @default(false)
-  isStarred       Boolean             @default(false)
-  labels          String[]
-  lastMessageDate DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  account         MailAccount         @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  emails          Email[]
-  participants    ThreadParticipant[]
-}
-
-model ThreadParticipant {
-  id        String     @id @default(uuid())
-  threadId  String
-  name      String?
-  email     String
-  mailbox   String?
-  host      String?
-  createdAt DateTime   @default(now())
-  thread    MailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-}
-
-model Email {
-  id             String           @id @default(uuid())
-  accountId      String
-  threadId       String?
-  mailboxId      String
-  subject        String
-  preview        String?
-  body           String?
-  bodyHtml       String?
-  date           DateTime
-  size           BigInt           @default(0)
-  headers        Json?
-  isRead         Boolean          @default(false)
-  isStarred      Boolean          @default(false)
-  isDraft        Boolean          @default(false)
-  isFlagged      Boolean          @default(false)
-  isDeleted      Boolean          @default(false)
-  hasAttachments Boolean          @default(false)
-  keywords       String[]
-  labels         String[]
-  metadata       Json?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  account        MailAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  thread         MailThread?      @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  mailbox        Mailbox          @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
-  recipients     EmailRecipient[]
-  attachments    Attachment[]
-  tagLinks       EmailTag[]
-  labelLinks     EmailLabel[]
-}
-
-model EmailRecipient {
-  id        String        @id @default(uuid())
-  emailId   String
-  type      RecipientType
-  name      String?
-  email     String
-  mailbox   String?
-  host      String?
-  createdAt DateTime      @default(now())
-  message   Email         @relation(fields: [emailId], references: [id], onDelete: Cascade)
-
-  @@index([emailId, type])
-}
-
-model Attachment {
-  id          String   @id @default(uuid())
-  emailId     String
-  partId      String
-  filename    String
-  mimeType    String
-  size        BigInt   @default(0)
-  disposition String?
-  cid         String?
-  blobId      String?
-  inline      Boolean  @default(false)
-  downloads   Int      @default(0)
-  checksum    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  email       Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
-}
-
-model Tag {
-  id          String      @id @default(uuid())
-  accountId   String
-  name        String
-  color       String?
-  imapKeyword String?
-  totalEmails BigInt      @default(0)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  account     MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  emailLinks  EmailTag[]
-
-  @@unique([accountId, name])
-}
-
-model EmailTag {
-  emailId String
-  tagId   String
-  email   Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
-  tag     Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([emailId, tagId])
-}
-
-model Label {
-  id         String       @id @default(uuid())
-  userId     String
-  parentId   String?
-  name       String
-  color      String?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent     Label?       @relation("LabelHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Label[]      @relation("LabelHierarchy")
-  emailLinks EmailLabel[]
-
-  @@unique([userId, name])
-}
-
-model EmailLabel {
-  emailId String
-  labelId String
-  email   Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
-  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
-
-  @@id([emailId, labelId])
-}
-
-model Contact {
-  id               String               @id @default(uuid())
-  accountId        String
-  organizationId   String?
-  name             String
-  firstName        String?
-  lastName         String?
-  email            String
-  nickname         String?
-  company          String?
-  jobTitle         String?
-  department       String?
-  phone            String?
-  mobile           String?
-  workPhone        String?
-  homePhone        String?
-  address          String?
-  street           String?
-  city             String?
-  state            String?
-  postalCode       String?
-  country          String?
-  website          String?
-  blog             String?
-  birthday         DateTime?
-  anniversary      DateTime?
-  notes            String?
-  tags             String[]
-  avatarUrl        String?
-  avatarType       String?
-  starred          Boolean              @default(false)
-  frequency        Int                  @default(0)
-  lastContacted    DateTime?
-  isOrganization   Boolean              @default(false)
-  permissions      Json?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  account          MailAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  organization     Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  groupMemberships ContactGroupMember[]
-  user             User?                @relation(fields: [userId], references: [id])
-  userId           String?
-
-  @@unique([accountId, email])
-}
-
-model ContactGroup {
-  id            String               @id @default(uuid())
-  accountId     String
+model Workspace {
+  id            String            @id @default(uuid())
+  slug          String            @unique
   name          String
   description   String?
-  color         String?
-  icon          String?
-  isSystem      Boolean              @default(false)
-  totalContacts Int                  @default(0)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  account       MailAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  members       ContactGroupMember[]
-
-  @@unique([accountId, name])
+  logoUrl       String?
+  ownerId       String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  owner         User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members       WorkspaceMember[]
+  teams         Team[]
+  channels      Channel[]
+  meetings      Meeting[]
+  notifications Notification[]
+  calendars     Calendar[]
+  files         FileAsset[]
 }
 
-model ContactGroupMember {
-  groupId   String
-  contactId String
-  createdAt DateTime     @default(now())
-  group     ContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  contact   Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+model WorkspaceMember {
+  id          String           @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole    @default(MEMBER)
+  status      MembershipStatus @default(ACTIVE)
+  invitedById String?
+  invitedAt   DateTime?
+  joinedAt    DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User?            @relation("WorkspaceMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
 
-  @@id([groupId, contactId])
+  @@unique([workspaceId, userId])
+  @@index([userId, status])
 }
 
-model UserSettings {
-  id                    String       @id @default(uuid())
-  userId                String
-  accountId             String?
-  theme                 String?      @default("system")
-  language              String?      @default("fr")
-  emailView             String?
-  emailSort             String?
-  contactsSort          String?
-  calendarView          String?
-  todoView              String?
-  sidebarCollapsed      Boolean      @default(false)
-  desktopNotifications  Boolean      @default(true)
-  emailNotifications    Boolean      @default(true)
-  calendarNotifications Boolean      @default(true)
-  pushNotifications     Boolean      @default(false)
-  soundEnabled          Boolean      @default(true)
-  alias                 String?
-  replyTo               String?
-  bcc                   String?
-  signature             String?
-  signatureId           String?
-  includeOriginal       Boolean      @default(true)
-  readReceipt           Boolean      @default(false)
-  deliveryReceipt       Boolean      @default(false)
-  fontFamily            String?
-  fontSize              String?
-  autoSave              Boolean      @default(true)
-  autoSaveInterval      Int?         @default(60)
-  defaultFormat         String?
-  enterKeySends         Boolean      @default(false)
-  readReceipts          Boolean      @default(false)
-  deliveryReceipts      Boolean      @default(false)
-  trackingEnabled       Boolean      @default(false)
-  imageProxy            Boolean      @default(true)
-  emailSettings         Json?
-  displaySettings       Json?
-  notificationSettings  Json?
-  composeSettings       Json?
-  privacySettings       Json?
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
-  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account               MailAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+model Team {
+  id          String       @id @default(uuid())
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  color       String?
+  isPrivate   Boolean      @default(false)
+  createdById String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("TeamCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  channels    Channel[]
+  files       FileAsset[]
 
-  @@unique([userId, accountId])
+  @@unique([workspaceId, slug])
 }
 
-model VacationResponder {
-  id           String    @id @default(uuid())
-  userId       String    @unique
-  enabled      Boolean   @default(false)
-  subject      String?
-  message      String
-  startDate    DateTime?
-  endDate      DateTime?
-  contactsOnly Boolean   @default(false)
+model TeamMember {
+  id        String           @id @default(uuid())
+  teamId     String
+  userId     String
+  role       WorkspaceRole   @default(MEMBER)
+  status     MembershipStatus @default(ACTIVE)
+  joinedAt   DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  team       Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId, status])
+}
+
+model Channel {
+  id           String            @id @default(uuid())
+  workspaceId  String
+  teamId       String?
+  createdById  String
+  type         ChannelType       @default(TEAM)
+  visibility   ChannelVisibility @default(PUBLIC)
+  name         String
+  slug         String?
+  topic        String?
+  archivedAt   DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team         Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdBy    User              @relation("ChannelCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members      ChannelMember[]
+  messages     Message[]
+  meetings     Meeting[]
+  files        FileAsset[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, type, visibility])
+}
+
+model ChannelMember {
+  id          String    @id @default(uuid())
+  channelId    String
+  userId       String
+  lastReadAt   DateTime?
+  muted        Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  channel      Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
 }
 
-model FilterRule {
+model Message {
   id         String      @id @default(uuid())
-  accountId  String
-  name       String
-  conditions Json
-  actions    Json
-  enabled    Boolean     @default(true)
-  priority   Int         @default(0)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  account    MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  channelId   String
+  authorId    String?
+  type        MessageType @default(TEXT)
+  content     String
+  metadata    Json?
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  channel     Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User?       @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, createdAt])
 }
 
-model Filter {
-  id         String   @id @default(uuid())
-  userId     String
-  name       String
-  conditions Json
-  actions    Json
-  enabled    Boolean  @default(true)
-  priority   Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Meeting {
+  id           String                     @id @default(uuid())
+  workspaceId  String
+  channelId    String?
+  organizerId  String
+  title        String
+  description  String?
+  location     String?
+  startsAt     DateTime
+  endsAt       DateTime
+  status       MeetingStatus              @default(SCHEDULED)
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  workspace    Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel      Channel?                   @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  organizer    User                       @relation("MeetingOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  participants MeetingParticipant[]
+  calendarEvents CalendarEvent[]
+
+  @@index([workspaceId, startsAt])
 }
 
-model Signature {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  content   String
-  html      String?
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model MeetingParticipant {
+  id         String                   @id @default(uuid())
+  meetingId   String
+  userId      String?
+  displayName String?
+  email       String?
+  status      MeetingParticipantStatus @default(INVITED)
+  joinedAt    DateTime?
+  leftAt      DateTime?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  meeting     Meeting                  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user        User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([meetingId, status])
+  @@index([userId, status])
+}
+
+model Notification {
+  id          String               @id @default(uuid())
+  userId      String
+  workspaceId String?
+  type        NotificationType
+  priority    NotificationPriority @default(MEDIUM)
+  title       String
+  body        String
+  link        String?
+  readAt      DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?           @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])
 }
 
 model Calendar {
   id          String          @id @default(uuid())
-  userId      String
+  workspaceId String?
+  ownerId     String
   name        String
   color       String?
-  description String?
-  isDefault   Boolean         @default(false)
+  isPrimary   Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  owner       User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   events      CalendarEvent[]
 
-  @@unique([userId, name])
+  @@unique([ownerId, name])
 }
 
 model CalendarEvent {
-  id          String    @id @default(uuid())
-  userId      String
-  calendarId  String?
+  id          String      @id @default(uuid())
+  calendarId  String
+  meetingId   String?
+  authorId    String?
   title       String
   description String?
   location    String?
-  start       DateTime
-  end         DateTime?
-  allDay      Boolean   @default(false)
-  recurring   String?
-  timezone    String?
-  color       String?
-  reminders   Json?
-  attendees   Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  calendar    Calendar? @relation(fields: [calendarId], references: [id], onDelete: SetNull)
+  startsAt    DateTime
+  endsAt      DateTime
+  allDay      Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  calendar    Calendar    @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  meeting     Meeting?    @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  author      User?       @relation("CalendarEventAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([calendarId, startsAt])
 }
 
-model TodoList {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  color     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  todos     Todo[]
-
-  @@unique([userId, name])
-}
-
-model Todo {
-  id         String       @id @default(uuid())
-  userId     String
-  todoListId String?
-  title      String
-  completed  Boolean      @default(false)
-  dueDate    DateTime?
-  priority   TodoPriority @default(MEDIUM)
-  category   String?
-  notes      String?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  todoList   TodoList?    @relation(fields: [todoListId], references: [id], onDelete: SetNull)
-}
-
-model Meeting {
-  id            String                @id @default(uuid())
-  userId        String
-  title         String
-  description   String?
-  startDate     DateTime
-  endDate       DateTime?
-  timezone      String?
-  recurring     String?
-  password      String?
-  settings      Json?
-  hostUrl       String?
-  joinUrl       String?
-  status        MeetingStatus         @default(SCHEDULED)
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  participants  MeetingParticipant[]
-  conversations MeetingConversation[]
-  recordings    MeetingRecording[]
-}
-
-model MeetingParticipant {
-  id        String            @id @default(uuid())
-  meetingId String
-  userId    String?
-  email     String?
-  name      String?
-  role      String?
-  status    ParticipantStatus @default(INVITED)
-  joinedAt  DateTime?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  meeting   Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user      User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-}
-
-model MeetingConversation {
-  id        String                @id @default(uuid())
-  meetingId String?
-  userId    String
-  type      String
-  status    String
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
-  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meeting   Meeting?              @relation(fields: [meetingId], references: [id], onDelete: SetNull)
-  messages  ConversationMessage[]
-}
-
-model ConversationMessage {
-  id             String              @id @default(uuid())
-  conversationId String
-  senderId       String?
-  content        String
-  type           String
-  createdAt      DateTime            @default(now())
-  conversation   MeetingConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User?               @relation(fields: [senderId], references: [id], onDelete: SetNull)
-}
-
-model MeetingSettings {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  defaultDuration    Int      @default(30)
-  defaultTimezone    String?
-  waitingRoomEnabled Boolean  @default(false)
-  chatEnabled        Boolean  @default(true)
-  screenShareEnabled Boolean  @default(true)
-  recordingEnabled   Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model MeetingRecording {
-  id        String   @id @default(uuid())
-  meetingId String
-  url       String
-  duration  Int?
-  size      Int?
-  status    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-}
-
-model Notification {
-  id        String               @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String?
-  link      String?
-  data      Json?
-  priority  NotificationPriority @default(MEDIUM)
-  isRead    Boolean              @default(false)
-  readAt    DateTime?
-  status    String?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
-  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model Newsletter {
-  id             String                 @id @default(uuid())
-  userId         String
+model FileAsset {
+  id            String    @id @default(uuid())
+  workspaceId    String
+  teamId         String?
+  channelId      String?
+  ownerId        String
   name           String
-  description    String?
-  senderEmail    String
-  senderName     String?
-  listsUrl       String?
-  subscribers    Int                    @default(0)
-  isActive       Boolean                @default(true)
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subscriberList NewsletterSubscriber[]
-}
-
-model NewsletterSubscriber {
-  id             String     @id @default(uuid())
-  newsletterId   String
-  email          String
-  name           String?
-  status         String     @default("active")
-  subscribedAt   DateTime   @default(now())
-  unsubscribedAt DateTime?
-  metadata       Json?
-  newsletter     Newsletter @relation(fields: [newsletterId], references: [id], onDelete: Cascade)
-
-  @@unique([newsletterId, email])
-}
-
-model Category {
-  id          String     @id @default(uuid())
-  parentId    String?
-  name        String
-  slug        String     @unique
-  description String?
-  color       String?
-  isVisible   Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children    Category[] @relation("CategoryHierarchy")
-  articles    Article[]
-  media       Media[]
-}
-
-model Article {
-  id             String           @id @default(uuid())
-  authorId       String
-  categoryId     String?
-  title          String
-  slug           String           @unique
-  excerpt        String?
-  content        String
-  contentHtml    String?
-  status         ArticleStatus    @default(DRAFT)
-  featured       Boolean          @default(false)
-  publishedAt    DateTime?
-  scheduledAt    DateTime?
-  viewCount      Int              @default(0)
-  readTime       Int              @default(0)
-  imageUrl       String?
-  imageAlt       String?
-  seoTitle       String?
-  seoDescription String?
-  seoKeywords    String[]
-  tags           String[]
-  type           String?
-  team           String?
-  channel        String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  author         User             @relation("ArticleAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  category       Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  comments       Comment[]
-  bookmarks      Bookmark[]
-  readingHistory ReadingHistory[]
-  media          Media[]
-}
-
-model Comment {
-  id         String        @id @default(uuid())
-  articleId  String
-  authorId   String
-  parentId   String?
-  content    String
-  status     CommentStatus @default(PENDING)
-  isApproved Boolean       @default(false)
-  isFlagged  Boolean       @default(false)
-  flagReason String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-  article    Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  author     User          @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  parent     Comment?      @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
-  replies    Comment[]     @relation("CommentThread")
-}
-
-model Bookmark {
-  id        String   @id @default(uuid())
-  userId    String
-  articleId String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, articleId])
-}
-
-model ReadingHistory {
-  id        String   @id @default(uuid())
-  userId    String
-  articleId String
-  readAt    DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-}
-
-model Media {
-  id           String    @id @default(uuid())
-  uploaderId   String?
-  articleId    String?
-  categoryId   String?
-  filename     String
-  originalName String
-  mimeType     String
-  size         Int
-  url          String
-  alt          String?
-  width        Int?
-  height       Int?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  uploader     User?     @relation("MediaUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
-  article      Article?  @relation(fields: [articleId], references: [id], onDelete: SetNull)
-  category     Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-}
-
-model UserSubscription {
-  id                String             @id @default(uuid())
-  userId            String             @unique
-  plan              SubscriptionPlan
-  status            SubscriptionStatus
-  startedAt         DateTime
-  expiresAt         DateTime?
-  lastPaymentDate   DateTime?
-  nextPaymentDate   DateTime?
-  paymentMethod     String?
-  paymentLast4      String?
-  cancelAtPeriodEnd Boolean            @default(false)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model SystemSettings {
-  id                String   @id @default(uuid())
-  siteName          String
-  siteDescription   String?
-  siteUrl           String?
-  logoUrl           String?
-  faviconUrl        String?
-  email             String?
-  smtpHost          String?
-  smtpPort          Int?
-  smtpUser          String?
-  fromName          String?
-  fromEmail         String?
-  maintenanceMode   Boolean  @default(false)
-  registrationOpen  Boolean  @default(true)
-  commentsEnabled   Boolean  @default(true)
-  newsletterEnabled Boolean  @default(true)
-  analyticsEnabled  Boolean  @default(true)
-  sslEnforced       Boolean  @default(true)
-  dockerImage       String?
-  version           String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-
-model Page {
-  id             String    @id @default(uuid())
-  authorId       String?
-  slug           String    @unique
-  title          String
-  status         String    @default("draft")
-  content        String?
-  contentHtml    String?
-  excerpt        String?
-  seoTitle       String?
-  seoDescription String?
-  data           Json?
-  publishedAt    DateTime?
+  kind           FileKind
+  mimeType       String?
+  sizeBytes      BigInt    @default(0)
+  storageKey     String?
+  locationLabel  String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-  author         User?     @relation("PageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
-}
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team           Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  channel        Channel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  owner          User      @relation("FileOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-model Dossier {
-  id          String   @id @default(uuid())
-  authorId    String?
-  slug        String   @unique
-  name        String
-  title       String?
-  status      String   @default("draft")
-  description String?
-  data        Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  author      User?    @relation("DossierAuthor", fields: [authorId], references: [id], onDelete: SetNull)
-}
-
-model PlatformService {
-  id           String              @id @default(uuid())
-  slug         String              @unique
-  name         String
-  title        String?
-  status       ServiceStatus       @default(OPERATIONAL)
-  description  String?
-  url          String?
-  metadata     Json?
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  incidents    StatusIncident[]
-  maintenances StatusMaintenance[]
-}
-
-model PlatformStatus {
-  id           String        @id @default(uuid())
-  reportedById String?
-  status       ServiceStatus @default(OPERATIONAL)
-  title        String?
-  message      String?
-  data         Json?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  reportedBy   User?         @relation("StatusReporter", fields: [reportedById], references: [id], onDelete: SetNull)
-}
-
-model StatusIncident {
-  id           String           @id @default(uuid())
-  serviceId    String?
-  reportedById String?
-  title        String
-  status       String           @default("open")
-  severity     String?
-  summary      String?
-  data         Json?
-  startedAt    DateTime         @default(now())
-  resolvedAt   DateTime?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  service      PlatformService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  reportedBy   User?            @relation("IncidentReporter", fields: [reportedById], references: [id], onDelete: SetNull)
-}
-
-model StatusMaintenance {
-  id           String           @id @default(uuid())
-  serviceId    String?
-  reportedById String?
-  title        String
-  status       String           @default("scheduled")
-  summary      String?
-  data         Json?
-  startsAt     DateTime
-  endsAt       DateTime?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  service      PlatformService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  reportedBy   User?            @relation("MaintenanceReporter", fields: [reportedById], references: [id], onDelete: SetNull)
-}
-
-model ApiKey {
-  id         String       @id @default(uuid())
-  userId     String?
-  name       String
-  keyHash    String
-  prefix     String?
-  role       String?
-  status     ApiKeyStatus @default(ACTIVE)
-  lastUsedAt DateTime?
-  expiresAt  DateTime?
-  rotatedAt  DateTime?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
-  user       User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-}
-
-model Webhook {
-  id              String        @id @default(uuid())
-  name            String
-  url             String
-  secret          String?
-  events          String[]
-  status          WebhookStatus @default(ACTIVE)
-  lastDeliveredAt DateTime?
-  lastStatusCode  Int?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-}
-
-model LinkerItem {
-  id        String   @id @default(uuid())
-  slug      String   @unique
-  name      String
-  status    String   @default("active")
-  targetUrl String?
-  data      Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model ScheduleJob {
-  id        String         @id @default(uuid())
-  name      String
-  status    ScheduleStatus @default(DRAFT)
-  cron      String?
-  nextRunAt DateTime?
-  lastRunAt DateTime?
-  payload   Json?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-}
-
-model AuditLog {
-  id         String   @id @default(uuid())
-  actorId    String?
-  action     String
-  resource   String
-  resourceId String?
-  level      String?
-  ipAddress  String?
-  userAgent  String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
-  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
-}
-
-model AnalyticsSnapshot {
-  id         String   @id @default(uuid())
-  name       String
-  metric     String
-  value      Float
-  dimensions Json?
-  capturedAt DateTime @default(now())
+  @@index([workspaceId, kind, updatedAt])
 }

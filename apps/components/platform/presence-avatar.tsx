@@ -25,7 +25,7 @@ export function PresenceAvatar({
   fallbackClassName,
 }: PresenceAvatarProps) {
   return (
-    <span className="relative inline-flex shrink-0">
+    <span className="relative inline-flex shrink-0 self-start">
       <Avatar className={cn("size-9 border border-border/70", className)}>
         <AvatarFallback
           className={cn(

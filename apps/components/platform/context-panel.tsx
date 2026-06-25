@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   CalendarDays,
   CalendarPlus,
@@ -34,16 +34,29 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { conversations, teams } from "@/lib/platform-data";
+import { conversations, currentUser, people, teams } from "@/lib/platform-data";
 import { notifications } from "@/lib/platform-notifications";
 import { useChatStore } from "@/lib/chat-store";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 
-function PanelTitle({ title }: { title: string }) {
+interface PanelTitleProps {
+  title: string;
+  onCreate?: () => void;
+}
+
+function PanelTitle({ title, onCreate }: PanelTitleProps) {
   return (
     <div className="flex h-15.5 items-center justify-between border-b border-white/7 px-5">
       <h2 className="text-base font-semibold tracking-tight text-zinc-100">{title}</h2>
@@ -52,7 +65,7 @@ function PanelTitle({ title }: { title: string }) {
           <MoreHorizontal className="size-4" />
           <span className="sr-only">Plus d’options</span>
         </Button>
-        <Button variant="ghost" size="icon-sm" className="rounded-lg">
+        <Button variant="ghost" size="icon-sm" className="rounded-lg" onClick={onCreate}>
           <Plus className="size-4" />
           <span className="sr-only">Créer</span>
         </Button>
@@ -63,11 +76,68 @@ function PanelTitle({ title }: { title: string }) {
 
 function ChatPanel() {
   const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const customConversations = useChatStore((s) => s.customConversations);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
+  const createConversation = useChatStore((s) => s.createConversation);
+  const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("unread");
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [conversationType, setConversationType] = React.useState<"dm" | "channel">("dm");
+  const [groupName, setGroupName] = React.useState("");
+  const [selectedMemberIds, setSelectedMemberIds] = React.useState<string[]>([]);
+  const availablePeople = people.filter((person) => person.id !== currentUser.id);
+  const conversationList = React.useMemo(() => {
+    const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
+    return [
+      ...customConversations,
+      ...conversations.filter((conversation) => !customConversationIds.has(conversation.id)),
+    ];
+  }, [customConversations]);
+  const filteredConversations = React.useMemo(() => {
+    if (activeFilter === "unread") {
+      return conversationList.filter((conversation) => (conversation.unread ?? 0) > 0);
+    }
+
+    if (activeFilter === "channel") {
+      return conversationList.filter((conversation) => conversation.type === "channel");
+    }
+
+    return conversationList.filter((conversation) => conversation.type === "dm");
+  }, [activeFilter, conversationList]);
+
+  function toggleMember(memberId: string) {
+    setSelectedMemberIds((current) =>
+      current.includes(memberId) ? current.filter((item) => item !== memberId) : [...current, memberId]
+    );
+  }
+
+  function resetDraft() {
+    setConversationType("dm");
+    setGroupName("");
+    setSelectedMemberIds([]);
+  }
+
+  function handleCreateConversation() {
+    if (conversationType === "dm" && selectedMemberIds.length !== 1) return;
+    if (conversationType === "channel" && (selectedMemberIds.length === 0 || !groupName.trim())) return;
+
+    createConversation({
+      type: conversationType,
+      name: conversationType === "channel" ? groupName : undefined,
+      memberIds: selectedMemberIds,
+    });
+    setCreateOpen(false);
+    resetDraft();
+  }
 
   return (
     <>
-      <PanelTitle title="Conversations" />
+      <PanelTitle
+        title="Conversations"
+        onCreate={() => {
+          resetDraft();
+          setCreateOpen(true);
+        }}
+      />
       <div className="px-4 py-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -77,16 +147,21 @@ function ChatPanel() {
           />
         </div>
         <div className="mt-3 flex gap-1.5">
-          {["Non lus", "Canaux", "Messages"].map((filter, index) => (
+          {[
+            { label: "Non lus", value: "unread" },
+            { label: "Canaux", value: "channel" },
+            { label: "Messages", value: "dm" },
+          ].map((filter) => (
             <button
-              key={filter}
+              key={filter.value}
               type="button"
+              onClick={() => setActiveFilter(filter.value)}
               className={cn(
                 "rounded-full border border-white/15 px-2.5 py-1 text-[11px] text-zinc-400",
-                index === 0 && "border-primary/30 bg-primary/10 text-primary"
+                activeFilter === filter.value && "border-primary/30 bg-primary/10 text-primary"
               )}
             >
-              {filter}
+              {filter.label}
             </button>
           ))}
         </div>
@@ -102,47 +177,175 @@ function ChatPanel() {
             <span className="font-medium">Messages récents</span>
           </button>
           <div className="mt-1 space-y-1">
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                type="button"
-                onClick={() => setActiveConversation(conversation.id)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
-                  activeConversationId === conversation.id && "bg-violet-500/10"
-                )}
-              >
-                <PresenceAvatar
-                  initials={conversation.initials}
-                  status={conversation.status}
-                  className="size-9"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">{conversation.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
-                  </span>
-                  <span className="mt-0.5 flex items-center gap-2">
-                    <span className="truncate text-xs text-muted-foreground">
-                      {conversation.preview}
+            {filteredConversations.length > 0 ? (
+              filteredConversations.map((conversation) => (
+                <button
+                  key={conversation.id}
+                  type="button"
+                  onClick={() => setActiveConversation(conversation.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
+                    activeConversationId === conversation.id && "bg-violet-500/10"
+                  )}
+                >
+                  <PresenceAvatar
+                    initials={conversation.initials}
+                    status={conversation.status}
+                    className="size-9"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium">{conversation.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
                     </span>
-                    {conversation.unread ? (
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
-                        {conversation.unread}
+                    <span className="mt-0.5 flex items-center gap-2">
+                      <span className="truncate text-xs text-muted-foreground">
+                        {conversation.preview}
                       </span>
-                    ) : null}
+                      {conversation.unread ? (
+                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+                          {conversation.unread}
+                        </span>
+                      ) : null}
+                    </span>
                   </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              ))
+            ) : (
+              <div className="rounded-md border border-dashed border-white/10 bg-black/10 px-3 py-4 text-sm text-zinc-400">
+                Aucun résultat pour ce filtre.
+              </div>
+            )}
           </div>
         </div>
       </ScrollArea>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) resetDraft();
+        }}
+      >
+        <DialogContent className="border-white/12 bg-[#27282b] text-zinc-100 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nouvelle conversation</DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Crée une conversation privée ou un groupe depuis le bouton `+`.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={conversationType === "dm" ? "secondary" : "outline"}
+                size="sm"
+                className="rounded-md"
+                onClick={() => {
+                  setConversationType("dm");
+                  setGroupName("");
+                  setSelectedMemberIds((current) => current.slice(0, 1));
+                }}
+              >
+                Conversation privée
+              </Button>
+              <Button
+                type="button"
+                variant={conversationType === "channel" ? "secondary" : "outline"}
+                size="sm"
+                className="rounded-md"
+                onClick={() => setConversationType("channel")}
+              >
+                Groupe
+              </Button>
+            </div>
+
+            {conversationType === "channel" && (
+              <div className="space-y-2">
+                <label htmlFor="group-name" className="text-sm font-medium text-zinc-200">
+                  Nom du groupe
+                </label>
+                <Input
+                  id="group-name"
+                  value={groupName}
+                  onChange={(event) => setGroupName(event.target.value)}
+                  placeholder="Ex. Squad lancement"
+                  className="border-white/10 bg-black/15"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-zinc-200">
+                {conversationType === "dm" ? "Choisir une personne" : "Ajouter des participants"}
+              </p>
+              <div className="max-h-64 space-y-2 overflow-auto rounded-lg border border-white/10 bg-black/10 p-2">
+                {availablePeople.map((person) => {
+                  const checked = selectedMemberIds.includes(person.id);
+
+                  return (
+                    <label
+                      key={person.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-white/5"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => {
+                          if (conversationType === "dm") {
+                            setSelectedMemberIds(checked ? [] : [person.id]);
+                            return;
+                          }
+
+                          toggleMember(person.id);
+                        }}
+                      />
+                      <PresenceAvatar initials={person.initials} status={person.status} className="size-8" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-zinc-100">{person.name}</span>
+                        <span className="block text-xs text-zinc-400">{person.role}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleCreateConversation}
+              disabled={
+                conversationType === "dm"
+                  ? selectedMemberIds.length !== 1
+                  : selectedMemberIds.length === 0 || !groupName.trim()
+              }
+            >
+              Créer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 
 function TeamsPanel() {
+  const searchParams = useSearchParams();
+  const activeTeam = searchParams.get("team");
+  const activeChannel = searchParams.get("channel");
+  const activeView = searchParams.get("view") ?? "all";
+  const [expandedTeams, setExpandedTeams] = React.useState<string[]>(teams.map((team) => team.id));
+
+  function toggleTeam(teamId: string) {
+    setExpandedTeams((current) =>
+      current.includes(teamId) ? current.filter((item) => item !== teamId) : [...current, teamId]
+    );
+  }
+
   return (
     <>
       <PanelTitle title="Équipes" />
@@ -150,35 +353,69 @@ function TeamsPanel() {
         <div className="space-y-4 p-3">
           <nav className="space-y-1">
             <Link
-              href="/teams"
-              className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary"
+              href="/teams?view=all"
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm",
+                activeView === "all"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted/50"
+              )}
             >
               <UsersRound className="size-4" />
               Toutes les équipes
             </Link>
-            <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted/50">
+            <Link
+              href="/teams?view=favorites"
+              className={cn(
+                "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm",
+                activeView === "favorites"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted/50"
+              )}
+            >
               <Star className="size-4" />
               Favoris
-            </button>
+            </Link>
           </nav>
           <Separator />
           {teams.map((team) => (
             <div key={team.id}>
-              <button className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted/50">
-                <ChevronDown className="size-3.5 text-muted-foreground" />
+              <button
+                type="button"
+                onClick={() => toggleTeam(team.id)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted/50",
+                  activeTeam === team.id && "text-primary"
+                )}
+              >
+                <ChevronDown
+                  className={cn(
+                    "size-3.5 text-muted-foreground transition-transform",
+                    expandedTeams.includes(team.id) && "rotate-0",
+                    !expandedTeams.includes(team.id) && "-rotate-90"
+                  )}
+                />
                 <span className="truncate">{team.name}</span>
               </button>
-              <div className="ml-5 space-y-0.5">
-                {team.channels.slice(0, 3).map((channel) => (
-                  <button
-                    key={channel}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  >
-                    <Hash className="size-3.5" />
-                    {channel}
-                  </button>
-                ))}
-              </div>
+              {expandedTeams.includes(team.id) ? (
+                <div className="ml-5 space-y-0.5">
+                  {team.channels.slice(0, 3).map((channel) => (
+                    <Link
+                      key={channel}
+                      href={`/teams?team=${team.id}&channel=${encodeURIComponent(channel)}`}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50",
+                        activeTeam === team.id && activeChannel === channel
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Hash className="size-3.5" />
+                      {channel}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -304,6 +541,9 @@ function CallsPanel() {
 }
 
 function DrivePanel() {
+  const searchParams = useSearchParams();
+  const activeSection = searchParams.get("section") ?? "home";
+
   return (
     <>
       <PanelTitle title="Aether Drive" />
@@ -316,26 +556,28 @@ function DrivePanel() {
       <ScrollArea className="min-h-0 flex-1">
         <nav className="space-y-0.5 px-2">
           {[
-            { label: "Accueil", icon: Home, active: true },
-            { label: "Mes fichiers", icon: Folder },
-            { label: "Partagé", icon: Share2 },
-            { label: "Favoris", icon: Star },
-            { label: "Corbeille", icon: Trash2 },
+            { label: "Accueil", icon: Home, value: "home" },
+            { label: "Mes fichiers", icon: Folder, value: "my-files" },
+            { label: "Partagé", icon: Share2, value: "shared" },
+            { label: "Favoris", icon: Star, value: "favorites" },
+            { label: "Corbeille", icon: Trash2, value: "trash" },
           ].map((item) => (
-            <button
+            <Link
               key={item.label}
-              type="button"
+              href={`/drive?section=${item.value}`}
               className={cn(
                 "relative flex w-full items-center gap-3 rounded-sm px-4 py-2 text-sm text-zinc-300 hover:bg-white/5",
-                item.active && "font-semibold"
+                activeSection === item.value && "font-semibold"
               )}
             >
-              {item.active ? (
+              {activeSection === item.value ? (
                 <span className="absolute left-0 h-5 w-0.5 rounded-r-full bg-[#7775ff]" />
               ) : null}
-              <item.icon className={cn("size-4 text-zinc-400", item.active && "text-[#8b89ff]")} />
+              <item.icon
+                className={cn("size-4 text-zinc-400", activeSection === item.value && "text-[#8b89ff]")}
+              />
               {item.label}
-            </button>
+            </Link>
           ))}
         </nav>
 

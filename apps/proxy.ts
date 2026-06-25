@@ -32,7 +32,13 @@ function isValidLocale(locale: string): locale is Locale {
 const AUTH_PATHS = ["/login", "/register"];
 const PROTECTED_PATHS = ["/dashboard", "/user"];
 const PLATFORM_PATHS = [
+  "/contacts",
+  "/dashboard",
+  "/documents",
   "/home",
+  "/projects",
+  "/resources",
+  "/tasks",
   "/calendar",
   "/calls",
   "/chat",
