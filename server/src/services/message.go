@@ -18,10 +18,11 @@ type MessageService struct {
 	conversations *ConversationService
 	workspaces    *WorkspaceService
 	bus           interfaces.EventBus
+	outbox        *OutboxService
 }
 
-func NewMessageService(db interfaces.Database, repos *Repositories, conversations *ConversationService, workspaces *WorkspaceService, bus interfaces.EventBus) *MessageService {
-	return &MessageService{db: db, repos: repos, conversations: conversations, workspaces: workspaces, bus: bus}
+func NewMessageService(db interfaces.Database, repos *Repositories, conversations *ConversationService, workspaces *WorkspaceService, bus interfaces.EventBus, outbox *OutboxService) *MessageService {
+	return &MessageService{db: db, repos: repos, conversations: conversations, workspaces: workspaces, bus: bus, outbox: outbox}
 }
 
 func (s *MessageService) List(ctx context.Context, principal interfaces.Principal, conversationID, cursor string, limit int) ([]models.Message, string, bool, error) {
@@ -71,7 +72,18 @@ func (s *MessageService) Create(ctx context.Context, principal interfaces.Princi
 			WorkspaceID: conversation.WorkspaceID, ActorID: principal.UserID, Action: "message.create",
 			ResourceType: "message", ResourceID: message.ID, Metadata: auditPayload,
 		}
-		return txRepos.AuditLogs().Create(ctx, audit)
+		if err := txRepos.AuditLogs().Create(ctx, audit); err != nil {
+			return err
+		}
+		if s.outbox != nil {
+			return s.outbox.Add(ctx, txRepos.OutboxEvents(), "message.created", "message", message.ID, conversation.WorkspaceID, map[string]any{
+				"messageId":      message.ID,
+				"conversationId": conversation.ID,
+				"workspaceId":    conversation.WorkspaceID,
+				"authorId":       principal.UserID,
+			})
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}

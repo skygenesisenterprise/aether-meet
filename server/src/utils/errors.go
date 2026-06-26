@@ -41,4 +41,6 @@ var (
 	ErrIntegrationNotConfigured   = NewError(http.StatusServiceUnavailable, "INTEGRATION_NOT_CONFIGURED", "The integration is not configured.", nil)
 	ErrMeetingProviderUnavailable = NewError(http.StatusServiceUnavailable, "MEETING_PROVIDER_NOT_CONFIGURED", "A meeting provider is not configured.", nil)
 	ErrDependencyUnavailable      = NewError(http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "A required dependency is unavailable.", nil)
+	ErrWorkerUnavailable          = NewError(http.StatusServiceUnavailable, "WORKER_UNAVAILABLE", "Background workers are unavailable.", nil)
+	ErrUnknownJobType             = NewError(http.StatusBadRequest, "UNKNOWN_JOB_TYPE", "The requested job type is not registered.", nil)
 )

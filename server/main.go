@@ -50,6 +50,8 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	db, err := connectDatabase(context.Background(), logger, cfg)
 	if err != nil {
@@ -88,10 +90,14 @@ func main() {
 	}()
 
 	repos := services.NewRepositories(db.Gorm())
+	metrics := &services.WorkerMetrics{}
+	queue := services.NewJobQueue(logger, cfg, redis, metrics)
+	producer := services.NewQueueProducer(logger, queue, cfg.Worker.MaxAttempts, metrics)
+	outboxService := services.NewOutboxService(logger, cfg.Outbox, repos.OutboxEvents(), producer)
 	identityProvider := services.NewIdentityProvider(cfg.Auth)
 	eventBus := services.NewEventBus(cfg, redis)
 	defer eventBus.Close()
-	presence := services.NewPresenceService(logger, redis, eventBus, cfg.Realtime.ClientTimeout)
+	presence := services.NewPresenceService(logger, redis, eventBus, repos.Users(), cfg.Realtime.ClientTimeout)
 	defer presence.Close()
 	_, err = services.NewObjectStorage(cfg.Storage)
 	if err != nil {
@@ -104,11 +110,17 @@ func main() {
 	teamService := services.NewTeamService(repos.Teams(), workspaceService)
 	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)
 	channelService := services.NewChannelService(db, repos, workspaceService, repos.Conversations())
-	messageService := services.NewMessageService(db, repos, conversationService, workspaceService, eventBus)
-	meetingService := services.NewMeetingService(repos.Meetings(), workspaceService, services.NewMeetingProvider(cfg.LiveKit))
-	integrationService := services.NewIntegrationService(repos.Integrations(), workspaceService, eventBus)
+	messageService := services.NewMessageService(db, repos, conversationService, workspaceService, eventBus, outboxService)
+	meetingService := services.NewMeetingService(repos.Meetings(), workspaceService, services.NewMeetingProvider(cfg.LiveKit), outboxService, producer)
+	integrationService := services.NewIntegrationService(repos.Integrations(), workspaceService, eventBus, repos.Messages(), producer)
 	auditService := services.NewAuditService(repos.AuditLogs(), workspaceService)
-	hub := services.NewHub(logger, cfg.Realtime, eventBus, presence, workspaceService, conversationService)
+	notificationService := services.NewNotificationService(repos.Notifications(), eventBus)
+	registry := services.NewJobRegistry()
+	notificationHandlers := services.NewNotificationHandlers(eventBus, repos.Messages(), repos.ConversationMembers(), notificationService, repos.WorkspaceMembers())
+	services.RegisterWorkerHandlers(registry, notificationHandlers, presence, integrationService, meetingService)
+	scheduler := services.NewScheduler(redis, producer)
+	worker := services.NewWorker(logger, cfg, redis, queue, producer, registry, outboxService, scheduler, presence, integrationService, meetingService, metrics)
+	hub := services.NewHub(ctx, logger, cfg.Realtime, cfg.CORS.AllowedOrigins, eventBus, presence, workspaceService, conversationService)
 	defer hub.Close()
 
 	mode := "server"
@@ -116,12 +128,8 @@ func main() {
 		mode = os.Args[1]
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	switch mode {
 	case "worker":
-		worker := services.NewWorker(logger)
 		if err := worker.Run(ctx); err != nil {
 			logger.Error("worker stopped with error", "error", err)
 			os.Exit(1)

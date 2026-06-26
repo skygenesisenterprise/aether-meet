@@ -60,5 +60,8 @@ func (s *DatabaseService) AutoMigrate() error {
 		&models.MeetingParticipant{},
 		&models.Integration{},
 		&models.AuditLog{},
+		&models.Notification{},
+		&models.OutboxEvent{},
+		&models.Attachment{},
 	)
 }

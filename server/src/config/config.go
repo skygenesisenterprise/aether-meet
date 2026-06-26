@@ -12,15 +12,18 @@ import (
 const devJWTSecret = "dev-insecure-secret-change-me"
 
 type Config struct {
-	App      AppConfig
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	Auth     AuthConfig
-	CORS     CORSConfig
-	Realtime RealtimeConfig
-	Storage  StorageConfig
-	LiveKit  LiveKitConfig
+	App       AppConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	Auth      AuthConfig
+	CORS      CORSConfig
+	Realtime  RealtimeConfig
+	Storage   StorageConfig
+	LiveKit   LiveKitConfig
+	Worker    WorkerConfig
+	Outbox    OutboxConfig
+	Retention RetentionConfig
 }
 
 type AppConfig struct {
@@ -92,6 +95,34 @@ type LiveKitConfig struct {
 	APISecret string
 }
 
+type WorkerConfig struct {
+	Enabled           bool
+	ID                string
+	Concurrency       int
+	MaxAttempts       int
+	RetryBaseDelay    time.Duration
+	BlockTimeout      time.Duration
+	ClaimIdleTimeout  time.Duration
+	ShutdownTimeout   time.Duration
+	SchedulerEnabled  bool
+	HeartbeatInterval time.Duration
+	HeartbeatTTL      time.Duration
+}
+
+type OutboxConfig struct {
+	Enabled      bool
+	BatchSize    int
+	PollInterval time.Duration
+	MaxAttempts  int
+}
+
+type RetentionConfig struct {
+	NotificationDays int
+	AuditDays        int
+	SessionDays      int
+	UploadHours      int
+}
+
 func Load() (Config, error) {
 	cfg := Config{
 		App: AppConfig{
@@ -154,6 +185,35 @@ func Load() (Config, error) {
 			APIKey:    getEnv("LIVEKIT_API_KEY", ""),
 			APISecret: getEnv("LIVEKIT_API_SECRET", ""),
 		},
+		Worker: WorkerConfig{
+			Enabled:           getEnvBool("WORKER_ENABLED", false),
+			ID:                getEnv("WORKER_ID", ""),
+			Concurrency:       getEnvInt("WORKER_CONCURRENCY", 2),
+			MaxAttempts:       getEnvInt("WORKER_MAX_ATTEMPTS", 5),
+			RetryBaseDelay:    getEnvDuration("WORKER_RETRY_BASE_DELAY", 5*time.Second),
+			BlockTimeout:      getEnvDuration("WORKER_BLOCK_TIMEOUT", 5*time.Second),
+			ClaimIdleTimeout:  getEnvDuration("WORKER_CLAIM_IDLE_TIMEOUT", 30*time.Second),
+			ShutdownTimeout:   getEnvDuration("WORKER_SHUTDOWN_TIMEOUT", 15*time.Second),
+			SchedulerEnabled:  getEnvBool("WORKER_SCHEDULER_ENABLED", true),
+			HeartbeatInterval: getEnvDuration("WORKER_HEARTBEAT_INTERVAL", 15*time.Second),
+			HeartbeatTTL:      getEnvDuration("WORKER_HEARTBEAT_TTL", 45*time.Second),
+		},
+		Outbox: OutboxConfig{
+			Enabled:      getEnvBool("OUTBOX_ENABLED", true),
+			BatchSize:    getEnvInt("OUTBOX_BATCH_SIZE", 50),
+			PollInterval: getEnvDuration("OUTBOX_POLL_INTERVAL", 5*time.Second),
+			MaxAttempts:  getEnvInt("OUTBOX_MAX_ATTEMPTS", 10),
+		},
+		Retention: RetentionConfig{
+			NotificationDays: getEnvInt("NOTIFICATION_RETENTION_DAYS", 30),
+			AuditDays:        getEnvInt("AUDIT_RETENTION_DAYS", 90),
+			SessionDays:      getEnvInt("SESSION_RETENTION_DAYS", 30),
+			UploadHours:      getEnvInt("UPLOAD_RETENTION_HOURS", 24),
+		},
+	}
+
+	if cfg.Worker.ID == "" {
+		cfg.Worker.ID = "worker-" + strings.ReplaceAll(strconv.FormatInt(time.Now().UTC().UnixNano(), 36), "-", "")
 	}
 
 	if cfg.Auth.JWTSecret == "" && cfg.App.Env != "production" {
@@ -190,6 +250,24 @@ func (c Config) Validate() error {
 		if c.LiveKit.URL == "" || c.LiveKit.APIKey == "" || c.LiveKit.APISecret == "" {
 			return errors.New("LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when LIVEKIT_ENABLED=true")
 		}
+	}
+	if c.Worker.Concurrency <= 0 {
+		return errors.New("WORKER_CONCURRENCY must be greater than zero")
+	}
+	if c.Worker.MaxAttempts <= 0 {
+		return errors.New("WORKER_MAX_ATTEMPTS must be greater than zero")
+	}
+	if c.Worker.BlockTimeout <= 0 || c.Worker.ClaimIdleTimeout <= 0 || c.Worker.ShutdownTimeout <= 0 || c.Worker.HeartbeatInterval <= 0 || c.Worker.HeartbeatTTL <= 0 {
+		return errors.New("worker durations must be greater than zero")
+	}
+	if c.Outbox.BatchSize <= 0 || c.Outbox.MaxAttempts <= 0 {
+		return errors.New("outbox batch and max attempts must be greater than zero")
+	}
+	if c.Outbox.PollInterval <= 0 {
+		return errors.New("OUTBOX_POLL_INTERVAL must be greater than zero")
+	}
+	if c.Retention.NotificationDays < 0 || c.Retention.AuditDays < 0 || c.Retention.SessionDays < 0 || c.Retention.UploadHours < 0 {
+		return errors.New("retention values cannot be negative")
 	}
 	return nil
 }

@@ -24,15 +24,16 @@ type PresenceService struct {
 	logger  *slog.Logger
 	redis   *redisclient.Client
 	bus     interfaces.EventBus
+	users   interfaces.UserRepository
 	ttl     time.Duration
 	records map[string]PresenceRecord
 	mu      sync.RWMutex
 	stop    chan struct{}
 }
 
-func NewPresenceService(logger *slog.Logger, redis *redisclient.Client, bus interfaces.EventBus, ttl time.Duration) *PresenceService {
+func NewPresenceService(logger *slog.Logger, redis *redisclient.Client, bus interfaces.EventBus, users interfaces.UserRepository, ttl time.Duration) *PresenceService {
 	svc := &PresenceService{
-		logger: logger, redis: redis, bus: bus, ttl: ttl,
+		logger: logger, redis: redis, bus: bus, users: users, ttl: ttl,
 		records: map[string]PresenceRecord{},
 		stop:    make(chan struct{}),
 	}
@@ -121,4 +122,86 @@ func (s *PresenceService) cleanupLoop() {
 			return
 		}
 	}
+}
+
+func (s *PresenceService) ExpireStale(ctx context.Context, limit int) error {
+	if s.users == nil {
+		return nil
+	}
+	items, err := s.users.ListStale(ctx, time.Now().UTC().Add(-s.ttl), limit)
+	if err != nil {
+		return err
+	}
+	for _, user := range items {
+		if user.Status == "offline" {
+			continue
+		}
+		user.Status = "offline"
+		now := time.Now().UTC()
+		user.UpdatedAt = now
+		if err := s.users.Update(ctx, &user); err != nil {
+			return err
+		}
+		_ = s.bus.Publish(ctx, interfaces.Event{
+			ID:        utils.NewID(),
+			Topic:     "workspace." + "",
+			Type:      "presence.updated",
+			ActorID:   user.ID,
+			Timestamp: now.Format(time.RFC3339),
+			Payload:   map[string]any{"state": "offline", "deviceCount": 0},
+		})
+	}
+	return nil
+}
+
+func (s *PresenceService) PersistLastSeen(ctx context.Context) error {
+	if s.users == nil {
+		return nil
+	}
+	records, err := s.listRecords(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		user, userErr := s.users.GetByID(ctx, record.UserID)
+		if userErr != nil {
+			continue
+		}
+		user.Status = record.State
+		user.LastSeenAt = &record.LastSeenAt
+		user.UpdatedAt = time.Now().UTC()
+		if err := s.users.Update(ctx, user); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PresenceService) listRecords(ctx context.Context) ([]PresenceRecord, error) {
+	if s.redis != nil && s.redis.Raw != nil {
+		pattern := s.presenceKey("*")
+		keys, err := s.redis.Raw.Keys(ctx, pattern).Result()
+		if err != nil {
+			return nil, err
+		}
+		out := make([]PresenceRecord, 0, len(keys))
+		for _, key := range keys {
+			raw, getErr := s.redis.Raw.Get(ctx, key).Result()
+			if getErr != nil {
+				continue
+			}
+			var record PresenceRecord
+			if err := json.Unmarshal([]byte(raw), &record); err == nil {
+				out = append(out, record)
+			}
+		}
+		return out, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PresenceRecord, 0, len(s.records))
+	for _, record := range s.records {
+		out = append(out, record)
+	}
+	return out, nil
 }

@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
@@ -51,4 +52,29 @@ type IntegrationProvider interface {
 	Name() string
 	ValidateConfiguration(ctx context.Context, config map[string]any) error
 	HandleWebhook(ctx context.Context, integration models.Integration, payload []byte, headers http.Header) ([]Event, error)
+}
+
+type JobHandler func(ctx context.Context, job models.Job) error
+
+type JobQueue interface {
+	Enqueue(ctx context.Context, queue string, job models.Job) error
+	Consume(ctx context.Context, queue string, consumerGroup string, consumerName string, handler JobHandler) error
+	Retry(ctx context.Context, queue string, job models.Job, delay time.Duration, cause error) error
+	DeadLetter(ctx context.Context, queue string, job models.Job, cause error) error
+	ListDeadLetters(ctx context.Context, queue string, limit int) ([]models.Job, error)
+	Close() error
+	Healthy(ctx context.Context) error
+}
+
+type JobProducer interface {
+	EnqueueJob(ctx context.Context, queue string, jobType string, payload any, options JobOptions) (models.Job, error)
+}
+
+type JobOptions struct {
+	WorkspaceID    string
+	ActorID        string
+	IdempotencyKey string
+	MaxAttempts    int
+	AvailableAt    time.Time
+	Payload        json.RawMessage
 }

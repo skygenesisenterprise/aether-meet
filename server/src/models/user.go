@@ -8,5 +8,6 @@ type User struct {
 	DisplayName string     `gorm:"type:text;not null" json:"displayName"`
 	AvatarURL   string     `gorm:"type:text" json:"avatarUrl,omitempty"`
 	Status      string     `gorm:"type:text;not null;default:'offline'" json:"status"`
+	LastSeenAt  *time.Time `gorm:"index" json:"lastSeenAt,omitempty"`
 	DisabledAt  *time.Time `json:"disabledAt,omitempty"`
 }

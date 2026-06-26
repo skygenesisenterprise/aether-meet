@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -59,10 +60,12 @@ type MeetingService struct {
 	meetings   interfaces.MeetingRepository
 	workspaces *WorkspaceService
 	provider   interfaces.MeetingProvider
+	outbox     *OutboxService
+	producer   interfaces.JobProducer
 }
 
-func NewMeetingService(meetings interfaces.MeetingRepository, workspaces *WorkspaceService, provider interfaces.MeetingProvider) *MeetingService {
-	return &MeetingService{meetings: meetings, workspaces: workspaces, provider: provider}
+func NewMeetingService(meetings interfaces.MeetingRepository, workspaces *WorkspaceService, provider interfaces.MeetingProvider, outbox *OutboxService, producer interfaces.JobProducer) *MeetingService {
+	return &MeetingService{meetings: meetings, workspaces: workspaces, provider: provider, outbox: outbox, producer: producer}
 }
 
 func (s *MeetingService) List(ctx context.Context, principal interfaces.Principal, workspaceID string) ([]models.Meeting, error) {
@@ -83,6 +86,15 @@ func (s *MeetingService) Create(ctx context.Context, principal interfaces.Princi
 	}
 	if err := s.meetings.Create(ctx, meeting); err != nil {
 		return nil, err
+	}
+	if s.outbox != nil {
+		_ = s.outbox.Add(ctx, nil, "meeting.created", "meeting", meeting.ID, workspaceID, map[string]any{
+			"meetingId":      meeting.ID,
+			"workspaceId":    workspaceID,
+			"userId":         principal.UserID,
+			"title":          title,
+			"idempotencyKey": "meeting:" + meeting.ID + ":creator:" + principal.UserID,
+		})
 	}
 	return meeting, nil
 }
@@ -136,4 +148,65 @@ func (s *MeetingService) JoinToken(ctx context.Context, principal interfaces.Pri
 		return "", err
 	}
 	return s.provider.CreateJoinToken(ctx, *meeting, principal)
+}
+
+func (s *MeetingService) EnqueueDueReminders(ctx context.Context) error {
+	if s.producer == nil {
+		return nil
+	}
+	items, err := s.meetings.ListStartingBetween(ctx, time.Now().UTC(), time.Now().UTC().Add(15*time.Minute), 100)
+	if err != nil {
+		return err
+	}
+	for _, meeting := range items {
+		payload, _ := json.Marshal(map[string]any{
+			"meetingId":      meeting.ID,
+			"workspaceId":    meeting.WorkspaceID,
+			"userId":         meeting.CreatedBy,
+			"title":          meeting.Title,
+			"idempotencyKey": "meeting-reminder:" + meeting.ID + ":" + meeting.CreatedBy,
+		})
+		if _, err := s.producer.EnqueueJob(ctx, "notifications", "notification.meeting.reminder", nil, interfaces.JobOptions{
+			WorkspaceID: meeting.WorkspaceID,
+			Payload:     payload,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *MeetingService) ExpireStale(ctx context.Context) error {
+	items, err := s.meetings.ListExpiredScheduled(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
+	if err != nil {
+		return err
+	}
+	for _, meeting := range items {
+		meeting.Status = "expired"
+		meeting.UpdatedAt = time.Now().UTC()
+		if err := s.meetings.Update(ctx, &meeting); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *MeetingService) AutoEndAbandoned(ctx context.Context) error {
+	items, err := s.meetings.ListAbandonedActive(ctx, time.Now().UTC().Add(-30*time.Minute), 100)
+	if err != nil {
+		return err
+	}
+	for _, meeting := range items {
+		if err := s.provider.EndRoom(ctx, meeting); err != nil && err != utils.ErrMeetingProviderUnavailable {
+			return err
+		}
+		now := time.Now().UTC()
+		meeting.Status = "ended"
+		meeting.EndedAt = &now
+		meeting.UpdatedAt = now
+		if err := s.meetings.Update(ctx, &meeting); err != nil {
+			return err
+		}
+	}
+	return nil
 }

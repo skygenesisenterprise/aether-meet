@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -39,10 +41,22 @@ func (b *InMemoryEventBus) Publish(ctx context.Context, event interfaces.Event) 
 	return nil
 }
 
-func (b *InMemoryEventBus) Subscribe(_ context.Context, topic string, handler interfaces.EventHandler) error {
+func (b *InMemoryEventBus) Subscribe(ctx context.Context, topic string, handler interfaces.EventHandler) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.handlers[topic] = append(b.handlers[topic], handler)
+	b.mu.Unlock()
+	go func() {
+		<-ctx.Done()
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		handlers := b.handlers[topic]
+		for i, item := range handlers {
+			if fmt.Sprintf("%p", item) == fmt.Sprintf("%p", handler) {
+				b.handlers[topic] = append(handlers[:i], handlers[i+1:]...)
+				break
+			}
+		}
+	}()
 	return nil
 }
 
@@ -71,6 +85,11 @@ func (b *RedisEventBus) Subscribe(ctx context.Context, topic string, handler int
 	pattern := b.channel(topic)
 	pubsub := b.redis.Raw.PSubscribe(ctx, pattern)
 	go func() {
+		defer b.pubsub.Delete(pattern)
+		go func() {
+			<-ctx.Done()
+			_ = pubsub.Close()
+		}()
 		ch := pubsub.Channel()
 		for message := range ch {
 			var event interfaces.Event
@@ -117,6 +136,8 @@ type Hub struct {
 	conversations    *ConversationService
 	heartbeat        time.Duration
 	timeout          time.Duration
+	origins          map[string]struct{}
+	cancel           context.CancelFunc
 }
 
 type client struct {
@@ -125,6 +146,7 @@ type client struct {
 	principal     interfaces.Principal
 	workspaces    map[string]struct{}
 	conversations map[string]struct{}
+	closeOnce     sync.Once
 }
 
 type RealtimeCommand struct {
@@ -140,26 +162,40 @@ func NewEventBus(cfg config.Config, redis *redisclient.Client) interfaces.EventB
 	return NewInMemoryEventBus()
 }
 
-func NewHub(logger *slog.Logger, cfg config.RealtimeConfig, bus interfaces.EventBus, presence *PresenceService, workspaces *WorkspaceService, conversations *ConversationService) *Hub {
+func NewHub(ctx context.Context, logger *slog.Logger, cfg config.RealtimeConfig, origins []string, bus interfaces.EventBus, presence *PresenceService, workspaces *WorkspaceService, conversations *ConversationService) *Hub {
+	subCtx, cancel := context.WithCancel(ctx)
+	allowedOrigins := map[string]struct{}{}
+	for _, origin := range origins {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			allowedOrigins[origin] = struct{}{}
+		}
+	}
 	h := &Hub{
 		logger:   logger,
-		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return isAllowedOrigin(allowedOrigins, r) }},
 		clients:  map[*client]struct{}{},
 		bus:      bus, presence: presence, workspaceService: workspaces, conversations: conversations,
 		heartbeat: cfg.HeartbeatInterval, timeout: cfg.ClientTimeout,
+		origins: allowedOrigins, cancel: cancel,
 	}
-	_ = bus.Subscribe(context.Background(), "*", h.handleEvent)
+	_ = bus.Subscribe(subCtx, "*", h.handleEvent)
 	return h
 }
 
 func (h *Hub) Healthy(context.Context) error { return nil }
 
 func (h *Hub) Close() error {
+	h.cancel()
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	clients := make([]*client, 0, len(h.clients))
 	for client := range h.clients {
-		_ = client.conn.Close()
-		close(client.send)
+		clients = append(clients, client)
+		delete(h.clients, client)
+	}
+	h.mu.Unlock()
+	for _, client := range clients {
+		client.close()
 	}
 	return nil
 }
@@ -190,10 +226,7 @@ func (h *Hub) Handle(c *gin.Context, principal interfaces.Principal) {
 
 func (h *Hub) readLoop(ctx context.Context, cl *client) {
 	defer func() {
-		h.mu.Lock()
-		delete(h.clients, cl)
-		h.mu.Unlock()
-		_ = cl.conn.Close()
+		h.removeClient(cl)
 		if cl.principal.WorkspaceID != "" {
 			_ = h.presence.Set(ctx, cl.principal.WorkspaceID, cl.principal.UserID, "offline", 0)
 		}
@@ -245,11 +278,15 @@ func (h *Hub) writeLoop(cl *client) {
 			if !ok {
 				return
 			}
+			_ = cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := cl.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				h.removeClient(cl)
 				return
 			}
 		case <-ticker.C:
+			_ = cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := cl.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				h.removeClient(cl)
 				return
 			}
 		}
@@ -261,8 +298,8 @@ func (h *Hub) handleEvent(_ context.Context, event interfaces.Event) error {
 	if err != nil {
 		return err
 	}
+	var slow []*client
 	h.mu.RLock()
-	defer h.mu.RUnlock()
 	for cl := range h.clients {
 		if _, ok := cl.workspaces[event.WorkspaceID]; !ok && event.WorkspaceID != "" {
 			if _, ok := cl.conversations[event.ConversationID]; !ok || event.ConversationID == "" {
@@ -272,9 +309,47 @@ func (h *Hub) handleEvent(_ context.Context, event interfaces.Event) error {
 		select {
 		case cl.send <- payload:
 		default:
-			close(cl.send)
-			delete(h.clients, cl)
+			slow = append(slow, cl)
 		}
 	}
+	h.mu.RUnlock()
+	for _, cl := range slow {
+		h.removeClient(cl)
+	}
 	return nil
+}
+
+func (h *Hub) removeClient(cl *client) {
+	h.mu.Lock()
+	delete(h.clients, cl)
+	h.mu.Unlock()
+	cl.close()
+}
+
+func (c *client) close() {
+	c.closeOnce.Do(func() {
+		close(c.send)
+		_ = c.conn.Close()
+	})
+}
+
+func isAllowedOrigin(allowed map[string]struct{}, r *http.Request) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return false
+	}
+	if _, ok := allowed["*"]; ok {
+		return true
+	}
+	if _, ok := allowed[origin]; ok {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	return false
 }

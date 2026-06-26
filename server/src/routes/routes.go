@@ -119,6 +119,7 @@ func (h *apiHandler) principal(c *gin.Context) (interfaces.Principal, bool) {
 func (h *apiHandler) health(c *gin.Context) {
 	status := "healthy"
 	redisStatus := "disabled"
+	workerStatus := "disabled"
 	if err := h.deps.Database.Ping(c.Request.Context()); err != nil {
 		status = "degraded"
 	}
@@ -129,6 +130,14 @@ func (h *apiHandler) health(c *gin.Context) {
 			status = "degraded"
 		}
 	}
+	if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
+		workerStatus = "unavailable"
+		pattern := h.deps.Redis.Keys.Cache("worker-heartbeat", "*")
+		keys, err := h.deps.Redis.Raw.Keys(c.Request.Context(), pattern).Result()
+		if err == nil && len(keys) > 0 {
+			workerStatus = "healthy"
+		}
+	}
 	realtimeStatus := "healthy"
 	if !h.deps.Config.Realtime.Enabled {
 		realtimeStatus = "disabled"
@@ -137,6 +146,7 @@ func (h *apiHandler) health(c *gin.Context) {
 		"status":   status,
 		"database": "healthy",
 		"redis":    redisStatus,
+		"worker":   workerStatus,
 		"realtime": realtimeStatus,
 		"version":  h.deps.Config.App.Version,
 	})
@@ -145,7 +155,7 @@ func (h *apiHandler) health(c *gin.Context) {
 func (h *apiHandler) ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 	defer cancel()
-	result := gin.H{"database": "healthy", "redis": "disabled", "realtime": "healthy"}
+	result := gin.H{"database": "healthy", "redis": "disabled", "realtime": "healthy", "worker": "disabled"}
 	if err := h.deps.Database.Ping(ctx); err != nil {
 		result["database"] = "unhealthy"
 		utils.Error(c, utils.ErrDependencyUnavailable)
@@ -170,10 +180,20 @@ func (h *apiHandler) ready(c *gin.Context) {
 			return
 		}
 	}
+	if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
+		pattern := h.deps.Redis.Keys.Cache("worker-heartbeat", "*")
+		keys, err := h.deps.Redis.Raw.Keys(ctx, pattern).Result()
+		if err != nil || len(keys) == 0 {
+			result["worker"] = "unavailable"
+		} else {
+			result["worker"] = "healthy"
+		}
+	}
 	utils.Success(c, http.StatusOK, gin.H{
 		"status":   "ready",
 		"database": result["database"],
 		"redis":    result["redis"],
+		"worker":   result["worker"],
 		"realtime": result["realtime"],
 		"version":  h.deps.Config.App.Version,
 	})

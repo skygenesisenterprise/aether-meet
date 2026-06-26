@@ -11,6 +11,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	GetByID(ctx context.Context, id string) (*models.User, error)
 	GetByEmail(ctx context.Context, email string) (*models.User, error)
+	ListStale(ctx context.Context, before time.Time, limit int) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
 }
 
@@ -83,6 +84,9 @@ type MeetingRepository interface {
 	Create(ctx context.Context, meeting *models.Meeting) error
 	GetByID(ctx context.Context, id string) (*models.Meeting, error)
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Meeting, error)
+	ListStartingBetween(ctx context.Context, start, end time.Time, limit int) ([]models.Meeting, error)
+	ListExpiredScheduled(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error)
+	ListAbandonedActive(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error)
 	Update(ctx context.Context, meeting *models.Meeting) error
 }
 
@@ -99,6 +103,20 @@ type AuditLogRepository interface {
 	ListByWorkspace(ctx context.Context, workspaceID string, limit int) ([]models.AuditLog, error)
 }
 
+type NotificationRepository interface {
+	Create(ctx context.Context, notification *models.Notification) error
+	GetByIdempotencyKey(ctx context.Context, key string) (*models.Notification, error)
+	ListBefore(ctx context.Context, before time.Time, limit int) ([]models.Notification, error)
+	DeleteByIDs(ctx context.Context, ids []string) error
+}
+
+type OutboxRepository interface {
+	Create(ctx context.Context, event *models.OutboxEvent) error
+	ClaimUnpublished(ctx context.Context, workerID string, limit int, maxAttempts int) ([]models.OutboxEvent, error)
+	MarkPublished(ctx context.Context, id string, publishedAt time.Time) error
+	MarkFailed(ctx context.Context, id string, attempts int, lastError string) error
+}
+
 type RepositorySet interface {
 	Users() UserRepository
 	Workspaces() WorkspaceRepository
@@ -113,4 +131,6 @@ type RepositorySet interface {
 	Meetings() MeetingRepository
 	Integrations() IntegrationRepository
 	AuditLogs() AuditLogRepository
+	Notifications() NotificationRepository
+	OutboxEvents() OutboxRepository
 }

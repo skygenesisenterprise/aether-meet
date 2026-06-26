@@ -9,6 +9,7 @@ import (
 	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Repositories struct {
@@ -48,6 +49,12 @@ func (r *Repositories) Integrations() interfaces.IntegrationRepository {
 func (r *Repositories) AuditLogs() interfaces.AuditLogRepository {
 	return &auditLogRepository{db: r.db}
 }
+func (r *Repositories) Notifications() interfaces.NotificationRepository {
+	return &notificationRepository{db: r.db}
+}
+func (r *Repositories) OutboxEvents() interfaces.OutboxRepository {
+	return &outboxRepository{db: r.db}
+}
 func (r *Repositories) WithDB(db *gorm.DB) *Repositories { return &Repositories{db: db} }
 
 type userRepository struct{ db *gorm.DB }
@@ -64,6 +71,15 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.
 	var user models.User
 	err := r.db.WithContext(ctx).First(&user, "email = ?", email).Error
 	return &user, normalizeNotFound(err, utils.NewError(404, "USER_NOT_FOUND", "The requested user was not found.", nil))
+}
+func (r *userRepository) ListStale(ctx context.Context, before time.Time, limit int) ([]models.User, error) {
+	var items []models.User
+	err := r.db.WithContext(ctx).
+		Where("last_seen_at IS NOT NULL AND last_seen_at < ? AND status <> ?", before, "offline").
+		Order("last_seen_at asc").
+		Limit(limit).
+		Find(&items).Error
+	return items, err
 }
 func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 	return r.db.WithContext(ctx).Save(user).Error
@@ -284,6 +300,33 @@ func (r *meetingRepository) ListByWorkspace(ctx context.Context, workspaceID str
 	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Find(&items).Error
 	return items, err
 }
+func (r *meetingRepository) ListStartingBetween(ctx context.Context, start, end time.Time, limit int) ([]models.Meeting, error) {
+	var items []models.Meeting
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND started_at IS NULL AND created_at <= ?", "scheduled", end).
+		Order("created_at asc").
+		Limit(limit).
+		Find(&items).Error
+	return items, err
+}
+func (r *meetingRepository) ListExpiredScheduled(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error) {
+	var items []models.Meeting
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND started_at IS NULL AND created_at < ?", "scheduled", before).
+		Order("created_at asc").
+		Limit(limit).
+		Find(&items).Error
+	return items, err
+}
+func (r *meetingRepository) ListAbandonedActive(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error) {
+	var items []models.Meeting
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND started_at IS NOT NULL AND ended_at IS NULL AND updated_at < ?", "active", before).
+		Order("updated_at asc").
+		Limit(limit).
+		Find(&items).Error
+	return items, err
+}
 func (r *meetingRepository) Update(ctx context.Context, meeting *models.Meeting) error {
 	return r.db.WithContext(ctx).Save(meeting).Error
 }
@@ -319,6 +362,82 @@ func (r *auditLogRepository) ListByWorkspace(ctx context.Context, workspaceID st
 	var items []models.AuditLog
 	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Limit(limit).Find(&items).Error
 	return items, err
+}
+
+type notificationRepository struct{ db *gorm.DB }
+
+func (r *notificationRepository) Create(ctx context.Context, notification *models.Notification) error {
+	return r.db.WithContext(ctx).Create(notification).Error
+}
+func (r *notificationRepository) GetByIdempotencyKey(ctx context.Context, key string) (*models.Notification, error) {
+	var item models.Notification
+	err := r.db.WithContext(ctx).First(&item, "idempotency_key = ?", key).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "NOTIFICATION_NOT_FOUND", "The requested notification was not found.", nil))
+}
+func (r *notificationRepository) ListBefore(ctx context.Context, before time.Time, limit int) ([]models.Notification, error) {
+	var items []models.Notification
+	err := r.db.WithContext(ctx).Where("created_at < ?", before).Order("created_at asc").Limit(limit).Find(&items).Error
+	return items, err
+}
+func (r *notificationRepository) DeleteByIDs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Delete(&models.Notification{}, "id IN ?", ids).Error
+}
+
+type outboxRepository struct{ db *gorm.DB }
+
+func (r *outboxRepository) Create(ctx context.Context, event *models.OutboxEvent) error {
+	return r.db.WithContext(ctx).Create(event).Error
+}
+
+func (r *outboxRepository) ClaimUnpublished(ctx context.Context, workerID string, limit int, maxAttempts int) ([]models.OutboxEvent, error) {
+	var items []models.OutboxEvent
+	now := time.Now().UTC()
+	return items, r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("published_at IS NULL AND attempts < ? AND (locked_at IS NULL OR locked_at < ?)", maxAttempts, now.Add(-2*time.Minute)).
+			Order("created_at asc").
+			Limit(limit).
+			Find(&items).Error; err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.ID)
+		}
+		return tx.Model(&models.OutboxEvent{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{"locked_at": now, "locked_by": workerID}).Error
+	})
+}
+
+func (r *outboxRepository) MarkPublished(ctx context.Context, id string, publishedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.OutboxEvent{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"published_at": publishedAt,
+			"locked_at":    nil,
+			"locked_by":    "",
+			"last_error":   "",
+		}).Error
+}
+
+func (r *outboxRepository) MarkFailed(ctx context.Context, id string, attempts int, lastError string) error {
+	return r.db.WithContext(ctx).Model(&models.OutboxEvent{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"attempts":   attempts,
+			"last_error": lastError,
+			"locked_at":  nil,
+			"locked_by":  "",
+			"updated_at": time.Now().UTC(),
+		}).Error
 }
 
 func normalizeNotFound(err error, notFound error) error {

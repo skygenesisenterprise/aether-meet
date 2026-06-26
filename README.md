@@ -186,6 +186,109 @@ We welcome community contributions! Please read our [Contributing Guide](CONTRIB
 docker-compose up -d
 ```
 
+### Go Worker Backend
+
+The repository also includes a Go backend under `server/` with standalone API and worker modes:
+
+```bash
+./aether-meet server
+./aether-meet worker
+```
+
+`server` mode starts the HTTP API and WebSocket hub. `worker` mode starts Redis Streams consumers, the recurring scheduler, worker heartbeats, and the transactional outbox dispatcher.
+
+Redis usage is intentionally split:
+
+- Redis Pub/Sub: real-time ephemeral application events for WebSocket fan-out
+- Redis Streams: durable background jobs for notifications, integrations, presence maintenance, meetings, attachments, and maintenance work
+
+Queue names:
+
+- `{REDIS_KEY_PREFIX}:jobs:notifications`
+- `{REDIS_KEY_PREFIX}:jobs:integrations`
+- `{REDIS_KEY_PREFIX}:jobs:presence`
+- `{REDIS_KEY_PREFIX}:jobs:meetings`
+- `{REDIS_KEY_PREFIX}:jobs:attachments`
+- `{REDIS_KEY_PREFIX}:jobs:maintenance`
+
+Dead-letter streams:
+
+- `{REDIS_KEY_PREFIX}:dead:notifications`
+- `{REDIS_KEY_PREFIX}:dead:integrations`
+- `{REDIS_KEY_PREFIX}:dead:presence`
+- `{REDIS_KEY_PREFIX}:dead:meetings`
+- `{REDIS_KEY_PREFIX}:dead:attachments`
+- `{REDIS_KEY_PREFIX}:dead:maintenance`
+
+Supported worker jobs:
+
+- `notification.message.created`
+- `notification.meeting.reminder`
+- `presence.expire_stale`
+- `presence.persist_last_seen`
+- `session.cleanup`
+- `integration.webhook.process`
+- `meeting.reminder`
+- `meeting.expire`
+- `meeting.auto_end`
+- `meeting.cleanup`
+- `attachment.process`
+- `attachment.metadata`
+- `attachment.cleanup`
+- `maintenance.expired_sessions`
+- `maintenance.orphaned_uploads`
+
+Retry behavior:
+
+- attempt 1: immediate
+- attempt 2: 5 seconds
+- attempt 3: 30 seconds
+- attempt 4: 2 minutes
+- attempt 5+: 10 minutes, then dead-lettered after `WORKER_MAX_ATTEMPTS`
+
+Outbox behavior:
+
+- business writes store outbox rows in PostgreSQL within the same transaction
+- the outbox worker claims unpublished rows with row locking
+- claimed rows enqueue durable jobs
+- successful rows are marked published
+- failures increment attempts and keep the row for retry
+
+Standalone-first behavior:
+
+- the API can run without Redis
+- WebSocket fan-out keeps its in-memory event-bus fallback when Redis is disabled
+- worker mode logs clearly when it falls back to the in-memory queue so local development does not silently pretend durability
+
+Important worker environment variables:
+
+- `WORKER_ENABLED`
+- `WORKER_ID`
+- `WORKER_CONCURRENCY`
+- `WORKER_MAX_ATTEMPTS`
+- `WORKER_RETRY_BASE_DELAY`
+- `WORKER_BLOCK_TIMEOUT`
+- `WORKER_CLAIM_IDLE_TIMEOUT`
+- `WORKER_SHUTDOWN_TIMEOUT`
+- `WORKER_SCHEDULER_ENABLED`
+- `WORKER_HEARTBEAT_INTERVAL`
+- `WORKER_HEARTBEAT_TTL`
+- `OUTBOX_ENABLED`
+- `OUTBOX_BATCH_SIZE`
+- `OUTBOX_POLL_INTERVAL`
+- `OUTBOX_MAX_ATTEMPTS`
+- `NOTIFICATION_RETENTION_DAYS`
+- `AUDIT_RETENTION_DAYS`
+- `SESSION_RETENTION_DAYS`
+- `UPLOAD_RETENTION_HOURS`
+
+Example local startup:
+
+```bash
+docker compose up -d server worker redis postgresql
+./aether-meet worker
+```
+
 ### Production Build
 
 ```bash
