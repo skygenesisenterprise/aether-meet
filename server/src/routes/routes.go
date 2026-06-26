@@ -781,7 +781,13 @@ func (h *apiHandler) getMeeting(c *gin.Context)   { h.meetingAction(c, "get") }
 func (h *apiHandler) startMeeting(c *gin.Context) { h.meetingAction(c, "start") }
 func (h *apiHandler) endMeeting(c *gin.Context)   { h.meetingAction(c, "end") }
 func (h *apiHandler) cancelMeeting(c *gin.Context) {
-	h.notImplemented(c, "meeting cancellation")
+	principal, _ := h.principal(c)
+	item, err := h.deps.MeetingService.Cancel(c.Request.Context(), principal, c.Param("meetingId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
 }
 func (h *apiHandler) listMeetingParticipants(c *gin.Context) {
 	principal, _ := h.principal(c)
@@ -793,7 +799,21 @@ func (h *apiHandler) listMeetingParticipants(c *gin.Context) {
 	utils.List(c, items, "", false)
 }
 func (h *apiHandler) addMeetingParticipant(c *gin.Context) {
-	h.notImplemented(c, "meeting participant management")
+	var req struct {
+		UserID string `json:"userId"`
+		Role   string `json:"role"`
+	}
+	if c.ShouldBindJSON(&req) != nil || req.UserID == "" {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.MeetingService.AddParticipant(c.Request.Context(), principal, c.Param("meetingId"), req.UserID, req.Role)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
 }
 
 func (h *apiHandler) meetingAction(c *gin.Context, action string) {

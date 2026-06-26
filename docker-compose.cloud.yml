@@ -39,6 +39,32 @@ services:
     volumes:
       - redis:/data
 
+  livekit:
+    image: livekit/livekit-server:${LIVEKIT_IMAGE_TAG:-v1.8.3}
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - /etc/livekit/render-livekit-config.sh
+    ports:
+      - "${LIVEKIT_PORT:-7880}:7880/tcp"
+      - "${LIVEKIT_RTC_TCP_PORT:-7881}:7881/tcp"
+      - "${LIVEKIT_RTP_PORT_MIN:-50000}-${LIVEKIT_RTP_PORT_MAX:-50100}:50000-50100/udp"
+    environment:
+      LIVEKIT_PORT: ${LIVEKIT_PORT:-7880}
+      LIVEKIT_RTC_TCP_PORT: ${LIVEKIT_RTC_TCP_PORT:-7881}
+      LIVEKIT_RTP_PORT_MIN: ${LIVEKIT_RTP_PORT_MIN:-50000}
+      LIVEKIT_RTP_PORT_MAX: ${LIVEKIT_RTP_PORT_MAX:-50100}
+      LIVEKIT_KEYS: ${LIVEKIT_API_KEY:-devkey}:${LIVEKIT_API_SECRET:-secret}
+      LIVEKIT_REDIS_ADDRESS: redis:6379
+      LIVEKIT_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-default-password}
+      LIVEKIT_WEBHOOK_URL: http://webrtc:8080/api/v1/internal/webrtc/livekit/webhook
+    volumes:
+      - ./infrastructure/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+      - ./infrastructure/livekit/render-livekit-config.sh:/etc/livekit/render-livekit-config.sh:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
   server:
     build:
       context: .
@@ -78,8 +104,23 @@ services:
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
       REDIS_KEY_PREFIX: aether-meet:v1
       REDIS_DEFAULT_TTL: "300"
-
-      WEBRTC_URL: ${WEBRTC_URL:-webrtc:9090}
+      LIVEKIT_ENABLED: "true"
+      WEBRTC_PROVIDER: ${WEBRTC_PROVIDER:-livekit}
+      LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-http://livekit:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      WEBRTC_PUBLIC_URL: ${WEBRTC_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      WEBRTC_NODE_ID: ${WEBRTC_NODE_ID:-aether-meet-node-1}
+      WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
+      WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
+      LIVEKIT_RTC_TCP_PORT: ${LIVEKIT_RTC_TCP_PORT:-7881}
+      LIVEKIT_RTP_PORT_MIN: ${LIVEKIT_RTP_PORT_MIN:-50000}
+      LIVEKIT_RTP_PORT_MAX: ${LIVEKIT_RTP_PORT_MAX:-50100}
+      TURN_ENABLED: ${TURN_ENABLED:-false}
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD: ${TURN_PASSWORD:-}
 
     depends_on:
       postgresql:
@@ -126,12 +167,24 @@ services:
       REDIS_DB: "0"
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
       REDIS_KEY_PREFIX: aether-meet:v1
+      LIVEKIT_ENABLED: "true"
+      WEBRTC_PROVIDER: ${WEBRTC_PROVIDER:-livekit}
+      LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-http://livekit:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      WEBRTC_PUBLIC_URL: ${WEBRTC_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      WEBRTC_NODE_ID: ${WEBRTC_NODE_ID:-aether-meet-node-1}
+      WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
+      WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
 
     depends_on:
       postgresql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      livekit:
+        condition: service_started
     volumes:
       - media:/media
       - certs:/certs
@@ -149,12 +202,7 @@ services:
       - .env
     command: webrtc
     expose:
-      - "9090"
-      - "3478"
-    ports:
-      - "${WEBRTC_STUN_PORT:-3478}:3478/udp"
-      - "${WEBRTC_STUN_PORT:-3478}:3478/tcp"
-      - "${WEBRTC_RTP_PORT_MIN:-50000}-${WEBRTC_RTP_PORT_MAX:-50100}:50000-50100/udp"
+      - "8080"
     environment:
       NODE_ENV: production
       USE_EMBEDDED_DB: "false"
@@ -176,19 +224,31 @@ services:
       REDIS_DB: "0"
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
       REDIS_KEY_PREFIX: aether-meet:v1
-
-      WEBRTC_BIND_IP: 0.0.0.0
-      WEBRTC_PUBLIC_IP: ${WEBRTC_PUBLIC_IP:-}
-      WEBRTC_SIGNALING_PORT: "9090"
-      WEBRTC_STUN_PORT: "3478"
-      WEBRTC_RTP_PORT_MIN: "50000"
-      WEBRTC_RTP_PORT_MAX: "50100"
+      LIVEKIT_ENABLED: "true"
+      WEBRTC_PROVIDER: ${WEBRTC_PROVIDER:-livekit}
+      LIVEKIT_INTERNAL_URL: ${LIVEKIT_INTERNAL_URL:-http://livekit:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      WEBRTC_PUBLIC_URL: ${WEBRTC_PUBLIC_URL:-wss://webrtc.meet.skygenesisenterprise.com}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      WEBRTC_NODE_ID: ${WEBRTC_NODE_ID:-aether-meet-node-1}
+      WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
+      WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
+      LIVEKIT_RTC_TCP_PORT: ${LIVEKIT_RTC_TCP_PORT:-7881}
+      LIVEKIT_RTP_PORT_MIN: ${LIVEKIT_RTP_PORT_MIN:-50000}
+      LIVEKIT_RTP_PORT_MAX: ${LIVEKIT_RTP_PORT_MAX:-50100}
+      TURN_ENABLED: ${TURN_ENABLED:-false}
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD: ${TURN_PASSWORD:-}
 
     depends_on:
       postgresql:
         condition: service_healthy
       redis:
         condition: service_healthy
+      livekit:
+        condition: service_started
     volumes:
       - media:/media
       - certs:/certs

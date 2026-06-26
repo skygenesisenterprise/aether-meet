@@ -29,6 +29,15 @@ func (eventBusStub) Subscribe(context.Context, string, interfaces.EventHandler) 
 func (eventBusStub) Close() error                  { return nil }
 func (eventBusStub) Healthy(context.Context) error { return nil }
 
+type identityProviderStub struct{}
+
+func (identityProviderStub) Authenticate(context.Context, string) (*interfaces.Principal, error) {
+	return &interfaces.Principal{UserID: "user-1"}, nil
+}
+func (identityProviderStub) IssueToken(context.Context, interfaces.Principal) (string, error) {
+	return "", nil
+}
+
 func TestHealthRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +63,32 @@ func TestHealthRoutes(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s returned %d", target, rec.Code)
 		}
+	}
+}
+
+func TestJoinTokenRouteRequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	SetupRoutes(router, Dependencies{
+		Config: config.Config{
+			App:      config.AppConfig{Version: "test"},
+			Realtime: config.RealtimeConfig{Enabled: false},
+			Worker:   config.WorkerConfig{Enabled: false},
+		},
+		Database:         databaseStub{},
+		EventBus:         eventBusStub{},
+		IdentityProvider: identityProviderStub{},
+		RuntimeRole:      "api",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/meetings/meeting-1/join-token", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 }
 

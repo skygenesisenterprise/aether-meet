@@ -87,12 +87,79 @@ func (s *MeetingService) End(ctx context.Context, principal interfaces.Principal
 	return s.webrtc.EndMeeting(ctx, principal, meetingID)
 }
 
+func (s *MeetingService) Cancel(ctx context.Context, principal interfaces.Principal, meetingID string) (*models.Meeting, error) {
+	meeting, err := s.Get(ctx, principal, meetingID)
+	if err != nil {
+		return nil, err
+	}
+	member, err := s.workspaces.AuthorizeWorkspace(ctx, principal, meeting.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if meeting.CreatedBy != principal.UserID && member.Role != "owner" && member.Role != "admin" {
+		return nil, utils.ErrForbidden
+	}
+	if meeting.Status == "cancelled" {
+		return meeting, nil
+	}
+	if meeting.Status == "active" {
+		if _, err := s.webrtc.EndMeeting(ctx, principal, meetingID); err != nil && err != utils.ErrMeetingSessionUnavailable {
+			return nil, err
+		}
+	}
+
+	now := time.Now().UTC()
+	meeting.Status = "cancelled"
+	meeting.EndedAt = &now
+	meeting.UpdatedAt = now
+	if err := s.meetings.Update(ctx, meeting); err != nil {
+		return nil, err
+	}
+	if s.outbox != nil {
+		_ = s.outbox.Add(ctx, nil, "meeting.cancelled", "meeting", meeting.ID, meeting.WorkspaceID, map[string]any{
+			"meetingId":   meeting.ID,
+			"workspaceId": meeting.WorkspaceID,
+		})
+	}
+	return meeting, nil
+}
+
 func (s *MeetingService) JoinToken(ctx context.Context, principal interfaces.Principal, meetingID string) (*interfaces.JoinToken, error) {
 	return s.webrtc.JoinToken(ctx, principal, meetingID)
 }
 
 func (s *MeetingService) ListParticipants(ctx context.Context, principal interfaces.Principal, meetingID string) ([]models.MeetingSessionParticipant, error) {
 	return s.webrtc.ListParticipants(ctx, principal, meetingID)
+}
+
+func (s *MeetingService) AddParticipant(ctx context.Context, principal interfaces.Principal, meetingID, userID, role string) (*models.MeetingParticipant, error) {
+	meeting, err := s.meetings.GetByID(ctx, meetingID)
+	if err != nil {
+		return nil, err
+	}
+	member, err := s.workspaces.AuthorizeWorkspace(ctx, principal, meeting.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if meeting.CreatedBy != principal.UserID && member.Role != "owner" && member.Role != "admin" {
+		return nil, utils.ErrForbidden
+	}
+	if role == "" {
+		role = "attendee"
+	}
+
+	now := time.Now().UTC()
+	item := &models.MeetingParticipant{
+		Common:    models.Common{ID: utils.NewID(), CreatedAt: now, UpdatedAt: now},
+		MeetingID: meetingID,
+		UserID:    userID,
+		Role:      role,
+		Status:    "invited",
+	}
+	if err := s.participants.Upsert(ctx, item); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (s *MeetingService) EnqueueDueReminders(ctx context.Context) error {

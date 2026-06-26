@@ -286,18 +286,15 @@ validate_port() {
 }
 
 validate_webrtc_configuration() {
-    validate_port "WEBRTC_SIGNALING_PORT" "${WEBRTC_SIGNALING_PORT}" || return 1
-    validate_port "WEBRTC_STUN_PORT" "${WEBRTC_STUN_PORT}" || return 1
-    validate_port "WEBRTC_RTP_PORT_MIN" "${WEBRTC_RTP_PORT_MIN}" || return 1
-    validate_port "WEBRTC_RTP_PORT_MAX" "${WEBRTC_RTP_PORT_MAX}" || return 1
+    validate_port "API_PORT" "${API_PORT}" || return 1
 
-    if [ "${WEBRTC_RTP_PORT_MIN}" -gt "${WEBRTC_RTP_PORT_MAX}" ]; then
-        log_error "WEBRTC_RTP_PORT_MIN must be less than or equal to WEBRTC_RTP_PORT_MAX"
+    if [ -z "${LIVEKIT_INTERNAL_URL:-}" ]; then
+        log_error "LIVEKIT_INTERNAL_URL is required for the WebRTC control runtime"
         return 1
     fi
 
-    if [ -z "${WEBRTC_BIND_IP:-}" ]; then
-        log_error "WEBRTC_BIND_IP is required"
+    if [ -z "${LIVEKIT_PUBLIC_URL:-}" ] && [ -z "${WEBRTC_PUBLIC_URL:-}" ]; then
+        log_error "LIVEKIT_PUBLIC_URL or WEBRTC_PUBLIC_URL is required for the WebRTC control runtime"
         return 1
     fi
 
@@ -507,19 +504,10 @@ run_all() {
 run_webrtc() {
     configure_runtime
 
-    log_info "Aether Meet WebRTC role starting"
+    log_info "Aether Meet WebRTC control-plane role starting"
 
     if ! validate_webrtc_configuration; then
         return 1
-    fi
-
-    log_info "WebRTC signaling configured on ${WEBRTC_BIND_IP}:${WEBRTC_SIGNALING_PORT}"
-    log_info "WebRTC STUN/TCP-UDP configured on ${WEBRTC_BIND_IP}:${WEBRTC_STUN_PORT}"
-    log_info "WebRTC RTP UDP range configured on ${WEBRTC_RTP_PORT_MIN}-${WEBRTC_RTP_PORT_MAX}"
-    if [ -n "${WEBRTC_PUBLIC_IP:-}" ]; then
-        log_info "WebRTC public IP provided by environment"
-    else
-        log_info "WebRTC public IP not set; expecting production environment to provide WEBRTC_PUBLIC_IP if required"
     fi
 
     webrtc_binary="$(find_webrtc_executable || true)"
@@ -532,7 +520,9 @@ run_webrtc() {
     fi
 
     if [ -n "${backend_binary}" ]; then
-        log_warn "Backend binary found at ${backend_binary}, but current Go implementation only supports 'server' and 'worker' modes"
+        log_redis_configuration
+        log_info "Starting Go WebRTC control runtime on 0.0.0.0:${API_PORT}"
+        exec "${backend_binary}" webrtc "$@"
     fi
 
     log_error "WebRTC role requested, but no WebRTC executable or supported backend command was found"

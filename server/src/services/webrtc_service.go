@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -27,7 +29,7 @@ type WebRTCService struct {
 	logger     *slog.Logger
 	cfg        config.Config
 	db         interfaces.Database
-	repos      *Repositories
+	repos      webrtcRepositorySet
 	workspaces *WorkspaceService
 	provider   interfaces.WebRTCProvider
 	selector   interfaces.NodeSelector
@@ -37,12 +39,31 @@ type WebRTCService struct {
 	metrics    *WebRTCMetrics
 }
 
+type webrtcRepositorySet interface {
+	Meetings() interfaces.MeetingRepository
+	MeetingParticipants() interfaces.MeetingParticipantRepository
+	MeetingSessions() interfaces.MeetingSessionRepository
+	MeetingSessionParticipants() interfaces.MeetingSessionParticipantRepository
+	WebRTCNodes() interfaces.WebRTCNodeRepository
+	WebRTCWebhookEvents() interfaces.WebRTCWebhookEventRepository
+	OutboxEvents() interfaces.OutboxRepository
+	WithDB(*gorm.DB) webrtcRepositorySet
+}
+
+type repositoryAdapter struct {
+	*Repositories
+}
+
+func (r repositoryAdapter) WithDB(db *gorm.DB) webrtcRepositorySet {
+	return repositoryAdapter{Repositories: r.Repositories.WithDB(db)}
+}
+
 func NewWebRTCService(logger *slog.Logger, cfg config.Config, db interfaces.Database, repos *Repositories, workspaces *WorkspaceService, provider interfaces.WebRTCProvider, selector interfaces.NodeSelector, outbox *OutboxService, producer interfaces.JobProducer, bus interfaces.EventBus, metrics *WebRTCMetrics) *WebRTCService {
 	return &WebRTCService{
 		logger:     logger,
 		cfg:        cfg,
 		db:         db,
-		repos:      repos,
+		repos:      repositoryAdapter{Repositories: repos},
 		workspaces: workspaces,
 		provider:   provider,
 		selector:   selector,
@@ -54,8 +75,11 @@ func NewWebRTCService(logger *slog.Logger, cfg config.Config, db interfaces.Data
 }
 
 func (s *WebRTCService) Ready(ctx context.Context) error {
-	if s.provider == nil {
+	if s.provider == nil || s.provider.ProviderName() == "disabled" {
 		return utils.ErrMeetingProviderUnavailable
+	}
+	if s.cfg.LiveKit.InternalURL == "" || s.cfg.WebRTC.PublicURL == "" || s.cfg.LiveKit.APIKey == "" || s.cfg.LiveKit.APISecret == "" {
+		return utils.ErrDependencyUnavailable
 	}
 	if err := s.provider.Healthy(ctx); err != nil {
 		if s.metrics != nil {
@@ -64,7 +88,14 @@ func (s *WebRTCService) Ready(ctx context.Context) error {
 		return err
 	}
 	node, err := s.repos.WebRTCNodes().GetByID(ctx, s.cfg.WebRTC.NodeID)
-	if err == nil && node.Draining {
+	if err != nil {
+		return err
+	}
+	if node.Draining || node.Status != "healthy" {
+		return utils.ErrDependencyUnavailable
+	}
+	staleAfter := maxDuration(2*s.cfg.WebRTC.HealthcheckInterval, time.Minute)
+	if node.LastHeartbeatAt == nil || time.Since(node.LastHeartbeatAt.UTC()) > staleAfter {
 		return utils.ErrDependencyUnavailable
 	}
 	return nil
@@ -382,7 +413,20 @@ func (s *WebRTCService) HandleLiveKitWebhook(ctx context.Context, request *http.
 	if !ok {
 		return utils.ErrMeetingProviderUnavailable
 	}
-	event, err := lkwebhook.ReceiveWebhookEvent(request, provider.keyAuth)
+	limitedRequest, body, err := cloneRequestBodyWithLimit(request, 1<<20)
+	if err != nil {
+		if s.metrics != nil {
+			s.metrics.IncWebhookFailures()
+		}
+		return utils.ErrValidationFailed
+	}
+	if replayErr := validateWebhookReplayWindow(body, 10*time.Minute); replayErr != nil {
+		if s.metrics != nil {
+			s.metrics.IncWebhookFailures()
+		}
+		return replayErr
+	}
+	event, err := lkwebhook.ReceiveWebhookEvent(limitedRequest, provider.keyAuth)
 	if err != nil {
 		if s.metrics != nil {
 			s.metrics.IncWebhookFailures()
@@ -514,8 +558,21 @@ func (s *WebRTCService) Run(ctx context.Context) error {
 	if err := s.registerNode(ctx); err != nil {
 		return err
 	}
+	if err := s.refreshNodeHeartbeat(ctx); err != nil {
+		return err
+	}
+	if err := s.ReconcileRooms(ctx); err != nil {
+		return err
+	}
+	if err := s.ExpireAbandonedSessions(ctx); err != nil {
+		return err
+	}
+	if err := s.CleanupStaleParticipants(ctx); err != nil {
+		return err
+	}
 	heartbeat := time.NewTicker(s.cfg.WebRTC.HealthcheckInterval)
 	defer heartbeat.Stop()
+	defer s.markNodeDraining()
 	for {
 		select {
 		case <-ctx.Done():
@@ -526,6 +583,12 @@ func (s *WebRTCService) Run(ctx context.Context) error {
 			}
 			if err := s.ReconcileRooms(ctx); err != nil {
 				s.logger.Warn("webrtc reconcile failed", "error", err)
+			}
+			if err := s.ExpireAbandonedSessions(ctx); err != nil {
+				s.logger.Warn("webrtc session expiration failed", "error", err)
+			}
+			if err := s.CleanupStaleParticipants(ctx); err != nil {
+				s.logger.Warn("webrtc participant cleanup failed", "error", err)
 			}
 		}
 	}
@@ -543,6 +606,12 @@ func (s *WebRTCService) ReconcileRooms(ctx context.Context) error {
 	for _, session := range sessions {
 		participants, err := s.provider.ListParticipants(ctx, session.ProviderRoomName)
 		if err != nil {
+			if isProviderNotFound(err) {
+				if closeErr := s.CloseRoom(ctx, session.ID, session.ProviderRoomName); closeErr != nil {
+					return closeErr
+				}
+				continue
+			}
 			if s.metrics != nil {
 				s.metrics.IncProviderErrors()
 			}
@@ -552,6 +621,12 @@ func (s *WebRTCService) ReconcileRooms(ctx context.Context) error {
 	}
 	if s.metrics != nil {
 		s.metrics.SetActiveParticipants(int64(count))
+	}
+	if node, err := s.repos.WebRTCNodes().GetByID(ctx, s.cfg.WebRTC.NodeID); err == nil {
+		node.ActiveRooms = len(sessions)
+		node.ActiveParticipants = count
+		node.UpdatedAt = time.Now().UTC()
+		_ = s.repos.WebRTCNodes().Update(ctx, node)
 	}
 	return nil
 }
@@ -573,6 +648,121 @@ func (s *WebRTCService) CleanupParticipants(ctx context.Context, sessionID strin
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *WebRTCService) CleanupStaleParticipants(ctx context.Context) error {
+	sessions, err := s.repos.MeetingSessions().ListActive(ctx, 200)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().Add(-s.cfg.WebRTC.ParticipantTTL)
+	for _, session := range sessions {
+		participants, err := s.repos.MeetingSessionParticipants().ListBySession(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		for _, participant := range participants {
+			if participant.LeftAt != nil {
+				continue
+			}
+			if participant.LastSeenAt != nil && participant.LastSeenAt.After(cutoff) {
+				continue
+			}
+			participant.Status = "stale"
+			now := time.Now().UTC()
+			participant.LeftAt = &now
+			participant.UpdatedAt = now
+			if err := s.repos.MeetingSessionParticipants().Update(ctx, &participant); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *WebRTCService) ExpireAbandonedSessions(ctx context.Context) error {
+	sessions, err := s.repos.MeetingSessions().ListActive(ctx, 200)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().Add(-maxDuration(2*s.cfg.WebRTC.ParticipantTTL, time.Minute))
+	for _, session := range sessions {
+		if session.UpdatedAt.After(cutoff) {
+			continue
+		}
+		if err := s.CloseRoom(ctx, session.ID, session.ProviderRoomName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *WebRTCService) CloseRoom(ctx context.Context, sessionID string, roomName string) error {
+	var session *models.MeetingSession
+	var err error
+	switch {
+	case sessionID != "":
+		session, err = s.repos.MeetingSessions().GetByID(ctx, sessionID)
+	case roomName != "":
+		session, err = s.repos.MeetingSessions().GetByProviderRoomName(ctx, roomName)
+	default:
+		return utils.ErrValidationFailed
+	}
+	if err != nil {
+		return nil
+	}
+
+	if err := s.provider.DeleteRoom(ctx, session.ProviderRoomName); err != nil && !isProviderNotFound(err) {
+		if s.metrics != nil {
+			s.metrics.IncProviderErrors()
+		}
+		return err
+	}
+
+	now := time.Now().UTC()
+	err = s.db.Transaction(ctx, func(tx *gorm.DB) error {
+		txRepos := s.repos.WithDB(tx)
+		currentSession, err := txRepos.MeetingSessions().GetByID(ctx, session.ID)
+		if err != nil {
+			return nil
+		}
+		if currentSession.EndedAt == nil {
+			currentSession.Status = "ended"
+			currentSession.EndedAt = &now
+			currentSession.UpdatedAt = now
+			if err := txRepos.MeetingSessions().Update(ctx, currentSession); err != nil {
+				return err
+			}
+		}
+
+		meeting, err := txRepos.Meetings().GetByID(ctx, currentSession.MeetingID)
+		if err == nil && meeting.EndedAt == nil && meeting.Status == "active" {
+			meeting.Status = "ended"
+			meeting.EndedAt = &now
+			meeting.UpdatedAt = now
+			if err := txRepos.Meetings().Update(ctx, meeting); err != nil {
+				return err
+			}
+		}
+
+		return s.outbox.Add(ctx, txRepos.OutboxEvents(), "meeting.session.ended", "meeting_session", currentSession.ID, currentSession.WorkspaceID, map[string]any{
+			"meetingId":   currentSession.MeetingID,
+			"workspaceId": currentSession.WorkspaceID,
+			"sessionId":   currentSession.ID,
+			"roomName":    currentSession.ProviderRoomName,
+		})
+	})
+	if err != nil {
+		return err
+	}
+
+	_ = s.CleanupParticipants(ctx, session.ID)
+	s.publishRealtimeEvent(ctx, "meeting.session.ended", session.WorkspaceID, "", session.MeetingID, map[string]any{
+		"meetingId": session.MeetingID,
+		"sessionId": session.ID,
+		"roomName":  session.ProviderRoomName,
+	})
 	return nil
 }
 
@@ -622,6 +812,22 @@ func (s *WebRTCService) refreshNodeHeartbeat(ctx context.Context) error {
 	node.LastHeartbeatAt = &now
 	node.UpdatedAt = now
 	return s.repos.WebRTCNodes().Update(ctx, node)
+}
+
+func (s *WebRTCService) markNodeDraining() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	node, err := s.repos.WebRTCNodes().GetByID(ctx, s.cfg.WebRTC.NodeID)
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	node.Draining = true
+	node.Status = "draining"
+	node.LastHeartbeatAt = &now
+	node.UpdatedAt = now
+	_ = s.repos.WebRTCNodes().Update(ctx, node)
 }
 
 func (s *WebRTCService) authorizeMeeting(ctx context.Context, principal interfaces.Principal, meetingID string) (*models.Meeting, *models.WorkspaceMember, error) {
@@ -674,7 +880,7 @@ func (s *WebRTCService) resolvePermissions(ctx context.Context, meeting models.M
 	return perms, nil
 }
 
-func (s *WebRTCService) upsertWebhookParticipant(ctx context.Context, repos *Repositories, session *models.MeetingSession, event *livekit.WebhookEvent, status string, now time.Time) error {
+func (s *WebRTCService) upsertWebhookParticipant(ctx context.Context, repos webrtcRepositorySet, session *models.MeetingSession, event *livekit.WebhookEvent, status string, now time.Time) error {
 	role := "attendee"
 	if item, err := s.repos.MeetingParticipants().Get(ctx, session.MeetingID, event.GetParticipant().GetIdentity()); err == nil && item.Role != "" {
 		role = item.Role
@@ -726,4 +932,50 @@ func isProviderNotFound(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
+}
+
+func cloneRequestBodyWithLimit(request *http.Request, limit int64) (*http.Request, []byte, error) {
+	if request == nil || request.Body == nil {
+		return nil, nil, utils.ErrValidationFailed
+	}
+
+	body, err := io.ReadAll(io.LimitReader(request.Body, limit+1))
+	if err != nil {
+		return nil, nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, nil, utils.ErrValidationFailed
+	}
+	_ = request.Body.Close()
+
+	cloned := request.Clone(request.Context())
+	cloned.Body = io.NopCloser(strings.NewReader(string(body)))
+	cloned.ContentLength = int64(len(body))
+	return cloned, body, nil
+}
+
+func validateWebhookReplayWindow(body []byte, maxAge time.Duration) error {
+	var envelope struct {
+		CreatedAt int64 `json:"createdAt"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return utils.ErrValidationFailed
+	}
+	if envelope.CreatedAt == 0 {
+		return nil
+	}
+
+	createdAt := time.Unix(envelope.CreatedAt, 0).UTC()
+	now := time.Now().UTC()
+	if createdAt.After(now.Add(time.Minute)) || now.Sub(createdAt) > maxAge {
+		return utils.ErrWebRTCHookUnauthorized
+	}
+	return nil
+}
+
+func maxDuration(left, right time.Duration) time.Duration {
+	if left > right {
+		return left
+	}
+	return right
 }

@@ -236,7 +236,21 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 	})
 	registry.Register("meeting.cleanup", func(context.Context, models.Job) error { return nil })
 	registry.Register("webrtc.room.create", func(context.Context, models.Job) error { return nil })
-	registry.Register("webrtc.room.close", func(context.Context, models.Job) error { return nil })
+	registry.Register("webrtc.room.close", func(ctx context.Context, job models.Job) error {
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		var payload struct {
+			SessionID string `json:"sessionId"`
+			RoomName  string `json:"roomName"`
+		}
+		if len(job.Payload) > 0 {
+			if err := json.Unmarshal(job.Payload, &payload); err != nil {
+				return Permanent(err)
+			}
+		}
+		return classifyRetry(meetings.webrtc.CloseRoom(ctx, payload.SessionID, payload.RoomName))
+	})
 	registry.Register("webrtc.room.reconcile", func(ctx context.Context, job models.Job) error {
 		_ = job
 		if meetings == nil || meetings.webrtc == nil {
@@ -247,6 +261,9 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 	registry.Register("webrtc.participant.cleanup", func(ctx context.Context, job models.Job) error {
 		if meetings == nil || meetings.webrtc == nil {
 			return nil
+		}
+		if len(job.Payload) == 0 {
+			return classifyRetry(meetings.webrtc.CleanupStaleParticipants(ctx))
 		}
 		var payload struct {
 			SessionID string `json:"sessionId"`
@@ -275,7 +292,7 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 		if meetings == nil || meetings.webrtc == nil {
 			return nil
 		}
-		return classifyRetry(meetings.webrtc.ReconcileRooms(ctx))
+		return classifyRetry(meetings.webrtc.ExpireAbandonedSessions(ctx))
 	})
 	registry.Register("attachment.process", func(context.Context, models.Job) error { return nil })
 	registry.Register("attachment.metadata", func(context.Context, models.Job) error { return nil })

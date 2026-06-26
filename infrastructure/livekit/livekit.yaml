@@ -1,15 +1,16 @@
-port: 7880
+# Template rendered at container start by render-livekit-config.sh.
+port: ${LIVEKIT_PORT}
 bind_addresses:
   - 0.0.0.0
 rtc:
-  tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 50100
+  tcp_port: ${LIVEKIT_RTC_TCP_PORT}
+  port_range_start: ${LIVEKIT_RTP_PORT_MIN}
+  port_range_end: ${LIVEKIT_RTP_PORT_MAX}
 redis:
-  address: redis:6379
-  password: ${REDIS_PASSWORD}
+  address: ${LIVEKIT_REDIS_ADDRESS}
+  password: ${LIVEKIT_REDIS_PASSWORD}
 keys:
-  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+  ${LIVEKIT_KEYS}
 webhook:
   urls:
-    - http://webrtc:8080/api/v1/internal/webrtc/livekit/webhook
+    - ${LIVEKIT_WEBHOOK_URL}

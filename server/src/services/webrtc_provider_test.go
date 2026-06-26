@@ -80,6 +80,12 @@ func TestLiveKitProviderCreateJoinToken(t *testing.T) {
 	if got := video["roomAdmin"]; got != true {
 		t.Fatalf("expected roomAdmin true, got %v", got)
 	}
+	if token.SignalingURL != "wss://meet.example.com" {
+		t.Fatalf("expected public signaling URL, got %q", token.SignalingURL)
+	}
+	if remaining := time.Until(token.ExpiresAt); remaining <= 0 || remaining > 10*time.Minute+5*time.Second {
+		t.Fatalf("unexpected token expiry window: %s", remaining)
+	}
 }
 
 func TestHandleLiveKitWebhookRejectsInvalidSignature(t *testing.T) {

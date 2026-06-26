@@ -33,6 +33,7 @@ func NewScheduler(redis *redisclient.Client, producer interfaces.JobProducer) *S
 			{Queue: "meetings", Type: "meeting.reminder", Every: time.Minute, LockName: "meeting-reminder"},
 			{Queue: "meetings", Type: "meeting.expire", Every: 5 * time.Minute, LockName: "meeting-expire"},
 			{Queue: "webrtc", Type: "webrtc.room.reconcile", Every: time.Minute, LockName: "webrtc-room-reconcile"},
+			{Queue: "webrtc", Type: "webrtc.participant.cleanup", Every: 2 * time.Minute, LockName: "webrtc-participant-cleanup"},
 			{Queue: "webrtc", Type: "webrtc.node.heartbeat", Every: 30 * time.Second, LockName: "webrtc-node-heartbeat"},
 			{Queue: "webrtc", Type: "webrtc.node.healthcheck", Every: time.Minute, LockName: "webrtc-node-healthcheck"},
 			{Queue: "webrtc", Type: "webrtc.session.expire", Every: 2 * time.Minute, LockName: "webrtc-session-expire"},

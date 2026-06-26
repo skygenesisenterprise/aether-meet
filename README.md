@@ -258,6 +258,79 @@ Standalone-first behavior:
 
 - the API can run without Redis
 - WebSocket fan-out keeps its in-memory event-bus fallback when Redis is disabled
+
+## WebRTC server architecture
+
+The production WebRTC stack is split into four roles:
+
+- `server`: classic frontend/API container for HTTP, application APIs, and WebSocket fan-out
+- `worker`: Redis Streams consumers, retries, dead-letter handling, and outbox-backed jobs
+- `webrtc`: Go control-plane runtime for node registration, readiness, heartbeat, reconciliation, webhook intake, and stale session cleanup
+- `livekit`: the actual SFU/media plane for signaling, ICE, RTP/RTCP, and audio/video transport
+
+The `webrtc` runtime is not a TURN server and does not terminate media. It only talks to LiveKit over its server API and receives provider webhooks.
+
+### Required environment
+
+Use separate internal and public LiveKit URLs:
+
+```env
+WEBRTC_PROVIDER=livekit
+LIVEKIT_INTERNAL_URL=http://livekit:7880
+LIVEKIT_PUBLIC_URL=wss://webrtc.meet.skygenesisenterprise.com
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+WEBRTC_NODE_ID=aether-meet-node-1
+WEBRTC_REGION=eu-west
+WEBRTC_TOKEN_TTL=10m
+LIVEKIT_RTC_TCP_PORT=7881
+LIVEKIT_RTP_PORT_MIN=50000
+LIVEKIT_RTP_PORT_MAX=50100
+TURN_ENABLED=false
+TURN_URL=
+TURN_USERNAME=
+TURN_PASSWORD=
+```
+
+The backend uses `LIVEKIT_INTERNAL_URL` for provider API calls. Join tokens and frontend clients must only receive `LIVEKIT_PUBLIC_URL` / `WEBRTC_PUBLIC_URL`.
+
+### Network and ports
+
+HTTP / frontend:
+
+- `meet.skygenesisenterprise.com` -> Cloudflare Tunnel / Dokploy -> `server`
+
+API:
+
+- `api.meet.skygenesisenterprise.com` or the same domain under `/api` -> Go API
+
+LiveKit signaling:
+
+- `webrtc.meet.skygenesisenterprise.com` -> TCP `7880` / WSS
+
+LiveKit media:
+
+- public IP directly -> TCP `7881`
+- public IP directly -> UDP `50000-50100`
+
+Future TURN:
+
+- `turn.meet.skygenesisenterprise.com` -> TCP/UDP `3478`
+- `turn.meet.skygenesisenterprise.com` -> TLS `5349`
+
+Cloudflare Tunnel can proxy HTTP and WSS signaling, but it does not replace direct UDP media transport for WebRTC RTP/RTCP.
+
+### WebRTC routes
+
+Current server-side meeting/media routes:
+
+- `POST /api/v1/meetings/:meetingId/start`
+- `POST /api/v1/meetings/:meetingId/end`
+- `POST /api/v1/meetings/:meetingId/cancel`
+- `GET /api/v1/meetings/:meetingId/participants`
+- `POST /api/v1/meetings/:meetingId/participants`
+- `POST /api/v1/meetings/:meetingId/join-token`
+- `POST /api/v1/internal/webrtc/livekit/webhook`
 - worker mode logs clearly when it falls back to the in-memory queue so local development does not silently pretend durability
 
 Important worker environment variables:

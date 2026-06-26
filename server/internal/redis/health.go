@@ -8,16 +8,16 @@ import (
 type HealthStatus string
 
 const (
-	StatusHealthy    HealthStatus = "healthy"
-	StatusUnhealthy  HealthStatus = "unhealthy"
+	StatusHealthy     HealthStatus = "healthy"
+	StatusUnhealthy   HealthStatus = "unhealthy"
 	StatusUnavailable HealthStatus = "unavailable"
-	StatusDisabled   HealthStatus = "disabled"
+	StatusDisabled    HealthStatus = "disabled"
 )
 
 type HealthResult struct {
-	Status   HealthStatus `json:"status"`
-	Latency  string       `json:"latency,omitempty"`
-	Error    string       `json:"error,omitempty"`
+	Status  HealthStatus `json:"status"`
+	Latency string       `json:"latency,omitempty"`
+	Error   string       `json:"error,omitempty"`
 }
 
 func (c *Client) Health(ctx context.Context) HealthResult {

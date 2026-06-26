@@ -93,6 +93,7 @@ type StorageConfig struct {
 type LiveKitConfig struct {
 	Enabled     bool
 	URL         string
+	PublicURL   string
 	InternalURL string
 	APIKey      string
 	APISecret   string
@@ -206,13 +207,14 @@ func Load() (Config, error) {
 		LiveKit: LiveKitConfig{
 			Enabled:     getEnvBool("LIVEKIT_ENABLED", false),
 			URL:         getEnv("LIVEKIT_URL", ""),
+			PublicURL:   getEnv("LIVEKIT_PUBLIC_URL", getEnv("LIVEKIT_URL", "")),
 			InternalURL: getEnv("LIVEKIT_INTERNAL_URL", ""),
 			APIKey:      getEnv("LIVEKIT_API_KEY", ""),
 			APISecret:   getEnv("LIVEKIT_API_SECRET", ""),
 		},
 		WebRTC: WebRTCConfig{
 			Provider:            strings.ToLower(getEnv("WEBRTC_PROVIDER", "")),
-			PublicURL:           getEnv("WEBRTC_PUBLIC_URL", ""),
+			PublicURL:           getEnv("WEBRTC_PUBLIC_URL", getEnv("LIVEKIT_PUBLIC_URL", getEnv("LIVEKIT_URL", ""))),
 			Region:              getEnv("WEBRTC_REGION", "global"),
 			NodeID:              getEnv("WEBRTC_NODE_ID", ""),
 			TokenTTL:            getEnvDuration("WEBRTC_TOKEN_TTL", 10*time.Minute),
@@ -267,8 +269,11 @@ func Load() (Config, error) {
 	if cfg.LiveKit.InternalURL == "" {
 		cfg.LiveKit.InternalURL = cfg.LiveKit.URL
 	}
+	if cfg.LiveKit.PublicURL == "" {
+		cfg.LiveKit.PublicURL = cfg.LiveKit.URL
+	}
 	if cfg.WebRTC.PublicURL == "" {
-		cfg.WebRTC.PublicURL = cfg.LiveKit.URL
+		cfg.WebRTC.PublicURL = cfg.LiveKit.PublicURL
 	}
 
 	if cfg.Auth.JWTSecret == "" && cfg.App.Env != "production" {
@@ -302,19 +307,25 @@ func (c Config) Validate() error {
 		}
 	}
 	if c.LiveKit.Enabled || c.WebRTC.Provider == "livekit" {
-		if c.LiveKit.URL == "" || c.LiveKit.InternalURL == "" || c.LiveKit.APIKey == "" || c.LiveKit.APISecret == "" {
-			return errors.New("LIVEKIT_URL, LIVEKIT_INTERNAL_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when LiveKit is enabled")
+		if c.LiveKit.PublicURL == "" || c.LiveKit.InternalURL == "" || c.LiveKit.APIKey == "" || c.LiveKit.APISecret == "" {
+			return errors.New("LIVEKIT_PUBLIC_URL, LIVEKIT_INTERNAL_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when LiveKit is enabled")
 		}
-		if err := validateURL(c.LiveKit.URL, "LIVEKIT_URL"); err != nil {
+		if err := validateURL(c.LiveKit.PublicURL, "LIVEKIT_PUBLIC_URL"); err != nil {
 			return err
 		}
 		if err := validateURL(c.LiveKit.InternalURL, "LIVEKIT_INTERNAL_URL"); err != nil {
+			return err
+		}
+		if err := validatePublicWebRTCURL(c.LiveKit.PublicURL, "LIVEKIT_PUBLIC_URL"); err != nil {
 			return err
 		}
 		if c.WebRTC.PublicURL == "" {
 			return errors.New("WEBRTC_PUBLIC_URL is required when LiveKit is enabled")
 		}
 		if err := validateURL(c.WebRTC.PublicURL, "WEBRTC_PUBLIC_URL"); err != nil {
+			return err
+		}
+		if err := validatePublicWebRTCURL(c.WebRTC.PublicURL, "WEBRTC_PUBLIC_URL"); err != nil {
 			return err
 		}
 		if c.WebRTC.TokenTTL <= 0 || c.WebRTC.RoomEmptyTimeout <= 0 || c.WebRTC.ParticipantTTL <= 0 || c.WebRTC.HealthcheckInterval <= 0 {
@@ -369,6 +380,24 @@ func validateURLOrScheme(value, key string) error {
 		return nil
 	}
 	return validateURL(value, key)
+}
+
+func validatePublicWebRTCURL(value, key string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL", key)
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "", "localhost", "127.0.0.1", "::1", "livekit", "webrtc":
+		return fmt.Errorf("%s must use a public hostname or IP", key)
+	}
+
+	if strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return fmt.Errorf("%s must use a public hostname or IP", key)
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {
