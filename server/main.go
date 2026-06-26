@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,18 @@ import (
 	"github.com/skygenesisenterprise/aether-meet/server/src/middleware"
 	"github.com/skygenesisenterprise/aether-meet/server/src/routes"
 	"github.com/skygenesisenterprise/aether-meet/server/src/services"
+	"golang.org/x/sync/errgroup"
+)
+
+type runtimeMode string
+
+const (
+	modeAPI       runtimeMode = "api"
+	modeWorker    runtimeMode = "worker"
+	modeScheduler runtimeMode = "scheduler"
+	modeWebRTC    runtimeMode = "webrtc"
+	modeAll       runtimeMode = "all"
+	modeServer    runtimeMode = "server"
 )
 
 func connectDatabase(ctx context.Context, logger *slog.Logger, cfg config.Config) (*services.DatabaseService, error) {
@@ -38,6 +51,47 @@ func connectDatabase(ctx context.Context, logger *slog.Logger, cfg config.Config
 	)
 
 	return db, nil
+}
+
+func parseRuntimeMode(args []string) (runtimeMode, error) {
+	if len(args) == 0 {
+		return modeAPI, nil
+	}
+
+	switch runtimeMode(args[0]) {
+	case modeAPI, modeWorker, modeScheduler, modeWebRTC, modeAll:
+		return runtimeMode(args[0]), nil
+	case modeServer:
+		return modeAPI, nil
+	default:
+		return "", fmt.Errorf("unknown mode %q", args[0])
+	}
+}
+
+func runHTTPServer(ctx context.Context, logger *slog.Logger, cfg config.Config, handler http.Handler, serviceRole runtimeMode) error {
+	server := &http.Server{
+		Addr:    ":" + cfg.Server.Port,
+		Handler: handler,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("server starting", "service", "http", "port", cfg.Server.Port, "mode", string(serviceRole))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
 }
 
 func main() {
@@ -123,50 +177,58 @@ func main() {
 	hub := services.NewHub(ctx, logger, cfg.Realtime, cfg.CORS.AllowedOrigins, eventBus, presence, workspaceService, conversationService)
 	defer hub.Close()
 
-	mode := "server"
-	if len(os.Args) > 1 {
-		mode = os.Args[1]
+	mode, err := parseRuntimeMode(os.Args[1:])
+	if err != nil {
+		logger.Error("unknown mode", "error", err)
+		os.Exit(1)
 	}
 
+	router := gin.New()
+	router.Use(middleware.RequestID(), middleware.Recovery(logger), middleware.CORS(cfg.CORS.AllowedOrigins))
+	if cfg.App.AccessLogs {
+		router.Use(middleware.Logging(logger))
+	}
+	if len(cfg.App.TrustedProxies) > 0 {
+		_ = router.SetTrustedProxies(cfg.App.TrustedProxies)
+	}
+	routes.SetupRoutes(router, routes.Dependencies{
+		Config: cfg, Logger: logger, Database: db, Redis: redis, EventBus: eventBus,
+		IdentityProvider: identityProvider, Hub: hub, UserService: userService,
+		WorkspaceService: workspaceService, TeamService: teamService, ChannelService: channelService,
+		ConversationService: conversationService, MessageService: messageService,
+		MeetingService: meetingService, IntegrationService: integrationService, AuditService: auditService,
+		RuntimeRole: string(mode),
+	})
+
 	switch mode {
-	case "worker":
-		if err := worker.Run(ctx); err != nil {
+	case modeAPI:
+		if err := runHTTPServer(ctx, logger, cfg, router, mode); err != nil {
+			logger.Error("server stopped unexpectedly", "error", err)
+			os.Exit(1)
+		}
+	case modeWorker:
+		if err := worker.RunConsumers(ctx); err != nil {
 			logger.Error("worker stopped with error", "error", err)
 			os.Exit(1)
 		}
-	case "server":
-		router := gin.New()
-		router.Use(middleware.RequestID(), middleware.Recovery(logger), middleware.CORS(cfg.CORS.AllowedOrigins))
-		if cfg.App.AccessLogs {
-			router.Use(middleware.Logging(logger))
+	case modeScheduler:
+		if err := worker.RunScheduler(ctx); err != nil {
+			logger.Error("scheduler stopped with error", "error", err)
+			os.Exit(1)
 		}
-		if len(cfg.App.TrustedProxies) > 0 {
-			_ = router.SetTrustedProxies(cfg.App.TrustedProxies)
+	case modeAll:
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.Go(func() error { return runHTTPServer(groupCtx, logger, cfg, router, mode) })
+		group.Go(func() error { return worker.RunAll(groupCtx) })
+		if err := group.Wait(); err != nil {
+			logger.Error("runtime stopped with error", "mode", string(mode), "error", err)
+			os.Exit(1)
 		}
-		routes.SetupRoutes(router, routes.Dependencies{
-			Config: cfg, Logger: logger, Database: db, Redis: redis, EventBus: eventBus,
-			IdentityProvider: identityProvider, Hub: hub, UserService: userService,
-			WorkspaceService: workspaceService, TeamService: teamService, ChannelService: channelService,
-			ConversationService: conversationService, MessageService: messageService,
-			MeetingService: meetingService, IntegrationService: integrationService, AuditService: auditService,
-		})
-		server := &http.Server{
-			Addr:    ":" + cfg.Server.Port,
-			Handler: router,
-		}
-		go func() {
-			logger.Info("server starting", "service", "http", "port", cfg.Server.Port, "mode", mode)
-			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error("server stopped unexpectedly", "error", err)
-				stop()
-			}
-		}()
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+	case modeWebRTC:
+		logger.Error("webrtc mode is not implemented in this repository")
+		os.Exit(1)
 	default:
-		logger.Error("unknown mode", "mode", mode)
+		logger.Error("unknown mode", "mode", string(mode))
 		os.Exit(1)
 	}
 }

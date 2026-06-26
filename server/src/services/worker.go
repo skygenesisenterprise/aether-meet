@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -65,33 +66,67 @@ func NewWorker(logger *slog.Logger, cfg config.Config, redis *redisclient.Client
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	return w.run(ctx, true, w.config.Worker.SchedulerEnabled, w.config.Outbox.Enabled, "worker")
+}
+
+func (w *Worker) RunConsumers(ctx context.Context) error {
+	return w.run(ctx, true, false, w.config.Outbox.Enabled, "worker")
+}
+
+func (w *Worker) RunScheduler(ctx context.Context) error {
+	return w.run(ctx, false, true, false, "scheduler")
+}
+
+func (w *Worker) RunAll(ctx context.Context) error {
+	return w.run(ctx, true, true, w.config.Outbox.Enabled, "all")
+}
+
+func (w *Worker) run(ctx context.Context, runConsumers bool, runScheduler bool, runOutbox bool, serviceRole string) error {
 	if w.queue == nil || w.registry == nil {
 		return utils.ErrWorkerUnavailable
 	}
-	if _, ok := w.queue.(*InMemoryJobQueue); ok {
-		w.logger.Warn("worker running with in-memory queue only; jobs are not durable")
+	if runConsumers {
+		if _, ok := w.queue.(*InMemoryJobQueue); ok {
+			w.logger.Warn("worker running with in-memory queue only; jobs are not durable")
+		}
+	}
+	if !runConsumers && !runScheduler && !runOutbox {
+		<-ctx.Done()
+		return nil
 	}
 	group, groupCtx := errgroup.WithContext(ctx)
 
-	group.Go(func() error { return w.runHeartbeat(groupCtx) })
-	if w.scheduler != nil && w.config.Worker.SchedulerEnabled {
+	if runConsumers {
+		group.Go(func() error { return w.runHeartbeat(groupCtx) })
+	}
+	if runScheduler && w.scheduler != nil {
 		group.Go(func() error { return w.scheduler.Run(groupCtx) })
 	}
-	if w.outbox != nil && w.config.Outbox.Enabled {
+	if runOutbox && w.outbox != nil && w.config.Outbox.Enabled {
 		group.Go(func() error { return w.outbox.Run(groupCtx, w.config.Worker.ID) })
 	}
-	for _, consumer := range w.consumers {
-		consumer := consumer
-		for i := 0; i < w.config.Worker.Concurrency; i++ {
-			i := i
-			group.Go(func() error {
-				name := w.config.Worker.ID + "-" + consumer.Queue + "-" + strconvItoa(i)
-				return w.queue.Consume(groupCtx, consumer.Queue, consumer.Group, name, w.wrapHandler(consumer))
-			})
+	if runConsumers {
+		for _, consumer := range w.consumers {
+			consumer := consumer
+			for i := 0; i < w.config.Worker.Concurrency; i++ {
+				i := i
+				group.Go(func() error {
+					name := w.config.Worker.ID + "-" + consumer.Queue + "-" + strconv.Itoa(i)
+					return w.queue.Consume(groupCtx, consumer.Queue, consumer.Group, name, w.wrapHandler(consumer))
+				})
+			}
 		}
 	}
-	w.logger.Info("worker started", "service", "worker", "worker_id", w.config.Worker.ID)
+	w.logger.Info("runtime started", "service", serviceRole, "worker_id", w.config.Worker.ID, "consumers", runConsumers, "scheduler", runScheduler, "outbox", runOutbox)
 	err := group.Wait()
+	if !runConsumers {
+		if errors.Is(err, context.Canceled) {
+			w.logger.Info("runtime stopped", "service", serviceRole, "worker_id", w.config.Worker.ID)
+			return nil
+		}
+		return err
+	}
+
 	waitCtx, cancel := context.WithTimeout(context.Background(), w.config.Worker.ShutdownTimeout)
 	defer cancel()
 	done := make(chan struct{})
@@ -105,7 +140,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.logger.Warn("worker shutdown timed out", "worker_id", w.config.Worker.ID)
 	}
 	if errors.Is(err, context.Canceled) {
-		w.logger.Info("worker stopped", "service", "worker", "worker_id", w.config.Worker.ID)
+		w.logger.Info("runtime stopped", "service", serviceRole, "worker_id", w.config.Worker.ID)
 		return nil
 	}
 	return err
@@ -215,8 +250,4 @@ func classifyRetry(err error) error {
 		return Permanent(err)
 	}
 	return Retryable(err)
-}
-
-func strconvItoa(value int) string {
-	return string(rune('0' + value))
 }

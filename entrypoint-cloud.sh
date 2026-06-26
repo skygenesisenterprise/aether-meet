@@ -392,7 +392,7 @@ run_worker() {
     configure_runtime
 
     log_info "Aether Meet worker starting"
-    log_info "Backend API configured for 0.0.0.0:${SERVER_PORT}"
+    log_info "Backend runtime configured for 0.0.0.0:${SERVER_PORT}"
 
     backend_binary="$(find_backend_binary || true)"
     if [ -z "${backend_binary}" ]; then
@@ -415,9 +415,93 @@ run_worker() {
     fi
 
     log_redis_configuration
-    log_info "Starting Go backend"
+    log_info "Starting Go backend worker"
 
     exec "${backend_binary}" worker "$@"
+}
+
+run_api() {
+    configure_runtime
+
+    log_info "Aether Meet API starting"
+
+    backend_binary="$(find_backend_binary || true)"
+    if [ -z "${backend_binary}" ]; then
+        log_error "Go backend binary not found at /app/server/aether-meet or /app/server/etheriatimes-api"
+        return 1
+    fi
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        log_error "DATABASE_URL is required for the Go API"
+        return 1
+    fi
+
+    if ! run_prisma_schema_deploy; then
+        if [ "${ALLOW_MIGRATION_FAILURE}" = "true" ]; then
+            log_warn "Prisma schema deployment failed; continuing because ALLOW_MIGRATION_FAILURE=true"
+        else
+            log_error "Prisma schema deployment failed"
+            return 1
+        fi
+    fi
+
+    log_redis_configuration
+    log_info "Starting Go backend API"
+
+    exec "${backend_binary}" api "$@"
+}
+
+run_scheduler() {
+    configure_runtime
+
+    log_info "Aether Meet scheduler starting"
+
+    backend_binary="$(find_backend_binary || true)"
+    if [ -z "${backend_binary}" ]; then
+        log_error "Go backend binary not found at /app/server/aether-meet or /app/server/etheriatimes-api"
+        return 1
+    fi
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        log_error "DATABASE_URL is required for the Go scheduler"
+        return 1
+    fi
+
+    log_redis_configuration
+    log_info "Starting Go backend scheduler"
+
+    exec "${backend_binary}" scheduler "$@"
+}
+
+run_all() {
+    configure_runtime
+
+    log_info "Aether Meet combined runtime starting"
+
+    backend_binary="$(find_backend_binary || true)"
+    if [ -z "${backend_binary}" ]; then
+        log_error "Go backend binary not found at /app/server/aether-meet or /app/server/etheriatimes-api"
+        return 1
+    fi
+
+    if [ -z "${DATABASE_URL:-}" ]; then
+        log_error "DATABASE_URL is required for the combined Go runtime"
+        return 1
+    fi
+
+    if ! run_prisma_schema_deploy; then
+        if [ "${ALLOW_MIGRATION_FAILURE}" = "true" ]; then
+            log_warn "Prisma schema deployment failed; continuing because ALLOW_MIGRATION_FAILURE=true"
+        else
+            log_error "Prisma schema deployment failed"
+            return 1
+        fi
+    fi
+
+    log_redis_configuration
+    log_info "Starting Go backend combined runtime"
+
+    exec "${backend_binary}" all "$@"
 }
 
 run_webrtc() {
@@ -462,9 +546,21 @@ case "${role}" in
         shift || true
         run_server "$@"
         ;;
+    api)
+        shift || true
+        run_api "$@"
+        ;;
     worker)
         shift || true
         run_worker "$@"
+        ;;
+    scheduler)
+        shift || true
+        run_scheduler "$@"
+        ;;
+    all)
+        shift || true
+        run_all "$@"
         ;;
     webrtc)
         shift || true

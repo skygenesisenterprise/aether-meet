@@ -20,6 +20,7 @@ import (
 type Dependencies struct {
 	Config              config.Config
 	Logger              *slog.Logger
+	RuntimeRole         string
 	Database            interfaces.Database
 	Redis               *redisclient.Client
 	EventBus            interfaces.EventBus
@@ -38,6 +39,9 @@ type Dependencies struct {
 
 func SetupRoutes(router *gin.Engine, deps Dependencies) {
 	handler := &apiHandler{deps: deps}
+
+	router.GET("/health/live", handler.live)
+	router.GET("/health/ready", handler.ready)
 
 	api := router.Group("/api/v1")
 	api.GET("/health", handler.health)
@@ -94,6 +98,9 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 		protected.GET("/meetings/:meetingId", handler.getMeeting)
 		protected.POST("/meetings/:meetingId/start", handler.startMeeting)
 		protected.POST("/meetings/:meetingId/end", handler.endMeeting)
+		protected.POST("/meetings/:meetingId/cancel", handler.cancelMeeting)
+		protected.GET("/meetings/:meetingId/participants", handler.listMeetingParticipants)
+		protected.POST("/meetings/:meetingId/participants", handler.addMeetingParticipant)
 		protected.POST("/meetings/:meetingId/join-token", handler.meetingJoinToken)
 
 		protected.GET("/workspaces/:workspaceId/applications", handler.listApplications)
@@ -103,6 +110,65 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 		protected.DELETE("/applications/:applicationId", handler.deleteApplication)
 
 		protected.GET("/workspaces/:workspaceId/audit-logs", handler.listAuditLogs)
+
+		protected.GET("/notifications", handler.listNotifications)
+		protected.GET("/notifications/unread-count", handler.notificationsUnreadCount)
+		protected.POST("/notifications/:notificationId/read", handler.markNotificationRead)
+		protected.POST("/notifications/read-all", handler.markAllNotificationsRead)
+		protected.GET("/me/notification-preferences", handler.getNotificationPreferences)
+		protected.PATCH("/me/notification-preferences", handler.updateNotificationPreferences)
+		protected.GET("/me/preferences", handler.getPreferences)
+		protected.PATCH("/me/preferences", handler.updatePreferences)
+
+		protected.GET("/workspaces/:workspaceId/contacts", handler.listContacts)
+		protected.POST("/workspaces/:workspaceId/contacts", handler.createContact)
+		protected.GET("/contacts/:contactId", handler.getContact)
+		protected.PATCH("/contacts/:contactId", handler.updateContact)
+		protected.DELETE("/contacts/:contactId", handler.deleteContact)
+		protected.GET("/workspaces/:workspaceId/contact-groups", handler.listContactGroups)
+		protected.POST("/workspaces/:workspaceId/contact-groups", handler.createContactGroup)
+		protected.GET("/contact-groups/:groupId", handler.getContactGroup)
+		protected.PATCH("/contact-groups/:groupId", handler.updateContactGroup)
+		protected.DELETE("/contact-groups/:groupId", handler.deleteContactGroup)
+
+		protected.GET("/workspaces/:workspaceId/tasks", handler.listTasks)
+		protected.POST("/workspaces/:workspaceId/tasks", handler.createTask)
+		protected.GET("/tasks/:taskId", handler.getTask)
+		protected.PATCH("/tasks/:taskId", handler.updateTask)
+		protected.DELETE("/tasks/:taskId", handler.deleteTask)
+		protected.GET("/tasks/:taskId/comments", handler.listTaskComments)
+		protected.POST("/tasks/:taskId/comments", handler.createTaskComment)
+		protected.PATCH("/tasks/:taskId/order", handler.updateTaskOrder)
+
+		protected.GET("/workspaces/:workspaceId/projects", handler.listProjects)
+		protected.POST("/workspaces/:workspaceId/projects", handler.createProject)
+		protected.GET("/projects/:projectId", handler.getProject)
+		protected.PATCH("/projects/:projectId", handler.updateProject)
+		protected.DELETE("/projects/:projectId", handler.deleteProject)
+		protected.GET("/projects/:projectId/members", handler.listProjectMembers)
+		protected.PUT("/projects/:projectId/members", handler.replaceProjectMembers)
+
+		protected.GET("/workspaces/:workspaceId/files", handler.listFiles)
+		protected.POST("/workspaces/:workspaceId/files/uploads", handler.initializeFileUpload)
+		protected.GET("/files/:fileId", handler.getFile)
+		protected.POST("/files/:fileId/complete", handler.completeFileUpload)
+		protected.GET("/files/:fileId/download-url", handler.fileDownloadURL)
+		protected.DELETE("/files/:fileId", handler.deleteFile)
+
+		protected.GET("/workspaces/:workspaceId/documents", handler.listDocuments)
+		protected.POST("/workspaces/:workspaceId/documents", handler.createDocument)
+		protected.GET("/documents/:documentId", handler.getDocument)
+		protected.PATCH("/documents/:documentId", handler.updateDocument)
+		protected.DELETE("/documents/:documentId", handler.deleteDocument)
+		protected.GET("/workspaces/:workspaceId/resources", handler.listResources)
+		protected.POST("/workspaces/:workspaceId/resources", handler.createResource)
+		protected.GET("/resources/:resourceId", handler.getResource)
+		protected.PATCH("/resources/:resourceId", handler.updateResource)
+		protected.DELETE("/resources/:resourceId", handler.deleteResource)
+
+		protected.GET("/workspaces/:workspaceId/calls/history", handler.listCallHistory)
+		protected.GET("/calls/:callId", handler.getCall)
+		protected.GET("/calls/:callId/voicemail", handler.getVoicemail)
 
 		protected.GET("/realtime/ws", handler.realtime)
 	}
@@ -114,6 +180,21 @@ type apiHandler struct {
 
 func (h *apiHandler) principal(c *gin.Context) (interfaces.Principal, bool) {
 	return middleware.PrincipalFromGin(c)
+}
+
+func (h *apiHandler) live(c *gin.Context) {
+	utils.Success(c, http.StatusOK, gin.H{
+		"status":  "alive",
+		"role":    h.runtimeRole(),
+		"version": h.deps.Config.App.Version,
+	})
+}
+
+func (h *apiHandler) runtimeRole() string {
+	if h.deps.RuntimeRole == "" {
+		return "api"
+	}
+	return h.deps.RuntimeRole
 }
 
 func (h *apiHandler) health(c *gin.Context) {
@@ -130,7 +211,9 @@ func (h *apiHandler) health(c *gin.Context) {
 			status = "degraded"
 		}
 	}
-	if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
+	if h.runtimeRole() == "all" {
+		workerStatus = "healthy"
+	} else if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
 		workerStatus = "unavailable"
 		pattern := h.deps.Redis.Keys.Cache("worker-heartbeat", "*")
 		keys, err := h.deps.Redis.Raw.Keys(c.Request.Context(), pattern).Result()
@@ -148,6 +231,7 @@ func (h *apiHandler) health(c *gin.Context) {
 		"redis":    redisStatus,
 		"worker":   workerStatus,
 		"realtime": realtimeStatus,
+		"role":     h.runtimeRole(),
 		"version":  h.deps.Config.App.Version,
 	})
 }
@@ -180,7 +264,9 @@ func (h *apiHandler) ready(c *gin.Context) {
 			return
 		}
 	}
-	if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
+	if h.runtimeRole() == "all" {
+		result["worker"] = "healthy"
+	} else if h.deps.Config.Worker.Enabled && h.deps.Redis != nil && h.deps.Redis.Raw != nil {
 		pattern := h.deps.Redis.Keys.Cache("worker-heartbeat", "*")
 		keys, err := h.deps.Redis.Raw.Keys(ctx, pattern).Result()
 		if err != nil || len(keys) == 0 {
@@ -195,6 +281,7 @@ func (h *apiHandler) ready(c *gin.Context) {
 		"redis":    result["redis"],
 		"worker":   result["worker"],
 		"realtime": result["realtime"],
+		"role":     h.runtimeRole(),
 		"version":  h.deps.Config.App.Version,
 	})
 }
@@ -680,6 +767,15 @@ func (h *apiHandler) createMeeting(c *gin.Context) {
 func (h *apiHandler) getMeeting(c *gin.Context)   { h.meetingAction(c, "get") }
 func (h *apiHandler) startMeeting(c *gin.Context) { h.meetingAction(c, "start") }
 func (h *apiHandler) endMeeting(c *gin.Context)   { h.meetingAction(c, "end") }
+func (h *apiHandler) cancelMeeting(c *gin.Context) {
+	h.notImplemented(c, "meeting cancellation")
+}
+func (h *apiHandler) listMeetingParticipants(c *gin.Context) {
+	h.notImplemented(c, "meeting participants listing")
+}
+func (h *apiHandler) addMeetingParticipant(c *gin.Context) {
+	h.notImplemented(c, "meeting participant management")
+}
 
 func (h *apiHandler) meetingAction(c *gin.Context, action string) {
 	principal, _ := h.principal(c)
@@ -814,6 +910,93 @@ func (h *apiHandler) realtime(c *gin.Context) {
 		return
 	}
 	h.deps.Hub.Handle(c, principal)
+}
+
+func (h *apiHandler) listNotifications(c *gin.Context) { h.notImplemented(c, "notifications inbox") }
+func (h *apiHandler) notificationsUnreadCount(c *gin.Context) {
+	h.notImplemented(c, "notifications unread count")
+}
+func (h *apiHandler) markNotificationRead(c *gin.Context) {
+	h.notImplemented(c, "notification mark as read")
+}
+func (h *apiHandler) markAllNotificationsRead(c *gin.Context) {
+	h.notImplemented(c, "notifications mark all as read")
+}
+func (h *apiHandler) getNotificationPreferences(c *gin.Context) {
+	h.notImplemented(c, "notification preferences")
+}
+func (h *apiHandler) updateNotificationPreferences(c *gin.Context) {
+	h.notImplemented(c, "notification preferences update")
+}
+func (h *apiHandler) getPreferences(c *gin.Context) { h.notImplemented(c, "user preferences") }
+func (h *apiHandler) updatePreferences(c *gin.Context) {
+	h.notImplemented(c, "user preferences update")
+}
+
+func (h *apiHandler) listContacts(c *gin.Context)      { h.notImplemented(c, "contacts listing") }
+func (h *apiHandler) createContact(c *gin.Context)     { h.notImplemented(c, "contact creation") }
+func (h *apiHandler) getContact(c *gin.Context)        { h.notImplemented(c, "contact retrieval") }
+func (h *apiHandler) updateContact(c *gin.Context)     { h.notImplemented(c, "contact update") }
+func (h *apiHandler) deleteContact(c *gin.Context)     { h.notImplemented(c, "contact deletion") }
+func (h *apiHandler) listContactGroups(c *gin.Context) { h.notImplemented(c, "contact group listing") }
+func (h *apiHandler) createContactGroup(c *gin.Context) {
+	h.notImplemented(c, "contact group creation")
+}
+func (h *apiHandler) getContactGroup(c *gin.Context)    { h.notImplemented(c, "contact group retrieval") }
+func (h *apiHandler) updateContactGroup(c *gin.Context) { h.notImplemented(c, "contact group update") }
+func (h *apiHandler) deleteContactGroup(c *gin.Context) {
+	h.notImplemented(c, "contact group deletion")
+}
+
+func (h *apiHandler) listTasks(c *gin.Context)         { h.notImplemented(c, "task listing") }
+func (h *apiHandler) createTask(c *gin.Context)        { h.notImplemented(c, "task creation") }
+func (h *apiHandler) getTask(c *gin.Context)           { h.notImplemented(c, "task retrieval") }
+func (h *apiHandler) updateTask(c *gin.Context)        { h.notImplemented(c, "task update") }
+func (h *apiHandler) deleteTask(c *gin.Context)        { h.notImplemented(c, "task deletion") }
+func (h *apiHandler) listTaskComments(c *gin.Context)  { h.notImplemented(c, "task comment listing") }
+func (h *apiHandler) createTaskComment(c *gin.Context) { h.notImplemented(c, "task comment creation") }
+func (h *apiHandler) updateTaskOrder(c *gin.Context)   { h.notImplemented(c, "task ordering") }
+
+func (h *apiHandler) listProjects(c *gin.Context)  { h.notImplemented(c, "project listing") }
+func (h *apiHandler) createProject(c *gin.Context) { h.notImplemented(c, "project creation") }
+func (h *apiHandler) getProject(c *gin.Context)    { h.notImplemented(c, "project retrieval") }
+func (h *apiHandler) updateProject(c *gin.Context) { h.notImplemented(c, "project update") }
+func (h *apiHandler) deleteProject(c *gin.Context) { h.notImplemented(c, "project deletion") }
+func (h *apiHandler) listProjectMembers(c *gin.Context) {
+	h.notImplemented(c, "project member listing")
+}
+func (h *apiHandler) replaceProjectMembers(c *gin.Context) {
+	h.notImplemented(c, "project member management")
+}
+
+func (h *apiHandler) listFiles(c *gin.Context) { h.notImplemented(c, "file listing") }
+func (h *apiHandler) initializeFileUpload(c *gin.Context) {
+	h.notImplemented(c, "file upload initialization")
+}
+func (h *apiHandler) getFile(c *gin.Context) { h.notImplemented(c, "file retrieval") }
+func (h *apiHandler) completeFileUpload(c *gin.Context) {
+	h.notImplemented(c, "file upload completion")
+}
+func (h *apiHandler) fileDownloadURL(c *gin.Context) { h.notImplemented(c, "file download url") }
+func (h *apiHandler) deleteFile(c *gin.Context)      { h.notImplemented(c, "file deletion") }
+
+func (h *apiHandler) listDocuments(c *gin.Context)  { h.notImplemented(c, "document listing") }
+func (h *apiHandler) createDocument(c *gin.Context) { h.notImplemented(c, "document creation") }
+func (h *apiHandler) getDocument(c *gin.Context)    { h.notImplemented(c, "document retrieval") }
+func (h *apiHandler) updateDocument(c *gin.Context) { h.notImplemented(c, "document update") }
+func (h *apiHandler) deleteDocument(c *gin.Context) { h.notImplemented(c, "document deletion") }
+func (h *apiHandler) listResources(c *gin.Context)  { h.notImplemented(c, "resource listing") }
+func (h *apiHandler) createResource(c *gin.Context) { h.notImplemented(c, "resource creation") }
+func (h *apiHandler) getResource(c *gin.Context)    { h.notImplemented(c, "resource retrieval") }
+func (h *apiHandler) updateResource(c *gin.Context) { h.notImplemented(c, "resource update") }
+func (h *apiHandler) deleteResource(c *gin.Context) { h.notImplemented(c, "resource deletion") }
+
+func (h *apiHandler) listCallHistory(c *gin.Context) { h.notImplemented(c, "call history") }
+func (h *apiHandler) getCall(c *gin.Context)         { h.notImplemented(c, "call retrieval") }
+func (h *apiHandler) getVoicemail(c *gin.Context)    { h.notImplemented(c, "voicemail retrieval") }
+
+func (h *apiHandler) notImplemented(c *gin.Context, capability string) {
+	utils.Error(c, utils.NewError(http.StatusNotImplemented, "NOT_IMPLEMENTED", capability+" is not implemented yet.", nil))
 }
 
 func sanitizeIntegration(item any) any {
