@@ -21,6 +21,10 @@ interface MessageComposerProps {
   onSend?: (message: string) => void;
 }
 
+export interface MessageComposerHandle {
+  addDroppedFiles: (files: FileList | File[]) => void;
+}
+
 interface DraftAttachment {
   id: string;
   name: string;
@@ -30,10 +34,13 @@ interface DraftAttachment {
 const quickMentions = ["@Elena", "@Marcus", "@Sarah", "@Noah"];
 const quickEmojis = ["👍", "🔥", "🎯", "🚀", "🙂", "👏", "✅", "👀"];
 
-export function MessageComposer({
-  placeholder = "Écrire un message",
-  onSend,
-}: MessageComposerProps) {
+export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageComposerProps>(function MessageComposer(
+  {
+    placeholder = "Écrire un message",
+    onSend,
+  },
+  ref
+) {
   const [message, setMessage] = React.useState("");
   const [attachments, setAttachments] = React.useState<DraftAttachment[]>([]);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -54,17 +61,33 @@ export function MessageComposer({
     focusTextarea();
   }
 
+  function buildAttachments(files: FileList | File[], kind?: DraftAttachment["kind"]) {
+    return Array.from(files).map((file, index) => {
+      const resolvedKind = kind ?? (file.type.startsWith("image/") ? "image" : "file");
+
+      return {
+        id: `${resolvedKind}-${file.name}-${file.lastModified}-${index}`,
+        name: file.name,
+        kind: resolvedKind,
+      };
+    });
+  }
+
   function addAttachments(files: FileList | null, kind: DraftAttachment["kind"]) {
     if (!files?.length) return;
 
-    const nextAttachments = Array.from(files).map((file, index) => ({
-      id: `${kind}-${file.name}-${file.lastModified}-${index}`,
-      name: file.name,
-      kind,
-    }));
+    const nextAttachments = buildAttachments(files, kind);
 
     setAttachments((current) => [...current, ...nextAttachments]);
   }
+
+  React.useImperativeHandle(ref, () => ({
+    addDroppedFiles(files) {
+      if (!files.length) return;
+      setAttachments((current) => [...current, ...buildAttachments(files)]);
+      focusTextarea();
+    },
+  }));
 
   function removeAttachment(id: string) {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
@@ -278,4 +301,4 @@ export function MessageComposer({
       </div>
     </form>
   );
-}
+});

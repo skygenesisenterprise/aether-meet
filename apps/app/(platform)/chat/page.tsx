@@ -31,13 +31,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { MessageComposer } from "@/components/platform/message-composer";
+import { MessageComposer, type MessageComposerHandle } from "@/components/platform/message-composer";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { useChatStore } from "@/lib/chat-store";
 import {
   conversations,
   conversationMessages,
   currentUser,
+  mockConversationMessages,
   people,
   type Person,
 } from "@/lib/platform-data";
@@ -49,6 +50,10 @@ export default function ChatPage() {
   const customConversations = useChatStore((s) => s.customConversations);
   const customMessages = useChatStore((s) => s.customMessages);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const composerRef = React.useRef<MessageComposerHandle | null>(null);
+  const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
+  const dragDepthRef = React.useRef(0);
   const allConversations = React.useMemo(() => {
     const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
     return [
@@ -62,10 +67,14 @@ export default function ChatPage() {
       : allConversations.find((item) => item.id === activeConversationId) ?? null;
   const messages =
     conversation && activeConversationId
-      ? customMessages[activeConversationId] ?? conversationMessages[activeConversationId] ?? []
+      ? [
+          ...(customMessages[activeConversationId] ?? conversationMessages[activeConversationId] ?? []),
+          ...(mockConversationMessages[activeConversationId] ?? []),
+        ]
       : [];
   const [callMode, setCallMode] = React.useState<"audio" | "video" | null>(null);
   const [infoOpen, setInfoOpen] = React.useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = React.useState(false);
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const members = conversation
     ? conversation.memberIds
@@ -96,11 +105,69 @@ export default function ChatPage() {
       ? `${callMode === "video" ? "Visioconférence" : "Appel audio"} avec ${callTargets}.`
       : `${callMode === "video" ? "Réunion vidéo" : "Appel de groupe"} dans ${conversation?.name ?? ""}.`;
 
+  React.useEffect(() => {
+    if (!conversation) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = scrollAreaRef.current?.querySelector("[data-slot='scroll-area-viewport']");
+
+      if (viewport instanceof HTMLElement) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+        return;
+      }
+
+      messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversation, activeConversationId, messages.length]);
+
+  function hasFiles(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer) return false;
+    return Array.from(dataTransfer.items).some((item) => item.kind === "file");
+  }
+
+  function handleConversationDragEnter(event: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  }
+
+  function handleConversationDragOver(event: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleConversationDragLeave(event: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDraggingFiles(false);
+    }
+  }
+
+  function handleConversationDrop(event: React.DragEvent<HTMLDivElement>) {
+    if (!hasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    composerRef.current?.addDroppedFiles(event.dataTransfer.files);
+  }
+
   return (
     <>
       <div className="flex h-full min-h-180 flex-col bg-[#232426]">
         {conversation ? (
-          <>
+          <div
+            className="relative flex min-h-0 flex-1 flex-col"
+            onDragEnter={handleConversationDragEnter}
+            onDragOver={handleConversationDragOver}
+            onDragLeave={handleConversationDragLeave}
+            onDrop={handleConversationDrop}
+          >
             <header className="flex min-h-15.5 flex-wrap items-center justify-between gap-2 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
               <div className="flex min-w-0 items-center gap-3">
                 <PresenceAvatar initials={conversation.initials} status={conversation.status} className="size-8" />
@@ -168,104 +235,116 @@ export default function ChatPage() {
               <ChevronDown className="ml-auto size-4 text-zinc-500" />
             </div>
 
-            <ScrollArea key={activeConversationId} className="min-h-0 flex-1 bg-[#232426]">
-              <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="h-px flex-1 bg-white/10" />
-                  {messages.length > 0 ? "Aujourd’hui" : "Aucun message"}
-                  <span className="h-px flex-1 bg-white/10" />
-                </div>
-                {messages.map((message) => {
-                  const isOwnMessage = message.authorId === currentUser.id;
-                  const author = peopleById.get(message.authorId);
-
-                  return (
-                    <article
-                      key={message.id}
-                      className={cn("group flex gap-3", isOwnMessage && "justify-end")}
-                    >
-                      {!isOwnMessage && (
-                        <PresenceAvatar
-                          initials={message.initials}
-                          status={author?.status ?? "offline"}
-                          className="size-9"
-                        />
-                      )}
-                      <div
-                        className={cn(
-                          "min-w-0 max-w-[min(100%,42rem)]",
-                          isOwnMessage && "flex flex-col items-end"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex items-center gap-2",
-                            isOwnMessage && "justify-end"
-                          )}
-                        >
-                          {!isOwnMessage && <h2 className="text-sm font-semibold">{message.author}</h2>}
-                          <time className="font-mono text-[10px] text-muted-foreground">
-                            {message.time}
-                          </time>
-                          {isOwnMessage && <h2 className="text-sm font-semibold">Vous</h2>}
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className={cn(
-                              "rounded-md opacity-0 transition-opacity group-hover:opacity-100",
-                              isOwnMessage ? "order-first" : "ml-auto"
-                            )}
-                            aria-label="Actions du message"
-                          >
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        </div>
-                        <div
-                          className={cn(
-                            "mt-1 rounded-2xl px-4 py-3",
-                            isOwnMessage
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-[#2b2d31] text-foreground/90"
-                          )}
-                        >
-                          <p className="text-sm leading-6">{message.content}</p>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-                {activeConversationId === "product" && (
-                  <div className="rounded-md border border-primary/20 bg-primary/8 p-4">
-                    <div className="flex items-center gap-3">
-                      <span className="flex size-9 items-center justify-center rounded-md bg-primary/15 text-primary">
-                        <Video className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">Revue du nouveau client</p>
-                        <p className="text-xs text-muted-foreground">Aujourd’hui · 15:00 – 16:00</p>
-                      </div>
-                      <Button
-                        size="sm"
-                        className="rounded-md"
-                        onClick={() => router.push("/calls/room?conversationId=product&mode=video")}
-                      >
-                        Rejoindre
-                      </Button>
-                    </div>
+            <div ref={scrollAreaRef} className="min-h-0 flex-1">
+              <ScrollArea key={activeConversationId} className="h-full bg-[#232426]">
+                <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="h-px flex-1 bg-white/10" />
+                    {messages.length > 0 ? "Aujourd’hui" : "Aucun message"}
+                    <span className="h-px flex-1 bg-white/10" />
                   </div>
-                )}
-              </div>
-            </ScrollArea>
+                  {messages.map((message) => {
+                    const isOwnMessage = message.authorId === currentUser.id;
+                    const author = peopleById.get(message.authorId);
+
+                    return (
+                      <article
+                        key={message.id}
+                        className={cn("group flex gap-3", isOwnMessage && "justify-end")}
+                      >
+                        {!isOwnMessage && (
+                          <PresenceAvatar
+                            initials={message.initials}
+                            status={author?.status ?? "offline"}
+                            className="size-9"
+                          />
+                        )}
+                        <div
+                          className={cn(
+                            "min-w-0 max-w-[min(100%,42rem)]",
+                            isOwnMessage && "flex flex-col items-end"
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "flex items-center gap-2",
+                              isOwnMessage && "justify-end"
+                            )}
+                          >
+                            {!isOwnMessage && <h2 className="text-sm font-semibold">{message.author}</h2>}
+                            <time className="font-mono text-[10px] text-muted-foreground">
+                              {message.time}
+                            </time>
+                            {isOwnMessage && <h2 className="text-sm font-semibold">Vous</h2>}
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className={cn(
+                                "rounded-md opacity-0 transition-opacity group-hover:opacity-100",
+                                isOwnMessage ? "order-first" : "ml-auto"
+                              )}
+                              aria-label="Actions du message"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </div>
+                          <div
+                            className={cn(
+                              "mt-1 rounded-2xl px-4 py-3",
+                              isOwnMessage
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-[#2b2d31] text-foreground/90"
+                            )}
+                          >
+                            <p className="text-sm leading-6">{message.content}</p>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {activeConversationId === "product" && (
+                    <div className="rounded-md border border-primary/20 bg-primary/8 p-4">
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+                          <Video className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">Revue du nouveau client</p>
+                          <p className="text-xs text-muted-foreground">Aujourd’hui · 15:00 – 16:00</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="rounded-md"
+                          onClick={() => router.push("/calls/room?conversationId=product&mode=video")}
+                        >
+                          Rejoindre
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} aria-hidden="true" />
+                </div>
+              </ScrollArea>
+            </div>
 
             <div className="shrink-0 bg-[#232426] px-4 pb-5 pt-3 lg:px-8">
               <div className="mx-auto max-w-4xl">
                 <MessageComposer
+                  ref={composerRef}
                   placeholder={`Écrire un message à ${conversation.name}`}
                   onSend={(message) => sendMessage(conversation.id, message)}
                 />
               </div>
             </div>
-          </>
+            {isDraggingFiles ? (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/35 p-6">
+                <div className="rounded-2xl border border-dashed border-primary/60 bg-[#252628]/95 px-6 py-5 text-center shadow-2xl">
+                  <p className="text-sm font-medium text-zinc-100">Déposez le fichier pour l’ajouter au message</p>
+                  <p className="mt-1 text-xs text-zinc-400">Appuyez ensuite sur Entrée pour envoyer la pièce jointe.</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <header className="flex min-h-15.5 items-center justify-between border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
