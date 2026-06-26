@@ -1,9 +1,7 @@
 "use client";
 
-import * as React from "react";
 import {
   ChevronDown,
-  Grid3X3,
   LogOut,
   MoreHorizontal,
   Search,
@@ -49,30 +47,6 @@ export function AdminHeader({ className }: AdminHeaderProps) {
         className
       )}
     >
-      <div className="flex h-full items-center">
-        <div className="flex h-full w-17 items-center justify-center">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="size-8 rounded-sm text-zinc-300 hover:bg-white/8 hover:text-white"
-            aria-label="Ouvrir le lanceur d’applications Aether"
-          >
-            <Grid3X3 className="size-4.25" strokeWidth={1.8} />
-          </Button>
-        </div>
-
-        <button
-          type="button"
-          className="flex h-full items-center gap-2 px-1 text-left hover:text-white"
-          aria-label="Aether Meet"
-        >
-          <span className="relative flex size-5.5 items-center justify-center rounded-[5px] bg-linear-to-br from-violet-500 to-indigo-600 text-[10px] font-bold text-white shadow-sm shadow-violet-950/40">
-            A
-            <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full border border-[#08090a] bg-emerald-400" />
-          </span>
-          <span className="hidden text-xs font-semibold tracking-tight xl:inline">Aether Meet</span>
-        </button>
-      </div>
 
       <button
         type="button"
