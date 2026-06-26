@@ -162,7 +162,7 @@ configure_runtime() {
     export DB_PASSWORD="${DB_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}"
     export REDIS_PORT="${REDIS_PORT:-6379}"
     export REDIS_DB="${REDIS_DB:-0}"
-    export REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-company-website:v1}"
+    export REDIS_KEY_PREFIX="${REDIS_KEY_PREFIX:-aether-meet:v1}"
     export REDIS_ENABLED="${REDIS_ENABLED:-true}"
     export REDIS_REQUIRED="${REDIS_REQUIRED:-false}"
     export GIN_MODE="${GIN_MODE:-release}"
@@ -173,6 +173,11 @@ configure_runtime() {
     export PRISMA_SCHEMA_DEPLOY="${PRISMA_SCHEMA_DEPLOY:-true}"
     export PRISMA_SCHEMA_DEPLOY_STRATEGY="${PRISMA_SCHEMA_DEPLOY_STRATEGY:-push}"
     export ALLOW_MIGRATION_FAILURE="${ALLOW_MIGRATION_FAILURE:-false}"
+    export WEBRTC_BIND_IP="${WEBRTC_BIND_IP:-0.0.0.0}"
+    export WEBRTC_SIGNALING_PORT="${WEBRTC_SIGNALING_PORT:-9090}"
+    export WEBRTC_STUN_PORT="${WEBRTC_STUN_PORT:-3478}"
+    export WEBRTC_RTP_PORT_MIN="${WEBRTC_RTP_PORT_MIN:-50000}"
+    export WEBRTC_RTP_PORT_MAX="${WEBRTC_RTP_PORT_MAX:-50100}"
 
     case "${LOG_LEVEL}" in
         debug|info|warn|error)
@@ -228,6 +233,75 @@ log_redis_configuration() {
        [ "${REDIS_REQUIRED:-false}" != "true" ]; then
         log_warn "Redis is optional; backend may continue without cache"
     fi
+}
+
+find_backend_binary() {
+    for binary in \
+        /app/server/aether-meet \
+        /app/server/etheriatimes-api
+    do
+        if [ -x "${binary}" ]; then
+            echo "${binary}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+find_webrtc_executable() {
+    for binary in \
+        /app/server/aether-meet-webrtc \
+        /app/server/webrtc \
+        /app/webrtc \
+        /usr/local/bin/aether-meet-webrtc \
+        /usr/local/bin/webrtc
+    do
+        if [ -x "${binary}" ]; then
+            echo "${binary}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+validate_port() {
+    port_name="$1"
+    port_value="$2"
+
+    case "${port_value}" in
+        ''|*[!0-9]*)
+            log_error "${port_name} must be a numeric port value"
+            return 1
+            ;;
+    esac
+
+    if [ "${port_value}" -lt 1 ] || [ "${port_value}" -gt 65535 ]; then
+        log_error "${port_name} must be between 1 and 65535"
+        return 1
+    fi
+
+    return 0
+}
+
+validate_webrtc_configuration() {
+    validate_port "WEBRTC_SIGNALING_PORT" "${WEBRTC_SIGNALING_PORT}" || return 1
+    validate_port "WEBRTC_STUN_PORT" "${WEBRTC_STUN_PORT}" || return 1
+    validate_port "WEBRTC_RTP_PORT_MIN" "${WEBRTC_RTP_PORT_MIN}" || return 1
+    validate_port "WEBRTC_RTP_PORT_MAX" "${WEBRTC_RTP_PORT_MAX}" || return 1
+
+    if [ "${WEBRTC_RTP_PORT_MIN}" -gt "${WEBRTC_RTP_PORT_MAX}" ]; then
+        log_error "WEBRTC_RTP_PORT_MIN must be less than or equal to WEBRTC_RTP_PORT_MAX"
+        return 1
+    fi
+
+    if [ -z "${WEBRTC_BIND_IP:-}" ]; then
+        log_error "WEBRTC_BIND_IP is required"
+        return 1
+    fi
+
+    return 0
 }
 
 find_prisma_bin() {
@@ -295,7 +369,7 @@ run_prisma_schema_deploy() {
 run_server() {
     configure_runtime
 
-    log_info "Company Website server starting"
+    log_info "Aether Meet server starting"
     log_info "Frontend listening on 0.0.0.0:${FRONTEND_PORT}"
 
     if [ ! -d /app/out ]; then
@@ -317,11 +391,12 @@ run_server() {
 run_worker() {
     configure_runtime
 
-    log_info "Company Website worker starting"
+    log_info "Aether Meet worker starting"
     log_info "Backend API configured for 0.0.0.0:${SERVER_PORT}"
 
-    if [ ! -x /app/server/etheriatimes-api ]; then
-        log_error "Go backend binary not found at /app/server/etheriatimes-api"
+    backend_binary="$(find_backend_binary || true)"
+    if [ -z "${backend_binary}" ]; then
+        log_error "Go backend binary not found at /app/server/aether-meet or /app/server/etheriatimes-api"
         return 1
     fi
 
@@ -342,7 +417,42 @@ run_worker() {
     log_redis_configuration
     log_info "Starting Go backend"
 
-    exec /app/server/etheriatimes-api
+    exec "${backend_binary}" worker "$@"
+}
+
+run_webrtc() {
+    configure_runtime
+
+    log_info "Aether Meet WebRTC role starting"
+
+    if ! validate_webrtc_configuration; then
+        return 1
+    fi
+
+    log_info "WebRTC signaling configured on ${WEBRTC_BIND_IP}:${WEBRTC_SIGNALING_PORT}"
+    log_info "WebRTC STUN/TCP-UDP configured on ${WEBRTC_BIND_IP}:${WEBRTC_STUN_PORT}"
+    log_info "WebRTC RTP UDP range configured on ${WEBRTC_RTP_PORT_MIN}-${WEBRTC_RTP_PORT_MAX}"
+    if [ -n "${WEBRTC_PUBLIC_IP:-}" ]; then
+        log_info "WebRTC public IP provided by environment"
+    else
+        log_info "WebRTC public IP not set; expecting production environment to provide WEBRTC_PUBLIC_IP if required"
+    fi
+
+    webrtc_binary="$(find_webrtc_executable || true)"
+    backend_binary="$(find_backend_binary || true)"
+
+    if [ -n "${webrtc_binary}" ]; then
+        log_redis_configuration
+        log_info "Starting dedicated WebRTC executable: ${webrtc_binary}"
+        exec "${webrtc_binary}" "$@"
+    fi
+
+    if [ -n "${backend_binary}" ]; then
+        log_warn "Backend binary found at ${backend_binary}, but current Go implementation only supports 'server' and 'worker' modes"
+    fi
+
+    log_error "WebRTC role requested, but no WebRTC executable or supported backend command was found"
+    return 1
 }
 
 role="${1:-server}"
@@ -355,6 +465,10 @@ case "${role}" in
     worker)
         shift || true
         run_worker "$@"
+        ;;
+    webrtc)
+        shift || true
+        run_webrtc "$@"
         ;;
     *)
         exec "$@"

@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Stage 1 — Go Builder (API Server)
+# Stage 1 — Go Builder API / Worker / WebRTC
 # ══════════════════════════════════════════════════════════════════════════════
 FROM golang:1.25-alpine AS go-builder
 
@@ -13,10 +13,10 @@ RUN go mod download
 COPY server/ ./server/
 
 RUN CGO_ENABLED=1 GOOS=linux \
-    go build -ldflags="-s -w" -o /app/server/etheriatimes-api ./server/
+    go build -ldflags="-s -w" -o /app/server/aether-meet ./server/
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Stage 2 — Node.js / pnpm (Next.js Build)
+# Stage 2 — Node.js / pnpm Next.js Build
 # ══════════════════════════════════════════════════════════════════════════════
 FROM node:25-alpine AS node-builder
 
@@ -24,17 +24,21 @@ ARG DATABASE_URL
 
 WORKDIR /app
 
-RUN npm install -g corepack --force && corepack enable && corepack prepare pnpm@9.15.4 --activate
+RUN npm install -g corepack --force \
+    && corepack enable \
+    && corepack prepare pnpm@9.15.4 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY app/ ./app/
+
 RUN mkdir -p app/next/fond/google
 RUN printf 'module.exports = {};\n' > app/next/fond/google/index.js
 RUN printf '{"name":"google","version":"0.0.0"}\n' > app/next/fond/google/package.json
+
 RUN pnpm install --filter @aether-meet/apps... --no-frozen-lockfile
 RUN BUILD_WEB_STATIC=true pnpm --dir app build
 
-# ── Prisma ─────────────────────────────────────────────────────────────────────
+# ── Prisma ──────────────────────────────────────────────────────────────────
 COPY server/prisma/package.json server/prisma/package-lock.json /tmp/prisma/
 
 RUN cd /tmp/prisma \
@@ -50,11 +54,10 @@ RUN cd /tmp/prisma \
     && DATABASE_URL="$DATABASE_URL" npx prisma generate
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Stage final — Image de production (Single Container)
+# Stage final — Production Image
 # ══════════════════════════════════════════════════════════════════════════════
 FROM alpine:3.23
 
-# ── Base Dependencies ─────────────────────────────────────────────────────────
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
@@ -67,32 +70,50 @@ RUN apk add --no-cache \
     npm \
     openssl
 
-# ── pnpm (pour Next.js) ───────────────────────────────────────────────────────
 RUN npm install -g http-server@14
 
 ENV PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"
+
 ENV NODE_ENV=production
 ENV USE_EMBEDDED_DB=false
 ENV LOG_LEVEL=info
+
 ENV HTTP_ACCESS_LOGS=false
 ENV API_ACCESS_LOGS=false
 ENV WORKER_WAIT_FOR_DB=false
 
+ENV FRONTEND_PORT=3000
+ENV API_PORT=8080
+
+ENV WEBRTC_BIND_IP=0.0.0.0
+ENV WEBRTC_SIGNALING_PORT=9090
+ENV WEBRTC_STUN_PORT=3478
+ENV WEBRTC_RTP_PORT_MIN=50000
+ENV WEBRTC_RTP_PORT_MAX=50100
+
 WORKDIR /app
 
-# ── Static Web Build ───────────────────────────────────────────────────────────
+# ── Static Web Build ─────────────────────────────────────────────────────────
 COPY --from=node-builder /app/app/out ./out
 
-# ── Node Modules & Prisma ───────────────────────────────────────────────────────
+# ── Prisma Client / Migrations ───────────────────────────────────────────────
 COPY --from=node-builder /tmp/prisma/ ./prisma/
 
-# ── Go API Server Binary ───────────────────────────────────────────────────────
-COPY --from=go-builder /app/server/etheriatimes-api ./server/etheriatimes-api
+# ── Go Backend Binary ────────────────────────────────────────────────────────
+COPY --from=go-builder /app/server/aether-meet ./server/aether-meet
 
-# ── Entry Point ────────────────────────────────────────────────────────────────
+# Compatibilité avec anciens scripts éventuels
+RUN ln -s /app/server/aether-meet /app/server/etheriatimes-api
+
+# ── Entrypoint ───────────────────────────────────────────────────────────────
 COPY entrypoint-cloud.sh /entrypoint-cloud.sh
 RUN chmod +x /entrypoint-cloud.sh
 
 EXPOSE 3000
+EXPOSE 8080
+EXPOSE 9090
+EXPOSE 3478/tcp
+EXPOSE 3478/udp
+EXPOSE 50000-50100/udp
 
 ENTRYPOINT ["/entrypoint-cloud.sh"]

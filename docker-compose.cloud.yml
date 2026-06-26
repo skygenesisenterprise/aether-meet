@@ -15,11 +15,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - type: volume
-        source: database
-        target: /var/lib/postgresql/data
-        volume:
-          nocopy: true
+      - database:/var/lib/postgresql/data
 
   redis:
     image: docker.io/library/redis:8-alpine
@@ -35,19 +31,13 @@ services:
     expose:
       - "6379"
     healthcheck:
-      test:
-        - CMD-SHELL
-        - redis-cli -a "$${REDIS_PASSWORD}" ping | grep -q PONG
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       start_period: 20s
       interval: 30s
       timeout: 5s
       retries: 5
     volumes:
-      - type: volume
-        source: redis
-        target: /data
-        volume:
-          nocopy: true
+      - redis:/data
 
   server:
     build:
@@ -66,16 +56,19 @@ services:
     environment:
       NODE_ENV: production
       USE_EMBEDDED_DB: "false"
+
       LISTEN__TRUSTED_PROXY_CIDRS: 0.0.0.0/0,::/0
       HOST: ${DOMAIN_HOST:-localhost}
       FRONTEND_PORT: "3000"
       API_PORT: "8080"
+
       POSTGRESQL__HOST: postgresql
       POSTGRESQL__PORT: "5432"
       POSTGRESQL__USER: ${PG_USER:-postgres}
       POSTGRESQL__NAME: ${PG_DB:-postgres}
       POSTGRESQL__PASSWORD: ${PG_PASS:-postgres}
       DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
+
       REDIS_ENABLED: "true"
       REDIS_REQUIRED: "false"
       REDIS_HOST: redis
@@ -85,27 +78,18 @@ services:
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
       REDIS_KEY_PREFIX: aether-meet:v1
       REDIS_DEFAULT_TTL: "300"
+
+      WEBRTC_URL: ${WEBRTC_URL:-webrtc:9090}
+
     depends_on:
       postgresql:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - type: volume
-        source: media
-        target: /media
-        volume:
-          nocopy: true
-      - type: volume
-        source: certs
-        target: /certs
-        volume:
-          nocopy: true
-      - type: volume
-        source: custom-templates
-        target: /templates
-        volume:
-          nocopy: true
+      - media:/media
+      - certs:/certs
+      - custom-templates:/templates
 
   worker:
     build:
@@ -124,13 +108,16 @@ services:
       NODE_ENV: production
       USE_EMBEDDED_DB: "false"
       WORKER_WAIT_FOR_DB: "true"
+
       HOST: ${DOMAIN_HOST:-localhost}
+
       POSTGRESQL__HOST: postgresql
       POSTGRESQL__PORT: "5432"
       POSTGRESQL__USER: ${PG_USER:-postgres}
       POSTGRESQL__NAME: ${PG_DB:-postgres}
       POSTGRESQL__PASSWORD: ${PG_PASS:-postgres}
       DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
+
       REDIS_ENABLED: "true"
       REDIS_REQUIRED: "false"
       REDIS_HOST: redis
@@ -139,27 +126,72 @@ services:
       REDIS_DB: "0"
       REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
       REDIS_KEY_PREFIX: aether-meet:v1
+
     depends_on:
       postgresql:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - type: volume
-        source: media
-        target: /media
-        volume:
-          nocopy: true
-      - type: volume
-        source: certs
-        target: /certs
-        volume:
-          nocopy: true
-      - type: volume
-        source: custom-templates
-        target: /templates
-        volume:
-          nocopy: true
+      - media:/media
+      - certs:/certs
+      - custom-templates:/templates
+
+  webrtc:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud
+      args:
+        DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
+    image: skygenesisenterprise/aether-meet:${APP_IMAGE_TAG:-cloud}
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: webrtc
+    expose:
+      - "9090"
+      - "3478"
+    ports:
+      - "${WEBRTC_STUN_PORT:-3478}:3478/udp"
+      - "${WEBRTC_STUN_PORT:-3478}:3478/tcp"
+      - "${WEBRTC_RTP_PORT_MIN:-50000}-${WEBRTC_RTP_PORT_MAX:-50100}:50000-50100/udp"
+    environment:
+      NODE_ENV: production
+      USE_EMBEDDED_DB: "false"
+
+      HOST: ${DOMAIN_HOST:-localhost}
+
+      POSTGRESQL__HOST: postgresql
+      POSTGRESQL__PORT: "5432"
+      POSTGRESQL__USER: ${PG_USER:-postgres}
+      POSTGRESQL__NAME: ${PG_DB:-postgres}
+      POSTGRESQL__PASSWORD: ${PG_PASS:-postgres}
+      DATABASE_URL: postgresql://${PG_USER:-postgres}:${PG_PASS:-postgres}@postgresql:5432/${PG_DB:-postgres}
+
+      REDIS_ENABLED: "true"
+      REDIS_REQUIRED: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis-default-password}
+      REDIS_DB: "0"
+      REDIS_URL: redis://default:${REDIS_PASSWORD:-redis-default-password}@redis:6379/0
+      REDIS_KEY_PREFIX: aether-meet:v1
+
+      WEBRTC_BIND_IP: 0.0.0.0
+      WEBRTC_PUBLIC_IP: ${WEBRTC_PUBLIC_IP:-}
+      WEBRTC_SIGNALING_PORT: "9090"
+      WEBRTC_STUN_PORT: "3478"
+      WEBRTC_RTP_PORT_MIN: "50000"
+      WEBRTC_RTP_PORT_MAX: "50100"
+
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media:/media
+      - certs:/certs
 
 volumes:
   database:
