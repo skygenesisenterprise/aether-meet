@@ -1,531 +1,1163 @@
-# Roadmap client platform -> API
+# Aether Meet — Go backend implementation roadmap
 
-## Objectif
+## Purpose
 
-Analyser `apps/app/(platform)` et définir les endpoints à introduire côté client en s'appuyant d'abord sur ce qui existe déjà dans `server/src/routes/routes.go`.
+This document is the implementation contract for the Go part of Aether Meet. It is intended to give Codex and human contributors enough context to evolve the current backend from a partially connected API into a production-ready collaboration, messaging, meeting, realtime and WebRTC control plane.
 
-## Constat actuel
+The roadmap covers:
 
-- Les pages de `apps/app/(platform)` sont majoritairement alimentées par des mocks locaux.
-- Le chat utilise un store Zustand local dans `apps/lib/chat-store.ts`.
-- Le shell platform (`apps/components/platform/platform-shell.tsx`) n'appelle pas encore les routes métier de `routes.go`.
-- La recherche globale ne fait rien pour l'instant.
-- Aucune intégration client n'utilise actuellement les routes workspace / teams / channels / conversations / meetings / applications / audit logs / realtime exposées par `server/src/routes/routes.go`.
+- API responsibilities;
+- domain boundaries;
+- database and migration work;
+- Redis and asynchronous jobs;
+- realtime events;
+- meeting lifecycle;
+- WebRTC orchestration;
+- security and authorization;
+- observability;
+- testing;
+- delivery order and acceptance criteria.
 
-## Routes déjà disponibles côté serveur
+It must be updated when the implementation changes. Existing code is the source of truth when this document conflicts with reality.
 
-### Contexte utilisateur et workspace
+---
 
-- `GET /api/v1/me`
-- `PATCH /api/v1/me`
-- `GET /api/v1/workspaces`
-- `POST /api/v1/workspaces`
-- `GET /api/v1/workspaces/:workspaceId`
-- `PATCH /api/v1/workspaces/:workspaceId`
-- `DELETE /api/v1/workspaces/:workspaceId`
-- `GET /api/v1/workspaces/:workspaceId/members`
-- `POST /api/v1/workspaces/:workspaceId/members`
-- `PATCH /api/v1/workspaces/:workspaceId/members/:userId`
-- `DELETE /api/v1/workspaces/:workspaceId/members/:userId`
+## 1. Current state
 
-### Teams et channels
+The repository already contains Go routes for several platform domains, including:
 
-- `GET /api/v1/workspaces/:workspaceId/teams`
-- `POST /api/v1/workspaces/:workspaceId/teams`
-- `GET /api/v1/teams/:teamId`
-- `PATCH /api/v1/teams/:teamId`
-- `DELETE /api/v1/teams/:teamId`
-- `GET /api/v1/workspaces/:workspaceId/channels`
-- `POST /api/v1/workspaces/:workspaceId/channels`
-- `GET /api/v1/channels/:channelId`
-- `PATCH /api/v1/channels/:channelId`
-- `DELETE /api/v1/channels/:channelId`
+- current user;
+- workspaces and members;
+- teams and channels;
+- conversations, messages and reactions;
+- meetings;
+- applications;
+- audit logs;
+- realtime WebSocket access.
 
-### Conversations et messages
+The frontend still relies heavily on local mocks and does not yet consume most of these contracts.
 
-- `GET /api/v1/workspaces/:workspaceId/conversations`
-- `POST /api/v1/workspaces/:workspaceId/conversations`
-- `GET /api/v1/conversations/:conversationId`
-- `PATCH /api/v1/conversations/:conversationId`
-- `DELETE /api/v1/conversations/:conversationId`
-- `GET /api/v1/conversations/:conversationId/messages?cursor=&limit=`
-- `POST /api/v1/conversations/:conversationId/messages`
-- `POST /api/v1/conversations/:conversationId/read`
-- `GET /api/v1/messages/:messageId`
-- `PATCH /api/v1/messages/:messageId`
-- `DELETE /api/v1/messages/:messageId`
-- `POST /api/v1/messages/:messageId/reactions`
-- `DELETE /api/v1/messages/:messageId/reactions/:emoji`
+The current cloud image also distinguishes the following runtime roles:
 
-### Meetings et appels
+- `server`: static frontend;
+- `worker`: Go backend/API process;
+- `webrtc`: intended WebRTC runtime role.
 
-- `GET /api/v1/workspaces/:workspaceId/meetings`
-- `POST /api/v1/workspaces/:workspaceId/meetings`
-- `GET /api/v1/meetings/:meetingId`
-- `POST /api/v1/meetings/:meetingId/start`
-- `POST /api/v1/meetings/:meetingId/end`
-- `POST /api/v1/meetings/:meetingId/join-token`
+At the beginning of each implementation task, Codex must inspect the real repository structure before changing code. In particular, it must verify:
 
-### Applications et audit
+1. the actual Go entrypoint;
+2. the actual route registration file;
+3. the current persistence implementation;
+4. the current Prisma ownership boundary;
+5. whether Redis consumers already exist;
+6. whether WebRTC code or a supported subcommand already exists;
+7. whether `worker` currently means HTTP API, background jobs, or both.
 
-- `GET /api/v1/workspaces/:workspaceId/applications`
-- `POST /api/v1/workspaces/:workspaceId/applications`
-- `GET /api/v1/applications/:applicationId`
-- `PATCH /api/v1/applications/:applicationId`
-- `DELETE /api/v1/applications/:applicationId`
-- `GET /api/v1/workspaces/:workspaceId/audit-logs`
-- `GET /api/v1/realtime/ws`
+Do not invent missing packages, binaries or commands without implementing and testing them.
 
-## Payloads utiles déjà définis par `routes.go`
+---
 
-### `PATCH /api/v1/me`
+## 2. Target backend architecture
+
+The target architecture separates logical responsibilities even if the first production release runs some of them in the same binary.
+
+```text
+Go backend
+├── API runtime
+│   ├── HTTP REST API
+│   ├── authentication middleware
+│   ├── authorization and workspace isolation
+│   ├── request validation
+│   ├── idempotency
+│   ├── WebSocket upgrade endpoint
+│   └── health/readiness endpoints
+├── Realtime runtime
+│   ├── workspace subscriptions
+│   ├── conversation subscriptions
+│   ├── meeting presence
+│   ├── Redis pub/sub fan-out
+│   └── reconnect/resume support
+├── Background worker runtime
+│   ├── notifications
+│   ├── invitations
+│   ├── webhook delivery
+│   ├── audit event persistence
+│   ├── meeting expiration
+│   ├── stale room cleanup
+│   ├── media post-processing
+│   └── scheduled retention jobs
+└── WebRTC control plane
+    ├── room allocation
+    ├── participant authorization
+    ├── join token generation
+    ├── node selection
+    ├── ICE/TURN configuration delivery
+    ├── room lifecycle events
+    └── SFU integration
+```
+
+The media plane may be implemented in Go or delegated to a dedicated SFU, but the API must remain the authoritative control plane.
+
+---
+
+## 3. Runtime roles and process model
+
+### 3.1 Required roles
+
+The Go executable should ultimately support explicit runtime modes:
+
+```text
+api
+worker
+scheduler
+webrtc
+all
+```
+
+A first iteration may keep `api`, background consumers and scheduler together, but the code must preserve clean boundaries so they can be split later.
+
+### 3.2 Expectations per role
+
+#### `api`
+
+- exposes REST endpoints;
+- exposes realtime WebSocket endpoints;
+- performs synchronous validation and authorization;
+- emits durable domain events;
+- does not perform heavy media or long-running jobs inline.
+
+#### `worker`
+
+- consumes background jobs;
+- retries transient failures;
+- writes dead-letter records for permanent failures;
+- never exposes public HTTP endpoints except health/metrics if needed.
+
+#### `scheduler`
+
+- enqueues periodic jobs;
+- performs no expensive processing itself;
+- guarantees leader-safe scheduling when multiple replicas exist.
+
+#### `webrtc`
+
+- starts the actual WebRTC/SFU component or adapter;
+- exposes signaling or internal control endpoints if required;
+- publishes room and participant events;
+- fails clearly when no WebRTC implementation is present.
+
+#### `all`
+
+- local-development convenience only;
+- must not be required for horizontal production scaling.
+
+### 3.3 Entrypoint compatibility
+
+The cloud entrypoint must not claim WebRTC support unless the repository contains a real implementation. Runtime commands, binary paths and flags must be verified from the code.
+
+---
+
+## 4. Package boundaries
+
+Codex should progressively organize the Go code around domain-oriented packages. Exact names may be adapted to the existing tree.
+
+Recommended shape:
+
+```text
+server/
+├── cmd/
+│   └── aether-meet/
+├── internal/
+│   ├── app/
+│   ├── config/
+│   ├── auth/
+│   ├── authorization/
+│   ├── database/
+│   ├── redis/
+│   ├── httpapi/
+│   ├── realtime/
+│   ├── jobs/
+│   ├── scheduler/
+│   ├── audit/
+│   ├── notifications/
+│   ├── webhooks/
+│   ├── media/
+│   ├── webrtc/
+│   └── domains/
+│       ├── users/
+│       ├── workspaces/
+│       ├── teams/
+│       ├── channels/
+│       ├── conversations/
+│       ├── messages/
+│       ├── meetings/
+│       ├── contacts/
+│       ├── tasks/
+│       ├── projects/
+│       ├── files/
+│       ├── documents/
+│       ├── resources/
+│       └── applications/
+└── tests/
+```
+
+For each domain, prefer clear separation between:
+
+- HTTP transport;
+- application/service logic;
+- repository/persistence logic;
+- domain models;
+- event definitions.
+
+Handlers must not contain complex business logic or raw SQL beyond trivial operations.
+
+---
+
+## 5. Cross-cutting API requirements
+
+Every new or rewritten endpoint must implement the following where applicable.
+
+### 5.1 Request handling
+
+- strict JSON decoding;
+- explicit validation errors;
+- maximum request body size;
+- consistent response envelopes;
+- stable machine-readable error codes;
+- request correlation ID;
+- structured logs without secrets.
+
+### 5.2 Authentication
+
+- reject unauthenticated access by default;
+- validate issuer, audience, expiry and signature;
+- derive a stable internal user identity;
+- support service-to-service authentication separately from user authentication;
+- never trust workspace IDs supplied by the client without authorization checks.
+
+### 5.3 Authorization
+
+Every workspace-scoped operation must verify membership and role.
+
+Minimum roles:
+
+```text
+owner
+admin
+member
+guest
+```
+
+Authorization should support future granular permissions without rewriting handlers.
+
+Examples:
+
+- only authorized roles may manage workspace members;
+- only authorized roles may create or delete teams/channels;
+- only conversation members may read or write messages;
+- only meeting participants or invited workspace members may join a meeting;
+- audit logs must be restricted to privileged roles.
+
+### 5.4 Idempotency
+
+Support idempotency for operations that may be retried by clients:
+
+- message creation;
+- meeting creation;
+- meeting start;
+- invitation creation;
+- webhook registration;
+- file upload initialization.
+
+Persist idempotency keys with scope, request fingerprint, result and expiration.
+
+### 5.5 Pagination
+
+Use cursor pagination for large collections.
+
+Each paginated response should expose:
 
 ```json
 {
-  "displayName": "string",
-  "avatarUrl": "string",
-  "status": "string"
+  "items": [],
+  "nextCursor": null,
+  "hasMore": false
 }
 ```
 
-### `POST /api/v1/workspaces/:workspaceId/teams`
+Do not introduce offset pagination for high-volume messages, audit logs, notifications or call history.
 
-```json
-{
-  "name": "string",
-  "description": "string"
-}
-```
+---
 
-### `POST /api/v1/workspaces/:workspaceId/channels`
+## 6. Existing platform domains to complete first
 
-```json
-{
-  "teamId": "string | null",
-  "name": "string",
-  "slug": "string",
-  "description": "string",
-  "type": "string",
-  "visibility": "string"
-}
-```
+### 6.1 Current user
 
-### `POST /api/v1/workspaces/:workspaceId/conversations`
-
-```json
-{
-  "type": "dm | channel",
-  "name": "string",
-  "memberIds": ["user-id"]
-}
-```
-
-### `POST /api/v1/conversations/:conversationId/messages`
-
-```json
-{
-  "type": "text",
-  "content": "string",
-  "metadata": {}
-}
-```
-
-Notes:
-
-- Le header `Idempotency-Key` est supporté pour la création de message.
-- `POST /api/v1/conversations/:conversationId/read` attend `{ "messageId": "..." }`.
-
-### `POST /api/v1/workspaces/:workspaceId/meetings`
-
-```json
-{
-  "title": "string",
-  "conversationId": "string | null"
-}
-```
-
-### `POST /api/v1/workspaces/:workspaceId/applications`
-
-```json
-{
-  "provider": "string",
-  "name": "string",
-  "configuration": {}
-}
-```
-
-## Analyse par page `apps/app/(platform)`
-
-### `layout.tsx`
-
-Besoin client:
-
-- Charger l'utilisateur courant.
-- Charger le workspace actif.
-- Centraliser la résolution de `workspaceId`.
-- Préparer une connexion temps réel partagée.
-
-Endpoints à brancher:
-
-- `GET /api/v1/me`
-- `GET /api/v1/workspaces`
-- `GET /api/v1/workspaces/:workspaceId`
-- `GET /api/v1/realtime/ws`
-
-### `notifications/page.tsx`
-
-Constat:
-
-- Vue totalement mockée.
-- Aucun endpoint correspondant dans `routes.go`.
-
-Conclusion:
-
-- Aucun endpoint existant à brancher depuis `routes.go`.
-- Backend manquant pour une vraie boîte de notifications.
-
-### `chat/page.tsx`
-
-Constat:
-
-- Les conversations et messages proviennent de `apps/lib/platform-data.ts`.
-- La création de conversation et l'envoi de message sont purement locaux via `apps/lib/chat-store.ts`.
-- Le panneau latéral de conversations est dans `apps/components/platform/context-panel.tsx`.
-
-Endpoints à brancher en priorité:
-
-- `GET /api/v1/workspaces/:workspaceId/conversations`
-- `POST /api/v1/workspaces/:workspaceId/conversations`
-- `GET /api/v1/conversations/:conversationId`
-- `PATCH /api/v1/conversations/:conversationId`
-- `DELETE /api/v1/conversations/:conversationId`
-- `GET /api/v1/conversations/:conversationId/messages`
-- `POST /api/v1/conversations/:conversationId/messages`
-- `POST /api/v1/conversations/:conversationId/read`
-- `PATCH /api/v1/messages/:messageId`
-- `DELETE /api/v1/messages/:messageId`
-- `POST /api/v1/messages/:messageId/reactions`
-- `DELETE /api/v1/messages/:messageId/reactions/:emoji`
-- `GET /api/v1/realtime/ws`
-
-Travail client attendu:
-
-- Remplacer `platform-data` et `chat-store` comme source principale.
-- Introduire pagination des messages via `cursor`.
-- Ajouter synchronisation temps réel des nouveaux messages, lectures et réactions.
-- Marquer lu à l'ouverture ou au scroll de la conversation.
-
-### `calendar/page.tsx`
-
-Constat:
-
-- Le calendrier est construit à partir des mocks `meetings`.
-- La création d'événement reste locale.
-- Le bouton de lancement renvoie vers `/calls/room`.
-
-Endpoints à brancher:
-
-- `GET /api/v1/workspaces/:workspaceId/meetings`
-- `POST /api/v1/workspaces/:workspaceId/meetings`
-- `GET /api/v1/meetings/:meetingId`
-- `POST /api/v1/meetings/:meetingId/start`
-- `POST /api/v1/meetings/:meetingId/end`
-- `POST /api/v1/meetings/:meetingId/join-token`
-
-Limites actuelles serveur:
-
-- Le create meeting n'accepte pas encore `start`, `end`, `participants`, `location`.
-- Le calendrier UI expose plus d'information que le contrat create actuel.
-
-### `calls/page.tsx`
-
-Constat:
-
-- Historique d'appels mocké.
-- Filtres "manqués", "entrant", "sortant", "messagerie vocale" sans backend.
-
-Endpoints existants exploitables partiellement:
-
-- `GET /api/v1/workspaces/:workspaceId/meetings`
-- `GET /api/v1/meetings/:meetingId`
-- `POST /api/v1/meetings/:meetingId/start`
-- `POST /api/v1/meetings/:meetingId/end`
-- `POST /api/v1/meetings/:meetingId/join-token`
-
-Écart produit:
-
-- `routes.go` couvre la réunion, pas l'historique téléphonie, les appels manqués ni la messagerie vocale.
-
-### `contacts/page.tsx`
-
-Constat:
-
-- La page affiche `people` en local.
-- Les groupes de contacts sont mockés.
-
-Endpoints existants potentiellement réutilisables:
-
-- `GET /api/v1/workspaces/:workspaceId/members`
-- `POST /api/v1/workspaces/:workspaceId/members`
-- `PATCH /api/v1/workspaces/:workspaceId/members/:userId`
-- `DELETE /api/v1/workspaces/:workspaceId/members/:userId`
-
-Écart produit:
-
-- Pas de notion serveur de carnet de contacts ni de groupes de contacts dans `routes.go`.
-- La page pourra démarrer en mode "annuaire workspace" avant d'avoir un vrai domaine contacts.
-
-### `documents/page.tsx`
-
-Constat:
-
-- Vue 100% mockée.
-- Aucun endpoint document dans `routes.go`.
-
-Conclusion:
-
-- Aucun endpoint existant à brancher depuis `routes.go`.
-
-### `drive/page.tsx`
-
-Constat:
-
-- Vue de fichiers 100% mockée.
-- Aucun endpoint drive/file dans `routes.go`.
-
-Conclusion:
-
-- Aucun endpoint existant à brancher depuis `routes.go`.
-
-### `projects/page.tsx`
-
-Constat:
-
-- Vue portefeuille 100% mockée.
-- Aucun endpoint projet dans `routes.go`.
-
-Conclusion:
-
-- Aucun endpoint existant à brancher depuis `routes.go`.
-
-### `resources/page.tsx`
-
-Constat:
-
-- Bibliothèque 100% mockée.
-- Aucun endpoint ressource / knowledge dans `routes.go`.
-
-Conclusion:
-
-- Aucun endpoint existant à brancher depuis `routes.go`.
-
-### `setings/page.tsx`
-
-Constat:
-
-- L'écran contient un vrai besoin de profil utilisateur.
-- Le reste des préférences affichées n'a pas de backend dans `routes.go`.
-
-Endpoints à brancher:
+Existing contract:
 
 - `GET /api/v1/me`
 - `PATCH /api/v1/me`
 
-Écart produit:
+Required work:
+
+- confirm persistent user profile storage;
+- support display name, avatar URL and status;
+- validate avatar URL and status values;
+- emit `user.updated` realtime event;
+- record profile changes in audit logs where appropriate.
+
+### 6.2 Workspaces and members
+
+Required work:
+
+- enforce tenant isolation;
+- support workspace lifecycle and soft deletion;
+- define member states: invited, active, suspended, removed;
+- define roles and permissions;
+- support invitation acceptance and expiration;
+- prevent removal of the final owner;
+- emit member and workspace events;
+- maintain audit records.
+
+### 6.3 Teams and channels
+
+Required work:
 
-- Pas d'endpoint dédié pour thème, langue, notifications, audio/vidéo, sécurité applicative dans `routes.go`.
+- validate unique slugs inside workspace scope;
+- support channel visibility and type enums;
+- verify team ownership of channels;
+- define the mapping between a channel and its conversation;
+- create the linked conversation transactionally when required;
+- prevent orphaned conversations;
+- emit `team.*` and `channel.*` events.
+
+### 6.4 Conversations and messages
+
+Required work:
 
-### `tasks/page.tsx`
+- enforce membership on every read/write;
+- cursor-based message history;
+- idempotent message creation;
+- edit and delete rules;
+- soft deletion with tombstone representation;
+- reaction uniqueness per user/emoji;
+- read receipts and last-read pointers;
+- unread counters;
+- message metadata validation;
+- attachment references;
+- mention extraction;
+- realtime publication after transaction commit;
+- rate limiting and abuse protection.
 
-Constat:
+### 6.5 Meetings
 
-- Kanban de tâches 100% mocké.
-- Aucun endpoint task dans `routes.go`.
+Required work:
+
+- extend meeting creation beyond title and conversation ID;
+- support scheduled start/end;
+- support timezone-safe timestamps;
+- support participants and invitations;
+- support meeting status transitions;
+- support start, end and cancellation;
+- support join token issuance;
+- support room allocation;
+- support participant presence;
+- persist meeting sessions and call history;
+- emit lifecycle events.
+
+### 6.6 Applications and audit logs
+
+Required work:
+
+- encrypt sensitive application configuration;
+- validate provider-specific configuration;
+- support enable/disable state;
+- implement signed webhook delivery;
+- protect secrets from API responses;
+- create append-only audit events;
+- paginate and filter audit logs;
+- include actor, target, action, timestamp and correlation ID.
+
+---
+
+## 7. New backend domains required by the platform
+
+The frontend currently exposes surfaces that cannot be production-ready without new Go APIs.
+
+### 7.1 Notifications
 
-Conclusion:
+Implement:
 
-- Aucun endpoint existant à brancher depuis `routes.go`.
+- notification inbox;
+- unread count;
+- mark one/all as read;
+- notification preferences;
+- realtime notification delivery;
+- durable creation from domain events.
 
-### `teams/page.tsx`
+Suggested routes:
 
-Constat:
+```text
+GET    /api/v1/notifications
+GET    /api/v1/notifications/unread-count
+POST   /api/v1/notifications/:notificationId/read
+POST   /api/v1/notifications/read-all
+GET    /api/v1/me/notification-preferences
+PATCH  /api/v1/me/notification-preferences
+```
 
-- La création d'équipe est locale.
-- Les canaux sont dérivés des mocks `teams`.
-- La page lie visuellement équipes, canaux, membres et conversation.
+### 7.2 Contacts
 
-Endpoints à brancher:
+Start with workspace directory, then add personal contacts.
 
-- `GET /api/v1/workspaces/:workspaceId/teams`
-- `POST /api/v1/workspaces/:workspaceId/teams`
-- `GET /api/v1/teams/:teamId`
-- `PATCH /api/v1/teams/:teamId`
-- `DELETE /api/v1/teams/:teamId`
-- `GET /api/v1/workspaces/:workspaceId/channels`
-- `POST /api/v1/workspaces/:workspaceId/channels`
-- `GET /api/v1/channels/:channelId`
-- `PATCH /api/v1/channels/:channelId`
-- `DELETE /api/v1/channels/:channelId`
-- `GET /api/v1/workspaces/:workspaceId/members`
-- `GET /api/v1/workspaces/:workspaceId/conversations`
+Implement:
 
-Points d'attention:
+- workspace directory search;
+- personal contacts;
+- contact groups;
+- optional external email/phone fields;
+- privacy controls.
 
-- Le front affiche des channels imbriqués sous une équipe. L'API channel permet bien un `teamId`.
-- Il faudra définir côté client la jointure `team -> channels -> linked conversation`.
-- Le bouton "ouvrir la conversation" suppose un mapping métier entre team et conversation qui n'est pas explicite dans `routes.go`.
+### 7.3 Tasks
 
-## Priorisation recommandée
+Implement:
 
-### Phase 1 - Fondations client
+- task CRUD;
+- assignees;
+- status and priority;
+- due date;
+- comments/activity;
+- relation to project, channel, conversation or meeting;
+- Kanban ordering with concurrency-safe updates.
 
-Objectif:
+### 7.4 Projects
 
-- Rendre le shell platform conscient du user et du workspace actif.
+Implement:
 
-À faire:
+- project CRUD;
+- members and roles;
+- status and milestones;
+- linked tasks, channels and files;
+- audit trail.
+
+### 7.5 Files and Aether Drive integration
+
+The backend must not store large file bodies in PostgreSQL.
+
+Implement:
+
+- upload initialization;
+- object storage abstraction;
+- signed upload/download URLs;
+- metadata persistence;
+- workspace quotas;
+- ownership and access control;
+- checksum verification;
+- antivirus scanning job hook;
+- attachment linking;
+- soft deletion and retention;
+- future Aether Drive provider integration.
+
+### 7.6 Documents and resources
+
+Implement metadata and collaboration contracts before rich editing.
+
+- document CRUD;
+- version metadata;
+- permissions;
+- linked workspace/project/channel;
+- resource library entries;
+- tags and search indexing hooks.
+
+### 7.7 Preferences
+
+Implement user preferences separately from identity profile:
+
+- locale;
+- timezone;
+- theme;
+- notification preferences;
+- audio/video device preferences metadata;
+- accessibility preferences;
+- privacy settings.
+
+Do not store browser device identifiers as trusted security factors.
+
+### 7.8 Call history and voicemail
+
+Implement after meeting lifecycle is stable:
+
+- incoming/outgoing/missed call records;
+- participant summary;
+- duration;
+- failure reason;
+- voicemail metadata;
+- recording/transcription links where authorized.
+
+---
+
+## 8. Realtime system
+
+### 8.1 Transport
+
+The existing WebSocket route should evolve into a versioned realtime protocol.
+
+Required capabilities:
+
+- authenticated connection;
+- workspace subscription authorization;
+- heartbeat/ping-pong;
+- reconnect support;
+- event IDs;
+- server timestamp;
+- resume cursor where feasible;
+- bounded outbound queues;
+- slow-consumer handling;
+- graceful shutdown.
+
+### 8.2 Event envelope
+
+Use a consistent envelope:
+
+```json
+{
+  "id": "event-id",
+  "type": "message.created",
+  "workspaceId": "workspace-id",
+  "resourceId": "resource-id",
+  "occurredAt": "2026-01-01T00:00:00Z",
+  "data": {}
+}
+```
+
+### 8.3 Minimum events
+
+```text
+user.updated
+workspace.updated
+workspace.member.added
+workspace.member.updated
+workspace.member.removed
+team.created
+team.updated
+team.deleted
+channel.created
+channel.updated
+channel.deleted
+conversation.created
+conversation.updated
+message.created
+message.updated
+message.deleted
+message.reaction.added
+message.reaction.removed
+conversation.read
+meeting.created
+meeting.updated
+meeting.started
+meeting.ended
+meeting.participant.joined
+meeting.participant.left
+notification.created
+application.updated
+```
+
+### 8.4 Redis fan-out
+
+Redis may be used for cross-instance fan-out, but API writes must not depend on ephemeral pub/sub for durability.
+
+Preferred flow:
+
+1. write domain state in PostgreSQL;
+2. write an outbox event in the same transaction;
+3. asynchronously publish the event;
+4. mark the outbox record processed;
+5. deliver to connected WebSocket clients.
+
+Implement an outbox pattern before scaling realtime across multiple API replicas.
+
+---
+
+## 9. Background jobs
+
+### 9.1 Job guarantees
+
+Every job must be:
+
+- idempotent;
+- observable;
+- retryable;
+- cancellable where applicable;
+- bounded by timeout;
+- associated with correlation and tenant IDs.
+
+### 9.2 Queue behavior
+
+Implement:
+
+- delayed jobs;
+- exponential backoff with jitter;
+- maximum attempt count;
+- dead-letter storage;
+- poison-message protection;
+- concurrency limits by job type;
+- graceful worker shutdown;
+- job metrics.
+
+### 9.3 Priority jobs
+
+- invitation email delivery;
+- notification fan-out;
+- webhook delivery;
+- audit event enrichment;
+- expired invitation cleanup;
+- expired join token cleanup;
+- stale meeting cleanup;
+- stale WebRTC room cleanup;
+- object storage cleanup;
+- attachment scanning dispatch;
+- retention enforcement.
+
+### 9.4 Future media jobs
+
+- meeting recording finalization;
+- audio/video transcoding;
+- thumbnails;
+- transcription;
+- meeting summaries;
+- search indexing;
+- export generation.
+
+---
+
+## 10. WebRTC control plane and media integration
+
+Docker networking alone does not implement WebRTC. The Go backend must provide the control plane, while a real SFU/media implementation must handle media packets.
+
+### 10.1 Required concepts
+
+- meeting room;
+- media session;
+- participant;
+- endpoint/device;
+- published track;
+- subscribed track;
+- room node;
+- join token;
+- ICE server configuration;
+- room lifecycle event.
+
+### 10.2 Join flow
+
+Target flow:
+
+1. authenticated client requests a join token;
+2. API verifies workspace membership and meeting authorization;
+3. API creates or locates the active meeting session;
+4. API selects a WebRTC node;
+5. API generates a short-lived scoped token;
+6. API returns signaling URL, token and ICE servers;
+7. client connects directly to the selected media node;
+8. media node emits participant/track events;
+9. backend persists relevant lifecycle events.
+
+### 10.3 Join token requirements
+
+Tokens must include or bind:
+
+- user ID;
+- workspace ID;
+- meeting ID;
+- room ID;
+- role/capabilities;
+- expiry;
+- nonce or token ID;
+- selected node.
+
+Tokens must be short-lived, signed and revocable where practical.
+
+### 10.4 Node registry
+
+Implement a WebRTC node registry with:
+
+- node ID;
+- internal control address;
+- public signaling/media address;
+- region;
+- capacity;
+- current load;
+- health timestamp;
+- draining state.
+
+A first release may use one configured node, but the interface must allow future node selection.
+
+### 10.5 ICE and TURN
+
+The API must return valid ICE configuration to clients.
+
+- never expose Docker-only hostnames to browsers;
+- never advertise container bridge addresses;
+- support public, LAN or VPN addresses depending on deployment;
+- support TURN credentials with short expiry;
+- do not log TURN passwords or join tokens.
+
+### 10.6 SFU implementation decision
+
+Before implementing media, create an architecture decision record comparing at least:
+
+- Pion-based native Go SFU;
+- LiveKit integration;
+- Janus integration;
+- mediasoup integration.
+
+Decision criteria:
+
+- operational complexity;
+- Go integration quality;
+- horizontal scaling;
+- recording support;
+- simulcast/SVC support;
+- observability;
+- security maintenance;
+- licensing.
+
+Do not implement a fake `webrtc` mode that only opens a TCP port.
+
+### 10.7 WebRTC acceptance criteria
+
+A WebRTC milestone is complete only when:
+
+- two clients can join an authorized room;
+- audio is exchanged through the selected implementation;
+- video can be published and subscribed;
+- participant join/leave is observable;
+- invalid/expired tokens are rejected;
+- unauthorized users cannot join;
+- room cleanup occurs after meeting end;
+- container restart behavior is documented;
+- network requirements are documented.
+
+---
 
-- Créer un client API dédié platform, par exemple `apps/lib/api/platform.ts`.
-- Introduire une résolution du workspace courant.
-- Brancher `GET /api/v1/me`.
-- Brancher `GET /api/v1/workspaces`.
-- Brancher `GET /api/v1/workspaces/:workspaceId`.
-- Préparer un provider temps réel basé sur `GET /api/v1/realtime/ws`.
+## 11. Database and migrations
 
-### Phase 2 - Chat complet
+### 11.1 Ownership
 
-Objectif:
+Clarify whether Prisma migrations remain authoritative or whether Go owns migrations. Do not maintain two competing schema sources.
 
-- Remplacer la pile mock locale par les conversations/messages serveur.
+Until a migration strategy is explicitly changed:
 
-À faire:
+- preserve current Prisma compatibility;
+- keep migration execution out of every horizontally scaled replica where possible;
+- avoid destructive `db push --accept-data-loss` in production workflows;
+- prefer explicit, reviewed migrations.
+
+### 11.2 Required persistence patterns
+
+- transactions for multi-record domain operations;
+- foreign keys and tenant-scoped uniqueness;
+- optimistic concurrency where concurrent edits matter;
+- soft deletion for user-visible collaborative data;
+- outbox table for events;
+- idempotency table;
+- job/dead-letter persistence where required;
+- indexes for message, audit and notification pagination.
 
-- Brancher listing conversations.
-- Brancher création de conversation.
-- Brancher listing paginé de messages.
-- Brancher envoi de message avec `Idempotency-Key`.
-- Brancher `markRead`.
-- Brancher réactions et édition/suppression de message.
-- Recevoir nouveaux événements via websocket.
+### 11.3 Data retention
+
+Define retention policies for:
+
+- messages;
+- deleted content;
+- audit logs;
+- meeting sessions;
+- call history;
+- recordings;
+- transcripts;
+- webhook attempts;
+- job failures.
 
-Impact pages:
+Retention jobs must be auditable and safe to rerun.
 
-- `chat/page.tsx`
-- `apps/components/platform/context-panel.tsx`
+---
 
-### Phase 3 - Teams + channels + annuaire workspace
+## 12. Security requirements
 
-Objectif:
+### 12.1 Secrets
 
-- Sortir `teams/page.tsx` des mocks et rendre l'espace navigable par données réelles.
+- secrets only through environment or secret manager;
+- never return integration secrets after creation;
+- encrypt sensitive fields at rest;
+- redact secrets from logs and errors;
+- rotate signing keys and TURN credentials.
 
-À faire:
+### 12.2 Abuse prevention
 
-- Brancher équipes.
-- Brancher channels.
-- Brancher membres workspace.
-- Définir dans le client une stratégie de mapping entre team, channel et conversation.
+Implement configurable limits for:
 
-Impact pages:
+- login/authenticated request rate;
+- message send rate;
+- conversation creation;
+- meeting creation;
+- join-token issuance;
+- WebSocket connections per user/IP;
+- webhook attempts;
+- upload size and frequency.
 
-- `teams/page.tsx`
-- `contacts/page.tsx` en première version "annuaire workspace"
+### 12.3 Input and output safety
 
-### Phase 4 - Meetings, calendrier et expérience d'appel
+- sanitize filenames and content disposition;
+- validate URLs;
+- prevent SSRF in webhooks and integrations;
+- prevent unrestricted internal network access;
+- validate media metadata;
+- use secure defaults for CORS and trusted proxies.
 
-Objectif:
+### 12.4 Auditability
 
-- Utiliser le backend meeting existant pour le calendrier et l'entrée en appel.
+Record security-sensitive actions:
 
-À faire:
+- member role changes;
+- workspace deletion;
+- application secret rotation;
+- meeting recording enablement;
+- retention policy changes;
+- administrative data export;
+- authorization failures above configured thresholds.
 
-- Brancher listing et création de meetings.
-- Brancher get/start/end/join-token.
-- Faire converger `calendar/page.tsx` et le flux `/calls/room`.
+---
 
-Écart restant:
+## 13. Observability and operations
 
-- L'historique d'appels de `calls/page.tsx` demandera probablement de nouveaux endpoints backend.
+### 13.1 Health endpoints
 
-### Phase 5 - Réglages profil
+Provide separate endpoints:
 
-Objectif:
+```text
+GET /health/live
+GET /health/ready
+```
 
-- Rendre l'écran réglages utile sans attendre un backend complet de préférences.
+Readiness should reflect required dependencies for the active runtime role.
 
-À faire:
+### 13.2 Metrics
 
-- Charger `GET /api/v1/me`.
-- Sauver `PATCH /api/v1/me`.
-- Limiter le scope initial à nom affiché, avatar, statut.
+Expose Prometheus-compatible metrics for:
 
-### Phase 6 - Applications et observabilité workspace
+- request count, latency and errors;
+- active WebSocket connections;
+- realtime queue depth and dropped events;
+- job counts, duration, retries and failures;
+- database pool usage;
+- Redis errors;
+- meeting and room counts;
+- WebRTC node health and capacity;
+- join-token success/failure.
 
-Objectif:
+### 13.3 Logging
 
-- Exposer la gestion d'intégrations et l'audit côté platform.
+Use structured logs with:
 
-À faire:
+- timestamp;
+- level;
+- service role;
+- request/correlation ID;
+- user ID when safe;
+- workspace ID;
+- event/job type;
+- error code.
 
-- Brancher applications.
-- Brancher audit logs.
-- Créer ou adapter des pages UI dédiées si nécessaire.
+Never log message bodies, access tokens, passwords, database URLs or TURN credentials by default.
 
-Endpoints:
+### 13.4 Graceful shutdown
 
-- `GET /api/v1/workspaces/:workspaceId/applications`
-- `POST /api/v1/workspaces/:workspaceId/applications`
-- `GET /api/v1/applications/:applicationId`
-- `PATCH /api/v1/applications/:applicationId`
-- `DELETE /api/v1/applications/:applicationId`
-- `GET /api/v1/workspaces/:workspaceId/audit-logs`
+All roles must:
 
-## Gaps backend non couverts par `routes.go`
+- stop accepting new work;
+- drain HTTP/WebSocket requests;
+- stop polling queues;
+- finish or release jobs safely;
+- close database/Redis connections;
+- exit within the container grace period.
 
-Les pages ci-dessous ne peuvent pas être réellement branchées sans nouvelles routes serveur:
+---
 
-- `notifications/page.tsx`
-- `documents/page.tsx`
-- `drive/page.tsx`
-- `projects/page.tsx`
-- `resources/page.tsx`
-- `tasks/page.tsx`
-- `calls/page.tsx` pour tout ce qui relève de l'historique téléphonie
-- `contacts/page.tsx` pour un vrai carnet de contacts et des groupes dédiés
-- `setings/page.tsx` pour les préférences avancées
+## 14. Testing strategy
 
-## Recommandation d'implémentation client
+### 14.1 Unit tests
 
-Créer un module platform centré sur le contrat de `routes.go`, par exemple:
+Cover:
 
-- `apps/lib/api/platform/me.ts`
-- `apps/lib/api/platform/workspaces.ts`
-- `apps/lib/api/platform/teams.ts`
-- `apps/lib/api/platform/channels.ts`
-- `apps/lib/api/platform/conversations.ts`
-- `apps/lib/api/platform/messages.ts`
-- `apps/lib/api/platform/meetings.ts`
-- `apps/lib/api/platform/applications.ts`
-- `apps/lib/api/platform/audit.ts`
-- `apps/lib/realtime/platform-realtime.ts`
+- validation;
+- authorization policies;
+- status transitions;
+- token generation/validation;
+- idempotency behavior;
+- event mapping;
+- retry decisions.
 
-Puis brancher les pages dans cet ordre:
+### 14.2 Repository tests
 
-1. `layout` / shell
-2. `chat`
-3. `teams`
-4. `calendar`
-5. `setings`
-6. surfaces secondaires
+Use a real PostgreSQL test instance for persistence behavior:
 
-## Résumé exécutable
+- constraints;
+- transactions;
+- cursor pagination;
+- tenant isolation;
+- migrations;
+- outbox processing.
 
-Le backend disponible dans `server/src/routes/routes.go` permet déjà de sortir des mocks sur cinq blocs utiles au client:
+### 14.3 API integration tests
 
-- identité utilisateur
-- workspace et membres
-- teams et channels
-- conversations et messages
-- meetings et intégrations
+Cover happy paths and failures for every route family.
 
-La roadmap client doit donc commencer par ces blocs. Les autres pages du platform restent aujourd'hui des démonstrateurs UI et nécessiteront de nouveaux endpoints serveur avant intégration réelle.
+Minimum scenarios:
+
+- unauthenticated request;
+- wrong workspace membership;
+- insufficient role;
+- invalid payload;
+- resource not found;
+- idempotent retry;
+- concurrent update;
+- pagination continuation.
+
+### 14.4 Realtime tests
+
+- authenticated connection;
+- subscription authorization;
+- event delivery;
+- reconnect;
+- slow client;
+- multi-instance Redis fan-out;
+- graceful shutdown.
+
+### 14.5 Worker tests
+
+- successful job;
+- transient retry;
+- permanent failure;
+- dead-letter path;
+- duplicate delivery;
+- worker restart;
+- scheduled cleanup safety.
+
+### 14.6 WebRTC tests
+
+When a real media implementation exists:
+
+- join-token validation;
+- room allocation;
+- two-participant audio;
+- video publication/subscription;
+- disconnect/reconnect;
+- room termination;
+- invalid node handling;
+- network-restricted/TURN fallback where supported.
+
+### 14.7 Required checks
+
+For relevant changes, run:
+
+```text
+go fmt ./...
+go vet ./...
+go test ./...
+go test -race ./...
+```
+
+Also run migration and integration checks available in the repository.
+
+---
+
+## 15. Delivery phases
+
+### Phase 0 — Repository audit and stabilization
+
+- map current packages, entrypoints and runtime roles;
+- document current database ownership;
+- make configuration validation explicit;
+- add liveness/readiness endpoints;
+- establish structured error responses;
+- establish test harness.
+
+Acceptance:
+
+- current routes still work;
+- startup failures are explicit;
+- tests can run locally and in CI.
+
+### Phase 1 — Identity, workspace and authorization foundation
+
+- complete `/me`;
+- complete workspace/member lifecycle;
+- implement role-based authorization;
+- enforce tenant isolation;
+- add audit events.
+
+Acceptance:
+
+- cross-workspace access tests fail as expected;
+- role changes are audited;
+- final owner cannot be removed.
+
+### Phase 2 — Teams, channels and conversation mapping
+
+- complete teams/channels;
+- define linked conversation rules;
+- transactionally create required resources;
+- publish realtime events.
+
+Acceptance:
+
+- channels cannot reference another workspace's team;
+- linked conversations are never orphaned.
+
+### Phase 3 — Production chat
+
+- complete message CRUD;
+- cursor pagination;
+- idempotency;
+- read receipts;
+- reactions;
+- WebSocket delivery;
+- outbox pattern.
+
+Acceptance:
+
+- client can operate without local mock state;
+- duplicate send retries do not duplicate messages;
+- multi-instance event delivery works.
+
+### Phase 4 — Meeting domain
+
+- expand meeting schema;
+- participants/invitations;
+- lifecycle transitions;
+- join-token contract;
+- call history base model.
+
+Acceptance:
+
+- meeting lifecycle is persisted and authorized;
+- invalid state transitions are rejected.
+
+### Phase 5 — WebRTC control plane
+
+- select SFU strategy;
+- implement node registry;
+- implement room allocation;
+- issue scoped join tokens;
+- return ICE/TURN configuration;
+- persist presence/lifecycle events.
+
+Acceptance:
+
+- authorized two-party audio/video call succeeds through a real media implementation.
+
+### Phase 6 — Worker and scheduler separation
+
+- durable queues;
+- retries/dead-letter;
+- webhook delivery;
+- notifications;
+- cleanup jobs;
+- separate runtime commands.
+
+Acceptance:
+
+- jobs survive process restarts;
+- duplicates are safe;
+- failed jobs are inspectable.
+
+### Phase 7 — Remaining platform domains
+
+Implement in this order unless product priorities change:
+
+1. notifications;
+2. preferences;
+3. contacts;
+4. tasks;
+5. projects;
+6. files/Drive integration;
+7. documents/resources;
+8. advanced call history and voicemail.
+
+### Phase 8 — Media processing and enterprise hardening
+
+- recording;
+- transcription;
+- summaries;
+- retention policies;
+- exports;
+- regional WebRTC nodes;
+- load and chaos testing;
+- disaster recovery procedures.
+
+---
+
+## 16. Client integration order
+
+Once each backend phase is stable, connect the frontend in this order:
+
+1. platform layout and current workspace;
+2. chat;
+3. teams and channels;
+4. workspace directory;
+5. calendar and meetings;
+6. call room;
+7. profile and preferences;
+8. notifications;
+9. applications and audit;
+10. secondary platform surfaces.
+
+Frontend integration must use a typed API client and must not duplicate backend authorization rules as a source of truth.
+
+---
+
+## 17. Definition of done for Codex tasks
+
+A backend task is not complete until Codex has:
+
+1. inspected the current implementation before editing;
+2. described the chosen design and compatibility impact;
+3. implemented the smallest coherent vertical slice;
+4. added or updated migrations when required;
+5. added authorization and validation;
+6. emitted appropriate audit/realtime events;
+7. added tests for success and failure paths;
+8. run formatting, vetting and tests;
+9. documented configuration changes;
+10. updated this roadmap when assumptions or contracts changed.
+
+Codex must explicitly report:
+
+- files changed;
+- routes or runtime commands added;
+- migrations added;
+- environment variables added;
+- tests executed;
+- known limitations;
+- follow-up work.
+
+Do not claim a feature is production-ready when only route scaffolding, mocks or placeholder processes exist.
+
+---
+
+## 18. Immediate next task recommended
+
+The next implementation task should be a repository audit followed by Phase 0 and Phase 1 work.
+
+Codex should first produce a factual inventory of:
+
+- Go entrypoints and commands;
+- route families and handlers;
+- database repositories and schema ownership;
+- authentication middleware;
+- authorization checks;
+- Redis usage;
+- realtime implementation;
+- existing tests;
+- WebRTC-related code.
+
+Then it should implement one complete, testable vertical slice for workspace identity and authorization before expanding further.
