@@ -145,6 +145,7 @@ func main() {
 
 	repos := services.NewRepositories(db.Gorm())
 	metrics := &services.WorkerMetrics{}
+	webrtcMetrics := &services.WebRTCMetrics{}
 	queue := services.NewJobQueue(logger, cfg, redis, metrics)
 	producer := services.NewQueueProducer(logger, queue, cfg.Worker.MaxAttempts, metrics)
 	outboxService := services.NewOutboxService(logger, cfg.Outbox, repos.OutboxEvents(), producer)
@@ -165,7 +166,10 @@ func main() {
 	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)
 	channelService := services.NewChannelService(db, repos, workspaceService, repos.Conversations())
 	messageService := services.NewMessageService(db, repos, conversationService, workspaceService, eventBus, outboxService)
-	meetingService := services.NewMeetingService(repos.Meetings(), workspaceService, services.NewMeetingProvider(cfg.LiveKit), outboxService, producer)
+	webrtcProvider := services.NewWebRTCProvider(cfg)
+	nodeSelector := services.NewNodeSelector(repos.WebRTCNodes(), cfg)
+	webrtcService := services.NewWebRTCService(logger, cfg, db, repos, workspaceService, webrtcProvider, nodeSelector, outboxService, producer, eventBus, webrtcMetrics)
+	meetingService := services.NewMeetingService(db, repos.Meetings(), repos.MeetingParticipants(), workspaceService, webrtcService, outboxService, producer)
 	integrationService := services.NewIntegrationService(repos.Integrations(), workspaceService, eventBus, repos.Messages(), producer)
 	auditService := services.NewAuditService(repos.AuditLogs(), workspaceService)
 	notificationService := services.NewNotificationService(repos.Notifications(), eventBus)
@@ -196,7 +200,7 @@ func main() {
 		IdentityProvider: identityProvider, Hub: hub, UserService: userService,
 		WorkspaceService: workspaceService, TeamService: teamService, ChannelService: channelService,
 		ConversationService: conversationService, MessageService: messageService,
-		MeetingService: meetingService, IntegrationService: integrationService, AuditService: auditService,
+		MeetingService: meetingService, WebRTCService: webrtcService, IntegrationService: integrationService, AuditService: auditService, WebRTCMetrics: webrtcMetrics,
 		RuntimeRole: string(mode),
 	})
 
@@ -225,8 +229,13 @@ func main() {
 			os.Exit(1)
 		}
 	case modeWebRTC:
-		logger.Error("webrtc mode is not implemented in this repository")
-		os.Exit(1)
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.Go(func() error { return runHTTPServer(groupCtx, logger, cfg, router, mode) })
+		group.Go(func() error { return webrtcService.Run(groupCtx) })
+		if err := group.Wait(); err != nil {
+			logger.Error("runtime stopped with error", "mode", string(mode), "error", err)
+			os.Exit(1)
+		}
 	default:
 		logger.Error("unknown mode", "mode", string(mode))
 		os.Exit(1)

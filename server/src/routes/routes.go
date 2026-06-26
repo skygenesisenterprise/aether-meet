@@ -33,8 +33,10 @@ type Dependencies struct {
 	ConversationService *services.ConversationService
 	MessageService      *services.MessageService
 	MeetingService      *services.MeetingService
+	WebRTCService       *services.WebRTCService
 	IntegrationService  *services.IntegrationService
 	AuditService        *services.AuditService
+	WebRTCMetrics       *services.WebRTCMetrics
 }
 
 func SetupRoutes(router *gin.Engine, deps Dependencies) {
@@ -42,10 +44,12 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 
 	router.GET("/health/live", handler.live)
 	router.GET("/health/ready", handler.ready)
+	router.GET("/metrics", handler.metrics)
 
 	api := router.Group("/api/v1")
 	api.GET("/health", handler.health)
 	api.GET("/ready", handler.ready)
+	api.POST("/internal/webrtc/livekit/webhook", handler.livekitWebhook)
 	api.POST("/webhooks/:provider/:integrationId", handler.webhook)
 
 	protected := api.Group("")
@@ -239,7 +243,7 @@ func (h *apiHandler) health(c *gin.Context) {
 func (h *apiHandler) ready(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 	defer cancel()
-	result := gin.H{"database": "healthy", "redis": "disabled", "realtime": "healthy", "worker": "disabled"}
+	result := gin.H{"database": "healthy", "redis": "disabled", "realtime": "healthy", "worker": "disabled", "webrtc": "disabled"}
 	if err := h.deps.Database.Ping(ctx); err != nil {
 		result["database"] = "unhealthy"
 		utils.Error(c, utils.ErrDependencyUnavailable)
@@ -275,12 +279,21 @@ func (h *apiHandler) ready(c *gin.Context) {
 			result["worker"] = "healthy"
 		}
 	}
+	if h.deps.WebRTCService != nil && h.deps.Config.WebRTC.Provider == "livekit" {
+		if err := h.deps.WebRTCService.Ready(ctx); err != nil {
+			result["webrtc"] = "unhealthy"
+			utils.Error(c, utils.ErrDependencyUnavailable)
+			return
+		}
+		result["webrtc"] = "healthy"
+	}
 	utils.Success(c, http.StatusOK, gin.H{
 		"status":   "ready",
 		"database": result["database"],
 		"redis":    result["redis"],
 		"worker":   result["worker"],
 		"realtime": result["realtime"],
+		"webrtc":   result["webrtc"],
 		"role":     h.runtimeRole(),
 		"version":  h.deps.Config.App.Version,
 	})
@@ -771,7 +784,13 @@ func (h *apiHandler) cancelMeeting(c *gin.Context) {
 	h.notImplemented(c, "meeting cancellation")
 }
 func (h *apiHandler) listMeetingParticipants(c *gin.Context) {
-	h.notImplemented(c, "meeting participants listing")
+	principal, _ := h.principal(c)
+	items, err := h.deps.MeetingService.ListParticipants(c.Request.Context(), principal, c.Param("meetingId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
 }
 func (h *apiHandler) addMeetingParticipant(c *gin.Context) {
 	h.notImplemented(c, "meeting participant management")
@@ -812,7 +831,28 @@ func (h *apiHandler) meetingJoinToken(c *gin.Context) {
 		utils.Error(c, err)
 		return
 	}
-	utils.Success(c, http.StatusOK, gin.H{"token": token})
+	utils.Success(c, http.StatusOK, token)
+}
+
+func (h *apiHandler) livekitWebhook(c *gin.Context) {
+	if h.deps.WebRTCService == nil {
+		utils.Error(c, utils.ErrMeetingProviderUnavailable)
+		return
+	}
+	if err := h.deps.WebRTCService.HandleLiveKitWebhook(c.Request.Context(), c.Request); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"status": "accepted"})
+}
+
+func (h *apiHandler) metrics(c *gin.Context) {
+	if h.deps.WebRTCMetrics == nil {
+		c.String(http.StatusOK, "")
+		return
+	}
+	c.Header("Content-Type", "text/plain; version=0.0.4")
+	c.String(http.StatusOK, h.deps.WebRTCMetrics.RenderPrometheus())
 }
 
 func (h *apiHandler) listApplications(c *gin.Context)  { h.applicationCollection(c, "list") }

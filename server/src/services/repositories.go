@@ -43,6 +43,15 @@ func (r *Repositories) ReadReceipts() interfaces.ReadReceiptRepository {
 	return &readReceiptRepository{db: r.db}
 }
 func (r *Repositories) Meetings() interfaces.MeetingRepository { return &meetingRepository{db: r.db} }
+func (r *Repositories) MeetingParticipants() interfaces.MeetingParticipantRepository {
+	return &meetingParticipantRepository{db: r.db}
+}
+func (r *Repositories) MeetingSessions() interfaces.MeetingSessionRepository {
+	return &meetingSessionRepository{db: r.db}
+}
+func (r *Repositories) MeetingSessionParticipants() interfaces.MeetingSessionParticipantRepository {
+	return &meetingSessionParticipantRepository{db: r.db}
+}
 func (r *Repositories) Integrations() interfaces.IntegrationRepository {
 	return &integrationRepository{db: r.db}
 }
@@ -54,6 +63,12 @@ func (r *Repositories) Notifications() interfaces.NotificationRepository {
 }
 func (r *Repositories) OutboxEvents() interfaces.OutboxRepository {
 	return &outboxRepository{db: r.db}
+}
+func (r *Repositories) WebRTCNodes() interfaces.WebRTCNodeRepository {
+	return &webrtcNodeRepository{db: r.db}
+}
+func (r *Repositories) WebRTCWebhookEvents() interfaces.WebRTCWebhookEventRepository {
+	return &webrtcWebhookEventRepository{db: r.db}
 }
 func (r *Repositories) WithDB(db *gorm.DB) *Repositories { return &Repositories{db: db} }
 
@@ -300,6 +315,11 @@ func (r *meetingRepository) ListByWorkspace(ctx context.Context, workspaceID str
 	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Find(&items).Error
 	return items, err
 }
+func (r *meetingRepository) ListActive(ctx context.Context, limit int) ([]models.Meeting, error) {
+	var items []models.Meeting
+	err := r.db.WithContext(ctx).Where("status = ?", "active").Order("updated_at asc").Limit(limit).Find(&items).Error
+	return items, err
+}
 func (r *meetingRepository) ListStartingBetween(ctx context.Context, start, end time.Time, limit int) ([]models.Meeting, error) {
 	var items []models.Meeting
 	err := r.db.WithContext(ctx).
@@ -329,6 +349,130 @@ func (r *meetingRepository) ListAbandonedActive(ctx context.Context, before time
 }
 func (r *meetingRepository) Update(ctx context.Context, meeting *models.Meeting) error {
 	return r.db.WithContext(ctx).Save(meeting).Error
+}
+
+type meetingParticipantRepository struct{ db *gorm.DB }
+
+func (r *meetingParticipantRepository) Create(ctx context.Context, participant *models.MeetingParticipant) error {
+	return r.db.WithContext(ctx).Create(participant).Error
+}
+func (r *meetingParticipantRepository) Get(ctx context.Context, meetingID, userID string) (*models.MeetingParticipant, error) {
+	var item models.MeetingParticipant
+	err := r.db.WithContext(ctx).First(&item, "meeting_id = ? AND user_id = ?", meetingID, userID).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "MEETING_PARTICIPANT_NOT_FOUND", "The requested meeting participant was not found.", nil))
+}
+func (r *meetingParticipantRepository) ListByMeeting(ctx context.Context, meetingID string) ([]models.MeetingParticipant, error) {
+	var items []models.MeetingParticipant
+	err := r.db.WithContext(ctx).Where("meeting_id = ?", meetingID).Order("created_at asc").Find(&items).Error
+	return items, err
+}
+func (r *meetingParticipantRepository) Upsert(ctx context.Context, participant *models.MeetingParticipant) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "meeting_id"}, {Name: "user_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"role", "status", "metadata", "joined_at", "left_at", "updated_at"}),
+		}).
+		Create(participant).Error
+}
+func (r *meetingParticipantRepository) Update(ctx context.Context, participant *models.MeetingParticipant) error {
+	return r.db.WithContext(ctx).Save(participant).Error
+}
+
+type meetingSessionRepository struct{ db *gorm.DB }
+
+func (r *meetingSessionRepository) Create(ctx context.Context, session *models.MeetingSession) error {
+	return r.db.WithContext(ctx).Create(session).Error
+}
+func (r *meetingSessionRepository) GetByID(ctx context.Context, id string) (*models.MeetingSession, error) {
+	var item models.MeetingSession
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "MEETING_SESSION_NOT_FOUND", "The requested meeting session was not found.", nil))
+}
+func (r *meetingSessionRepository) GetActiveByMeeting(ctx context.Context, meetingID string) (*models.MeetingSession, error) {
+	var item models.MeetingSession
+	err := r.db.WithContext(ctx).
+		Where("meeting_id = ? AND status IN ?", meetingID, []string{"pending", "active", "ending"}).
+		Order("created_at desc").
+		First(&item).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "MEETING_SESSION_NOT_FOUND", "The requested meeting session was not found.", nil))
+}
+func (r *meetingSessionRepository) GetByProviderRoomName(ctx context.Context, roomName string) (*models.MeetingSession, error) {
+	var item models.MeetingSession
+	err := r.db.WithContext(ctx).First(&item, "provider_room_name = ?", roomName).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "MEETING_SESSION_NOT_FOUND", "The requested meeting session was not found.", nil))
+}
+func (r *meetingSessionRepository) ListActive(ctx context.Context, limit int) ([]models.MeetingSession, error) {
+	var items []models.MeetingSession
+	err := r.db.WithContext(ctx).Where("status IN ?", []string{"pending", "active", "ending"}).Order("updated_at asc").Limit(limit).Find(&items).Error
+	return items, err
+}
+func (r *meetingSessionRepository) Update(ctx context.Context, session *models.MeetingSession) error {
+	return r.db.WithContext(ctx).Save(session).Error
+}
+
+type meetingSessionParticipantRepository struct{ db *gorm.DB }
+
+func (r *meetingSessionParticipantRepository) Create(ctx context.Context, participant *models.MeetingSessionParticipant) error {
+	return r.db.WithContext(ctx).Create(participant).Error
+}
+func (r *meetingSessionParticipantRepository) GetByIdentity(ctx context.Context, sessionID, providerIdentity string) (*models.MeetingSessionParticipant, error) {
+	var item models.MeetingSessionParticipant
+	err := r.db.WithContext(ctx).First(&item, "session_id = ? AND provider_identity = ?", sessionID, providerIdentity).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "SESSION_PARTICIPANT_NOT_FOUND", "The requested session participant was not found.", nil))
+}
+func (r *meetingSessionParticipantRepository) ListBySession(ctx context.Context, sessionID string) ([]models.MeetingSessionParticipant, error) {
+	var items []models.MeetingSessionParticipant
+	err := r.db.WithContext(ctx).Where("session_id = ?", sessionID).Order("created_at asc").Find(&items).Error
+	return items, err
+}
+func (r *meetingSessionParticipantRepository) Upsert(ctx context.Context, participant *models.MeetingSessionParticipant) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "session_id"}, {Name: "provider_identity"}},
+			DoUpdates: clause.AssignmentColumns([]string{"workspace_id", "user_id", "role", "status", "metadata", "joined_at", "left_at", "last_seen_at", "updated_at"}),
+		}).
+		Create(participant).Error
+}
+func (r *meetingSessionParticipantRepository) Update(ctx context.Context, participant *models.MeetingSessionParticipant) error {
+	return r.db.WithContext(ctx).Save(participant).Error
+}
+
+type webrtcNodeRepository struct{ db *gorm.DB }
+
+func (r *webrtcNodeRepository) Upsert(ctx context.Context, node *models.WebRTCNode) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"provider", "region", "internal_url", "public_url", "status", "capacity", "active_rooms", "active_participants", "last_heartbeat_at", "draining", "updated_at"}),
+		}).
+		Create(node).Error
+}
+func (r *webrtcNodeRepository) GetByID(ctx context.Context, id string) (*models.WebRTCNode, error) {
+	var item models.WebRTCNode
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "WEBRTC_NODE_NOT_FOUND", "The requested WebRTC node was not found.", nil))
+}
+func (r *webrtcNodeRepository) ListHealthy(ctx context.Context, provider string) ([]models.WebRTCNode, error) {
+	var items []models.WebRTCNode
+	err := r.db.WithContext(ctx).
+		Where("provider = ? AND status = ? AND draining = ?", provider, "healthy", false).
+		Order("created_at asc").
+		Find(&items).Error
+	return items, err
+}
+func (r *webrtcNodeRepository) Update(ctx context.Context, node *models.WebRTCNode) error {
+	return r.db.WithContext(ctx).Save(node).Error
+}
+
+type webrtcWebhookEventRepository struct{ db *gorm.DB }
+
+func (r *webrtcWebhookEventRepository) Create(ctx context.Context, event *models.WebRTCWebhookEvent) error {
+	return r.db.WithContext(ctx).Create(event).Error
+}
+func (r *webrtcWebhookEventRepository) GetByEventID(ctx context.Context, provider, eventID string) (*models.WebRTCWebhookEvent, error) {
+	var item models.WebRTCWebhookEvent
+	err := r.db.WithContext(ctx).First(&item, "provider = ? AND event_id = ?", provider, eventID).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "WEBHOOK_EVENT_NOT_FOUND", "The requested webhook event was not found.", nil))
 }
 
 type integrationRepository struct{ db *gorm.DB }

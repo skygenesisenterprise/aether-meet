@@ -84,10 +84,48 @@ type MeetingRepository interface {
 	Create(ctx context.Context, meeting *models.Meeting) error
 	GetByID(ctx context.Context, id string) (*models.Meeting, error)
 	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Meeting, error)
+	ListActive(ctx context.Context, limit int) ([]models.Meeting, error)
 	ListStartingBetween(ctx context.Context, start, end time.Time, limit int) ([]models.Meeting, error)
 	ListExpiredScheduled(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error)
 	ListAbandonedActive(ctx context.Context, before time.Time, limit int) ([]models.Meeting, error)
 	Update(ctx context.Context, meeting *models.Meeting) error
+}
+
+type MeetingParticipantRepository interface {
+	Create(ctx context.Context, participant *models.MeetingParticipant) error
+	Get(ctx context.Context, meetingID, userID string) (*models.MeetingParticipant, error)
+	ListByMeeting(ctx context.Context, meetingID string) ([]models.MeetingParticipant, error)
+	Upsert(ctx context.Context, participant *models.MeetingParticipant) error
+	Update(ctx context.Context, participant *models.MeetingParticipant) error
+}
+
+type MeetingSessionRepository interface {
+	Create(ctx context.Context, session *models.MeetingSession) error
+	GetByID(ctx context.Context, id string) (*models.MeetingSession, error)
+	GetActiveByMeeting(ctx context.Context, meetingID string) (*models.MeetingSession, error)
+	GetByProviderRoomName(ctx context.Context, roomName string) (*models.MeetingSession, error)
+	ListActive(ctx context.Context, limit int) ([]models.MeetingSession, error)
+	Update(ctx context.Context, session *models.MeetingSession) error
+}
+
+type MeetingSessionParticipantRepository interface {
+	Create(ctx context.Context, participant *models.MeetingSessionParticipant) error
+	GetByIdentity(ctx context.Context, sessionID, providerIdentity string) (*models.MeetingSessionParticipant, error)
+	ListBySession(ctx context.Context, sessionID string) ([]models.MeetingSessionParticipant, error)
+	Upsert(ctx context.Context, participant *models.MeetingSessionParticipant) error
+	Update(ctx context.Context, participant *models.MeetingSessionParticipant) error
+}
+
+type WebRTCNodeRepository interface {
+	Upsert(ctx context.Context, node *models.WebRTCNode) error
+	GetByID(ctx context.Context, id string) (*models.WebRTCNode, error)
+	ListHealthy(ctx context.Context, provider string) ([]models.WebRTCNode, error)
+	Update(ctx context.Context, node *models.WebRTCNode) error
+}
+
+type WebRTCWebhookEventRepository interface {
+	Create(ctx context.Context, event *models.WebRTCWebhookEvent) error
+	GetByEventID(ctx context.Context, provider, eventID string) (*models.WebRTCWebhookEvent, error)
 }
 
 type IntegrationRepository interface {
@@ -129,8 +167,13 @@ type RepositorySet interface {
 	Reactions() ReactionRepository
 	ReadReceipts() ReadReceiptRepository
 	Meetings() MeetingRepository
+	MeetingParticipants() MeetingParticipantRepository
+	MeetingSessions() MeetingSessionRepository
+	MeetingSessionParticipants() MeetingSessionParticipantRepository
 	Integrations() IntegrationRepository
 	AuditLogs() AuditLogRepository
 	Notifications() NotificationRepository
 	OutboxEvents() OutboxRepository
+	WebRTCNodes() WebRTCNodeRepository
+	WebRTCWebhookEvents() WebRTCWebhookEventRepository
 }

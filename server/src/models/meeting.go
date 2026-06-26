@@ -19,7 +19,9 @@ type MeetingParticipant struct {
 	Common
 	MeetingID string     `gorm:"type:text;index;not null" json:"meetingId"`
 	UserID    string     `gorm:"type:text;index;not null" json:"userId"`
+	Role      string     `gorm:"type:text;index;not null;default:'attendee'" json:"role"`
 	Status    string     `gorm:"type:text;not null" json:"status"`
+	Metadata  []byte     `gorm:"type:jsonb" json:"metadata,omitempty"`
 	JoinedAt  *time.Time `json:"joinedAt,omitempty"`
 	LeftAt    *time.Time `json:"leftAt,omitempty"`
 }

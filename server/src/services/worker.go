@@ -59,6 +59,7 @@ func NewWorker(logger *slog.Logger, cfg config.Config, redis *redisclient.Client
 			{Queue: "integrations", Group: "integrations"},
 			{Queue: "presence", Group: "presence"},
 			{Queue: "meetings", Group: "meetings"},
+			{Queue: "webrtc", Group: "webrtc"},
 			{Queue: "attachments", Group: "attachments"},
 			{Queue: "maintenance", Group: "maintenance"},
 		},
@@ -234,6 +235,48 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 		return classifyRetry(meetings.AutoEndAbandoned(ctx))
 	})
 	registry.Register("meeting.cleanup", func(context.Context, models.Job) error { return nil })
+	registry.Register("webrtc.room.create", func(context.Context, models.Job) error { return nil })
+	registry.Register("webrtc.room.close", func(context.Context, models.Job) error { return nil })
+	registry.Register("webrtc.room.reconcile", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		return classifyRetry(meetings.webrtc.ReconcileRooms(ctx))
+	})
+	registry.Register("webrtc.participant.cleanup", func(ctx context.Context, job models.Job) error {
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		var payload struct {
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return Permanent(err)
+		}
+		return classifyRetry(meetings.webrtc.CleanupParticipants(ctx, payload.SessionID))
+	})
+	registry.Register("webrtc.node.heartbeat", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		return classifyRetry(meetings.webrtc.refreshNodeHeartbeat(ctx))
+	})
+	registry.Register("webrtc.node.healthcheck", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		return classifyRetry(meetings.webrtc.Ready(ctx))
+	})
+	registry.Register("webrtc.session.expire", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if meetings == nil || meetings.webrtc == nil {
+			return nil
+		}
+		return classifyRetry(meetings.webrtc.ReconcileRooms(ctx))
+	})
 	registry.Register("attachment.process", func(context.Context, models.Job) error { return nil })
 	registry.Register("attachment.metadata", func(context.Context, models.Job) error { return nil })
 	registry.Register("attachment.cleanup", func(context.Context, models.Job) error { return nil })

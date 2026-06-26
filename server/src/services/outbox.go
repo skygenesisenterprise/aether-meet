@@ -99,6 +99,12 @@ func (s *OutboxService) dispatch(ctx context.Context, item models.OutboxEvent) e
 			Payload:     item.Payload,
 		})
 		return err
+	case "meeting.started", "meeting.ended",
+		"meeting.session.created", "meeting.session.started", "meeting.session.ended",
+		"meeting.participant.joined", "meeting.participant.left",
+		"meeting.track.published", "meeting.track.unpublished",
+		"webrtc.node.unhealthy":
+		return nil
 	default:
 		return Permanent(utils.ErrUnknownJobType)
 	}
