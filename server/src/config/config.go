@@ -1,45 +1,49 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Default mail server hosts embedded in the engine.
-// The application does not rely solely on environment variables.
-const (
-	DefaultMailHostPrimary   = "mail.skygenesisenterprise.net"
-	DefaultMailHostSecondary = "mail.skygenesisenterprise.com"
-)
-
-// ResolveMailHost returns the appropriate mail server host based on the email domain.
-func ResolveMailHost(email string) string {
-	parts := strings.Split(email, "@")
-	if len(parts) < 2 {
-		return DefaultMailHostPrimary
-	}
-	domain := strings.ToLower(parts[1])
-	switch domain {
-	case "skygenesisenterprise.com":
-		return DefaultMailHostSecondary
-	default:
-		return DefaultMailHostPrimary
-	}
-}
+const devJWTSecret = "dev-insecure-secret-change-me"
 
 type Config struct {
-	Stalwart StalwartConfig
-	JWT      JWTConfig
-	CORS     CORSConfig
+	App      AppConfig
 	Server   ServerConfig
-	Log      LogConfig
-	Mail     MailConfig
+	Database DatabaseConfig
 	Redis    RedisConfig
+	Auth     AuthConfig
+	CORS     CORSConfig
+	Realtime RealtimeConfig
+	Storage  StorageConfig
+	LiveKit  LiveKitConfig
+}
 
-	Port      string
-	SystemKey string
+type AppConfig struct {
+	Env            string
+	Name           string
+	Version        string
+	Mode           string
+	AccessLogs     bool
+	TrustedProxies []string
+}
+
+type ServerConfig struct {
+	Host string
+	Port string
+}
+
+type DatabaseConfig struct {
+	URL      string
+	Host     string
+	Port     string
+	User     string
+	Name     string
+	Password string
 }
 
 type RedisConfig struct {
@@ -51,220 +55,198 @@ type RedisConfig struct {
 	Password       string
 	DB             int
 	KeyPrefix      string
-	DefaultTTL     int
-	ConnectTimeout int
-	ReadTimeout    int
-	WriteTimeout   int
+	DefaultTTL     time.Duration
+	ConnectTimeout time.Duration
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
 	MaxRetries     int
 }
 
-type StalwartConfig struct {
-	Host       string
-	HTTPPort   int
-	JMAPPort   int
-	IMAPPort   int
-	SMTPPort   int
-	UseTLS     bool
-	SkipVerify bool
-}
-
-type JWTConfig struct {
-	Secret string
-	Expiry time.Duration
-	Issuer string
+type AuthConfig struct {
+	Mode          string
+	JWTSecret     string
+	JWTIssuer     string
+	JWTAccessTTL  time.Duration
+	JWTRefreshTTL time.Duration
 }
 
 type CORSConfig struct {
 	AllowedOrigins []string
 }
 
-type ServerConfig struct {
-	Port    int
-	Mode    string
-	Timeout time.Duration
+type RealtimeConfig struct {
+	Enabled           bool
+	HeartbeatInterval time.Duration
+	ClientTimeout     time.Duration
 }
 
-type LogConfig struct {
-	Level  string
-	File   string
-	Format string
+type StorageConfig struct {
+	Driver    string
+	LocalPath string
 }
 
-type MailConfig struct {
-	DefaultProvider string
-	IMAP            IMAPConfig
-	SMTP            SMTPConfig
-	POP3            POP3Config
-	OAuth           OAuthConfig
+type LiveKitConfig struct {
+	Enabled   bool
+	URL       string
+	APIKey    string
+	APISecret string
 }
 
-type OAuthConfig struct {
-	RedirectURL string
-	Google      OAuthProviderConfig
-	Microsoft   OAuthProviderConfig
-	Proton      OAuthProviderConfig
-}
-
-type OAuthProviderConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
-	Tenant       string
-}
-
-type IMAPConfig struct {
-	Host       string
-	Port       int
-	UseTLS     bool
-	SkipVerify bool
-}
-
-type SMTPConfig struct {
-	Host       string
-	Port       int
-	UseTLS     bool
-	SkipVerify bool
-}
-
-type POP3Config struct {
-	Host       string
-	Port       int
-	UseTLS     bool
-	SkipVerify bool
-}
-
-func Load() *Config {
-	cfg := &Config{
-		Stalwart: StalwartConfig{
-			Host:       getEnv("STALWART_HOST", DefaultMailHostPrimary),
-			HTTPPort:   getEnvInt("STALWART_HTTP_PORT", 8080),
-			JMAPPort:   getEnvInt("STALWART_JMAP_PORT", 8081),
-			IMAPPort:   getEnvInt("STALWART_IMAP_PORT", 993),
-			SMTPPort:   getEnvInt("STALWART_SMTP_PORT", 587),
-			UseTLS:     getEnvBool("STALWART_USE_TLS", true),
-			SkipVerify: getEnvBool("STALWART_SKIP_VERIFY", false),
+func Load() (Config, error) {
+	cfg := Config{
+		App: AppConfig{
+			Env:            getEnv("APP_ENV", "development"),
+			Name:           getEnv("APP_NAME", "Aether Meet"),
+			Version:        getEnv("APP_VERSION", "dev"),
+			Mode:           getEnv("GIN_MODE", "debug"),
+			AccessLogs:     getEnvBool("API_ACCESS_LOGS", true),
+			TrustedProxies: getEnvSlice("TRUSTED_PROXY_CIDRS", nil),
 		},
-		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "change-me-in-production"),
-			Expiry: getEnvDuration("JWT_EXPIRY", 24*time.Hour),
-			Issuer: getEnv("JWT_ISSUER", "aether-mail"),
+		Server: ServerConfig{
+			Host: getEnv("HOST", "0.0.0.0"),
+			Port: getEnv("API_PORT", "8080"),
+		},
+		Database: DatabaseConfig{
+			URL:      strings.TrimSpace(getEnv("DATABASE_URL", "")),
+			Host:     getEnv("POSTGRESQL__HOST", "localhost"),
+			Port:     getEnv("POSTGRESQL__PORT", "5432"),
+			User:     getEnv("POSTGRESQL__USER", "postgres"),
+			Name:     getEnv("POSTGRESQL__NAME", "aether_meet"),
+			Password: getEnv("POSTGRESQL__PASSWORD", "postgres"),
+		},
+		Redis: RedisConfig{
+			Enabled:        getEnvBool("REDIS_ENABLED", false),
+			Required:       getEnvBool("REDIS_REQUIRED", false),
+			URL:            getEnv("REDIS_URL", ""),
+			Host:           getEnv("REDIS_HOST", "localhost"),
+			Port:           getEnv("REDIS_PORT", "6379"),
+			Password:       getEnv("REDIS_PASSWORD", ""),
+			DB:             getEnvInt("REDIS_DB", 0),
+			KeyPrefix:      getEnv("REDIS_KEY_PREFIX", "aether-meet:v1"),
+			DefaultTTL:     getEnvDuration("REDIS_DEFAULT_TTL", 5*time.Minute),
+			ConnectTimeout: getEnvDuration("REDIS_CONNECT_TIMEOUT", 5*time.Second),
+			ReadTimeout:    getEnvDuration("REDIS_READ_TIMEOUT", 3*time.Second),
+			WriteTimeout:   getEnvDuration("REDIS_WRITE_TIMEOUT", 3*time.Second),
+			MaxRetries:     getEnvInt("REDIS_MAX_RETRIES", 3),
+		},
+		Auth: AuthConfig{
+			Mode:          strings.ToLower(getEnv("AUTH_MODE", "jwt")),
+			JWTSecret:     getEnv("JWT_SECRET", ""),
+			JWTIssuer:     getEnv("JWT_ISSUER", "aether-meet"),
+			JWTAccessTTL:  getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute),
+			JWTRefreshTTL: getEnvDuration("JWT_REFRESH_TTL", 24*time.Hour),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
 		},
-		Server: ServerConfig{
-			Port:    getEnvInt("SERVER_PORT", 8080),
-			Mode:    getEnv("GIN_MODE", "debug"),
-			Timeout: getEnvDuration("SERVER_TIMEOUT", 30*time.Second),
+		Realtime: RealtimeConfig{
+			Enabled:           getEnvBool("REALTIME_ENABLED", true),
+			HeartbeatInterval: getEnvDuration("REALTIME_HEARTBEAT_INTERVAL", 30*time.Second),
+			ClientTimeout:     getEnvDuration("REALTIME_CLIENT_TIMEOUT", 75*time.Second),
 		},
-		Log: LogConfig{
-			Level:  getEnv("LOG_LEVEL", "info"),
-			File:   getEnv("LOG_FILE", "./src/logs/server.log"),
-			Format: getEnv("LOG_FORMAT", "json"),
+		Storage: StorageConfig{
+			Driver:    strings.ToLower(getEnv("STORAGE_DRIVER", "local")),
+			LocalPath: getEnv("STORAGE_LOCAL_PATH", "/media"),
 		},
-		Mail: MailConfig{
-			DefaultProvider: getEnv("MAIL_PROVIDER", "stalwart"),
-			IMAP: IMAPConfig{
-				Host:       getEnv("IMAP_HOST", DefaultMailHostPrimary),
-				Port:       getEnvInt("IMAP_PORT", 993),
-				UseTLS:     getEnvBool("IMAP_USE_TLS", true),
-				SkipVerify: getEnvBool("IMAP_SKIP_VERIFY", false),
-			},
-			SMTP: SMTPConfig{
-				Host:       getEnv("SMTP_HOST", DefaultMailHostPrimary),
-				Port:       getEnvInt("SMTP_PORT", 587),
-				UseTLS:     getEnvBool("SMTP_USE_TLS", true),
-				SkipVerify: getEnvBool("SMTP_SKIP_VERIFY", false),
-			},
-			POP3: POP3Config{
-				Host:       getEnv("POP3_HOST", DefaultMailHostPrimary),
-				Port:       getEnvInt("POP3_PORT", 995),
-				UseTLS:     getEnvBool("POP3_USE_TLS", true),
-				SkipVerify: getEnvBool("POP3_SKIP_VERIFY", false),
-			},
-			OAuth: OAuthConfig{
-				RedirectURL: getEnv("OAUTH_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/callback"),
-				Google: OAuthProviderConfig{
-					ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
-					ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-					RedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/google/callback"),
-				},
-				Microsoft: OAuthProviderConfig{
-					ClientID:     getEnv("MICROSOFT_CLIENT_ID", ""),
-					ClientSecret: getEnv("MICROSOFT_CLIENT_SECRET", ""),
-					RedirectURL:  getEnv("MICROSOFT_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/microsoft/callback"),
-					Tenant:       getEnv("MICROSOFT_TENANT", "common"),
-				},
-				Proton: OAuthProviderConfig{
-					ClientID:     getEnv("PROTON_CLIENT_ID", ""),
-					ClientSecret: getEnv("PROTON_CLIENT_SECRET", ""),
-					RedirectURL:  getEnv("PROTON_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oauth/proton/callback"),
-				},
-			},
+		LiveKit: LiveKitConfig{
+			Enabled:   getEnvBool("LIVEKIT_ENABLED", false),
+			URL:       getEnv("LIVEKIT_URL", ""),
+			APIKey:    getEnv("LIVEKIT_API_KEY", ""),
+			APISecret: getEnv("LIVEKIT_API_SECRET", ""),
 		},
 	}
 
-	cfg.Redis = RedisConfig{
-		Enabled:        getEnvBool("REDIS_ENABLED", false),
-		Required:       getEnvBool("REDIS_REQUIRED", false),
-		URL:            getEnv("REDIS_URL", ""),
-		Host:           getEnv("REDIS_HOST", "localhost"),
-		Port:           getEnv("REDIS_PORT", "6379"),
-		Password:       getEnv("REDIS_PASSWORD", ""),
-		DB:             getEnvInt("REDIS_DB", 0),
-		KeyPrefix:      getEnv("REDIS_KEY_PREFIX", "company-website:v1"),
-		DefaultTTL:     getEnvInt("REDIS_DEFAULT_TTL", 300),
-		ConnectTimeout: getEnvInt("REDIS_CONNECT_TIMEOUT", 5),
-		ReadTimeout:    getEnvInt("REDIS_READ_TIMEOUT", 3),
-		WriteTimeout:   getEnvInt("REDIS_WRITE_TIMEOUT", 3),
-		MaxRetries:     getEnvInt("REDIS_MAX_RETRIES", 3),
+	if cfg.Auth.JWTSecret == "" && cfg.App.Env != "production" {
+		cfg.Auth.JWTSecret = devJWTSecret
 	}
 
-	cfg.Port = strconv.Itoa(cfg.Server.Port)
-	cfg.SystemKey = getEnv("SYSTEM_KEY", "")
+	if cfg.Database.URL == "" {
+		cfg.Database.URL = fmt.Sprintf(
+			"host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+			cfg.Database.Host,
+			cfg.Database.User,
+			cfg.Database.Password,
+			cfg.Database.Name,
+			cfg.Database.Port,
+		)
+	}
 
-	return cfg
+	return cfg, cfg.Validate()
 }
 
-func LoadConfig() *Config {
-	return Load()
+func (c Config) Validate() error {
+	if c.Server.Port == "" {
+		return errors.New("API_PORT is required")
+	}
+	if c.App.Env == "production" {
+		if c.Auth.Mode == "jwt" && (c.Auth.JWTSecret == "" || c.Auth.JWTSecret == devJWTSecret) {
+			return errors.New("JWT_SECRET must be configured for production")
+		}
+		if len(c.CORS.AllowedOrigins) == 0 {
+			return errors.New("CORS_ALLOWED_ORIGINS must be configured for production")
+		}
+	}
+	if c.LiveKit.Enabled {
+		if c.LiveKit.URL == "" || c.LiveKit.APIKey == "" || c.LiveKit.APISecret == "" {
+			return errors.New("LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required when LIVEKIT_ENABLED=true")
+		}
+	}
+	return nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
+func getEnv(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
 	}
-	return defaultValue
+	return fallback
 }
 
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := strconv.Atoi(value); err == nil {
-			return intValue
+func getEnvInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	return value == "true" || value == "1" || value == "yes"
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+	if duration, err := time.ParseDuration(value); err == nil {
+		return duration
+	}
+	return fallback
+}
+
+func getEnvSlice(key string, fallback []string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
 		}
 	}
-	return defaultValue
-}
-
-func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
-		return value == "true" || value == "1"
-	}
-	return defaultValue
-}
-
-func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
-		}
-	}
-	return defaultValue
-}
-
-func getEnvSlice(key string, defaultValue []string) []string {
-	if value := os.Getenv(key); value != "" {
-		return strings.Split(value, ",")
-	}
-	return defaultValue
+	return out
 }

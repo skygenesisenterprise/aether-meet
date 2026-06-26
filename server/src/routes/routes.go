@@ -1,582 +1,801 @@
 package routes
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	redisclient "github.com/skygenesisenterprise/aether-meet/server/internal/redis"
+	"github.com/skygenesisenterprise/aether-meet/server/src/config"
 	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
 	"github.com/skygenesisenterprise/aether-meet/server/src/middleware"
-	"github.com/skygenesisenterprise/aether-meet/server/src/models"
 	"github.com/skygenesisenterprise/aether-meet/server/src/services"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
-// SetupRoutes configure toutes les routes API.
-// C'est le point d'entrée principal pour la configuration des routes.
-func SetupRoutes(router *gin.Engine, systemKey string, serviceKeyService *services.ServiceKeyService, dbService interfaces.IDatabaseService, redisClient interface{ IsAvailable() bool }) {
-	_ = serviceKeyService
-	_ = dbService
+type Dependencies struct {
+	Config              config.Config
+	Logger              *slog.Logger
+	Database            interfaces.Database
+	Redis               *redisclient.Client
+	EventBus            interfaces.EventBus
+	IdentityProvider    interfaces.IdentityProvider
+	Hub                 *services.Hub
+	UserService         *services.UserService
+	WorkspaceService    *services.WorkspaceService
+	TeamService         *services.TeamService
+	ChannelService      *services.ChannelService
+	ConversationService *services.ConversationService
+	MessageService      *services.MessageService
+	MeetingService      *services.MeetingService
+	IntegrationService  *services.IntegrationService
+	AuditService        *services.AuditService
+}
 
-	router.Use(middleware.RequestIDMiddleware())
-	router.Use(middleware.ContextMiddleware())
-
-	siteHandler := NewSiteHandler(systemKey, redisClient)
-	statusHandler := NewStatusHandler(siteHandler)
+func SetupRoutes(router *gin.Engine, deps Dependencies) {
+	handler := &apiHandler{deps: deps}
 
 	api := router.Group("/api/v1")
+	api.GET("/health", handler.health)
+	api.GET("/ready", handler.ready)
+	api.POST("/webhooks/:provider/:integrationId", handler.webhook)
+
+	protected := api.Group("")
+	protected.Use(middleware.Auth(deps.IdentityProvider))
+	protected.Use(middleware.WorkspaceContext())
 	{
-		// ==================== HEALTH ====================
-		api.GET("/health", siteHandler.Health)
+		protected.GET("/me", handler.me)
+		protected.PATCH("/me", handler.updateMe)
 
-		// ==================== PUBLIC ====================
-		public := api.Group("/public")
-		{
-			public.POST("/contact", siteHandler.PublicContact)
-			public.POST("/newsletter/subscribe", siteHandler.PublicNewsletterSubscribe)
-			public.POST("/newsletter/unsubscribe", siteHandler.PublicNewsletterUnsubscribe)
-			public.GET("/status", statusHandler.PublicStatus)
-			public.GET("/pages/:slug", siteHandler.PublicPageBySlug)
-		}
+		protected.GET("/workspaces", handler.listWorkspaces)
+		protected.POST("/workspaces", handler.createWorkspace)
+		protected.GET("/workspaces/:workspaceId", handler.getWorkspace)
+		protected.PATCH("/workspaces/:workspaceId", handler.updateWorkspace)
+		protected.DELETE("/workspaces/:workspaceId", handler.deleteWorkspace)
 
-		// ==================== CMS ====================
-		siteHandler.RegisterResource(api.Group("/categories"), "categories")
-		siteHandler.RegisterResource(api.Group("/medias"), "medias")
-		siteHandler.RegisterResource(api.Group("/dossiers"), "dossiers")
+		protected.GET("/workspaces/:workspaceId/members", handler.listWorkspaceMembers)
+		protected.POST("/workspaces/:workspaceId/members", handler.createWorkspaceMember)
+		protected.PATCH("/workspaces/:workspaceId/members/:userId", handler.updateWorkspaceMember)
+		protected.DELETE("/workspaces/:workspaceId/members/:userId", handler.deleteWorkspaceMember)
 
-		pages := api.Group("/pages")
-		{
-			siteHandler.RegisterResource(pages, "pages")
-			pages.POST("/:id/publish", siteHandler.RequireAdmin(), siteHandler.SetStatus("pages", "published"))
-			pages.POST("/:id/unpublish", siteHandler.RequireAdmin(), siteHandler.SetStatus("pages", "draft"))
-			pages.POST("/:id/archive", siteHandler.RequireAdmin(), siteHandler.SetStatus("pages", "archived"))
-			pages.POST("/:id/restore", siteHandler.RequireAdmin(), siteHandler.SetStatus("pages", "draft"))
-		}
+		protected.GET("/workspaces/:workspaceId/teams", handler.listTeams)
+		protected.POST("/workspaces/:workspaceId/teams", handler.createTeam)
+		protected.GET("/teams/:teamId", handler.getTeam)
+		protected.PATCH("/teams/:teamId", handler.updateTeam)
+		protected.DELETE("/teams/:teamId", handler.deleteTeam)
 
-		// ==================== OPERATIONS & INTEGRATIONS ====================
-		siteHandler.RegisterResource(api.Group("/services"), "services")
+		protected.GET("/workspaces/:workspaceId/channels", handler.listChannels)
+		protected.POST("/workspaces/:workspaceId/channels", handler.createChannel)
+		protected.GET("/channels/:channelId", handler.getChannel)
+		protected.PATCH("/channels/:channelId", handler.updateChannel)
+		protected.DELETE("/channels/:channelId", handler.deleteChannel)
 
-		status := api.Group("/status")
-		{
-			status.GET("", statusHandler.ListStatus)
-			status.POST("", siteHandler.RequireAdmin(), statusHandler.CreateStatus)
-			status.GET("/current", statusHandler.GetCurrentStatus)
+		protected.GET("/workspaces/:workspaceId/conversations", handler.listConversations)
+		protected.POST("/workspaces/:workspaceId/conversations", handler.createConversation)
+		protected.GET("/conversations/:conversationId", handler.getConversation)
+		protected.PATCH("/conversations/:conversationId", handler.updateConversation)
+		protected.DELETE("/conversations/:conversationId", handler.deleteConversation)
 
-			status.POST("/incidents", siteHandler.RequireAdmin(), statusHandler.CreateIncident)
-			status.PATCH("/incidents/:id", siteHandler.RequireAdmin(), statusHandler.UpdateIncident)
-			status.POST("/incidents/:id/resolve", siteHandler.RequireAdmin(), statusHandler.ResolveIncident)
+		protected.GET("/conversations/:conversationId/messages", handler.listMessages)
+		protected.POST("/conversations/:conversationId/messages", handler.createMessage)
+		protected.POST("/conversations/:conversationId/read", handler.markRead)
+		protected.GET("/messages/:messageId", handler.getMessage)
+		protected.PATCH("/messages/:messageId", handler.updateMessage)
+		protected.DELETE("/messages/:messageId", handler.deleteMessage)
+		protected.POST("/messages/:messageId/reactions", handler.createReaction)
+		protected.DELETE("/messages/:messageId/reactions/:emoji", handler.deleteReaction)
 
-			status.POST("/maintenance", siteHandler.RequireAdmin(), statusHandler.CreateMaintenance)
-			status.PATCH("/maintenance/:id", siteHandler.RequireAdmin(), statusHandler.UpdateMaintenance)
-			status.POST("/maintenance/:id/cancel", siteHandler.RequireAdmin(), statusHandler.CancelMaintenance)
-		}
+		protected.GET("/workspaces/:workspaceId/meetings", handler.listMeetings)
+		protected.POST("/workspaces/:workspaceId/meetings", handler.createMeeting)
+		protected.GET("/meetings/:meetingId", handler.getMeeting)
+		protected.POST("/meetings/:meetingId/start", handler.startMeeting)
+		protected.POST("/meetings/:meetingId/end", handler.endMeeting)
+		protected.POST("/meetings/:meetingId/join-token", handler.meetingJoinToken)
 
-		apiKeys := api.Group("/api-keys")
-		{
-			siteHandler.RegisterResource(apiKeys, "api-keys")
-			apiKeys.POST("/:id/revoke", siteHandler.RequireAdmin(), siteHandler.SetStatus("api-keys", "revoked"))
-			apiKeys.POST("/:id/rotate", siteHandler.RequireAdmin(), siteHandler.RotateAPIKey)
-		}
+		protected.GET("/workspaces/:workspaceId/applications", handler.listApplications)
+		protected.POST("/workspaces/:workspaceId/applications", handler.createApplication)
+		protected.GET("/applications/:applicationId", handler.getApplication)
+		protected.PATCH("/applications/:applicationId", handler.updateApplication)
+		protected.DELETE("/applications/:applicationId", handler.deleteApplication)
 
-		webhooks := api.Group("/webhooks")
-		{
-			siteHandler.RegisterResource(webhooks, "webhooks")
-			webhooks.POST("/:id/test", siteHandler.RequireAdmin(), siteHandler.TestWebhook)
-			webhooks.POST("/:id/enable", siteHandler.RequireAdmin(), siteHandler.SetStatus("webhooks", "active"))
-			webhooks.POST("/:id/disable", siteHandler.RequireAdmin(), siteHandler.SetStatus("webhooks", "disabled"))
-		}
+		protected.GET("/workspaces/:workspaceId/audit-logs", handler.listAuditLogs)
 
-		linker := api.Group("/linker")
-		{
-			siteHandler.RegisterResource(linker, "linker")
-			linker.POST("/:id/enable", siteHandler.RequireAdmin(), siteHandler.SetStatus("linker", "active"))
-			linker.POST("/:id/disable", siteHandler.RequireAdmin(), siteHandler.SetStatus("linker", "disabled"))
-		}
-
-		// ==================== AUDIENCE & USERS ====================
-		comments := api.Group("/comments")
-		{
-			siteHandler.RegisterResource(comments, "comments")
-			comments.POST("/:id/approve", siteHandler.RequireAdmin(), siteHandler.SetStatus("comments", "approved"))
-			comments.POST("/:id/reject", siteHandler.RequireAdmin(), siteHandler.SetStatus("comments", "rejected"))
-			comments.POST("/:id/spam", siteHandler.RequireAdmin(), siteHandler.SetStatus("comments", "spam"))
-			comments.POST("/:id/restore", siteHandler.RequireAdmin(), siteHandler.SetStatus("comments", "pending"))
-		}
-
-		newsletter := api.Group("/newsletter")
-		{
-			siteHandler.RegisterResource(newsletter, "newsletter")
-			newsletter.POST("/:id/unsubscribe", siteHandler.RequireAdmin(), siteHandler.SetStatus("newsletter", "unsubscribed"))
-			newsletter.POST("/:id/resubscribe", siteHandler.RequireAdmin(), siteHandler.SetStatus("newsletter", "active"))
-		}
-
-		siteHandler.RegisterResource(api.Group("/subscriptions"), "subscriptions")
-
-		users := api.Group("/users")
-		{
-			siteHandler.RegisterResource(users, "users")
-			users.POST("/:id/suspend", siteHandler.RequireAdmin(), siteHandler.SetStatus("users", "suspended"))
-			users.POST("/:id/reactivate", siteHandler.RequireAdmin(), siteHandler.SetStatus("users", "active"))
-			users.PATCH("/:id/role", siteHandler.RequireAdmin(), siteHandler.UpdateUserRole)
-		}
-
-		// ==================== MONITORING & GOVERNANCE ====================
-		siteHandler.RegisterResource(api.Group("/analytics"), "analytics")
-		siteHandler.RegisterResource(api.Group("/audit-logs"), "audit-logs")
-
-		notifications := api.Group("/notifications")
-		{
-			siteHandler.RegisterResource(notifications, "notifications")
-			notifications.POST("/:id/read", siteHandler.RequireAdmin(), siteHandler.SetStatus("notifications", "read"))
-			notifications.POST("/:id/archive", siteHandler.RequireAdmin(), siteHandler.SetStatus("notifications", "archived"))
-			notifications.POST("/:id/send", siteHandler.RequireAdmin(), siteHandler.SetStatus("notifications", "sent"))
-		}
-
-		scheduling := api.Group("/scheduling")
-		{
-			siteHandler.RegisterResource(scheduling, "scheduling")
-			scheduling.POST("/:id/cancel", siteHandler.RequireAdmin(), siteHandler.SetStatus("scheduling", "canceled"))
-			scheduling.POST("/:id/run-now", siteHandler.RequireAdmin(), siteHandler.RunScheduleNow)
-		}
-
-		// ==================== SETTINGS ====================
-		siteHandler.RegisterResource(api.Group("/settings"), "settings")
+		protected.GET("/realtime/ws", handler.realtime)
 	}
 }
 
-// ==================== SITE HANDLERS ====================
-
-type RedisHealthChecker interface {
-	IsAvailable() bool
+type apiHandler struct {
+	deps Dependencies
 }
 
-type SiteHandler struct {
-	store        *services.SiteAPIService
-	systemKey    string
-	redisChecker RedisHealthChecker
+func (h *apiHandler) principal(c *gin.Context) (interfaces.Principal, bool) {
+	return middleware.PrincipalFromGin(c)
 }
 
-func NewSiteHandler(systemKey string, redisChecker RedisHealthChecker) *SiteHandler {
-	store := services.NewSiteAPIService()
-	store.SeedStatus()
-
-	return &SiteHandler{
-		store:        store,
-		systemKey:    systemKey,
-		redisChecker: redisChecker,
-	}
-}
-
-func (h *SiteHandler) RegisterResource(group *gin.RouterGroup, resource string) {
-	group.GET("", h.List(resource))
-	group.POST("", h.RequireAdmin(), h.Create(resource))
-	group.GET("/:id", h.Get(resource))
-	group.PATCH("/:id", h.RequireAdmin(), h.Update(resource))
-	group.DELETE("/:id", h.RequireAdmin(), h.Delete(resource))
-}
-
-func (h *SiteHandler) Health(c *gin.Context) {
+func (h *apiHandler) health(c *gin.Context) {
 	status := "healthy"
 	redisStatus := "disabled"
-	dbStatus := "healthy"
-
-	if h.redisChecker != nil {
-		if h.redisChecker.IsAvailable() {
-			redisStatus = "healthy"
-		} else {
-			redisStatus = "unavailable"
+	if err := h.deps.Database.Ping(c.Request.Context()); err != nil {
+		status = "degraded"
+	}
+	if h.deps.Redis != nil {
+		redisHealth := h.deps.Redis.Health(c.Request.Context())
+		redisStatus = string(redisHealth.Status)
+		if redisHealth.Status != redisclient.StatusHealthy {
 			status = "degraded"
 		}
 	}
-
-	Success(c, http.StatusOK, gin.H{
+	realtimeStatus := "healthy"
+	if !h.deps.Config.Realtime.Enabled {
+		realtimeStatus = "disabled"
+	}
+	utils.Success(c, http.StatusOK, gin.H{
 		"status":   status,
-		"database": dbStatus,
+		"database": "healthy",
 		"redis":    redisStatus,
+		"realtime": realtimeStatus,
+		"version":  h.deps.Config.App.Version,
 	})
 }
 
-func (h *SiteHandler) List(resource string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		query := listQuery(c)
-		rows, total := h.store.List(resource, query)
-		ListSuccess(c, rows, query.Page, query.PageSize, total)
-	}
-}
-
-func (h *SiteHandler) Create(resource string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		input, ok := bindResourceInput(c)
-		if !ok {
-			return
-		}
-		Success(c, http.StatusCreated, h.store.Create(resource, input))
-	}
-}
-
-func (h *SiteHandler) Get(resource string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		item, ok := h.store.Get(resource, c.Param("id"))
-		if !ok {
-			Error(c, http.StatusNotFound, "NOT_FOUND", "Resource not found", nil)
-			return
-		}
-		Success(c, http.StatusOK, item)
-	}
-}
-
-func (h *SiteHandler) Update(resource string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		input, ok := bindResourceInput(c)
-		if !ok {
-			return
-		}
-		item, found := h.store.Update(resource, c.Param("id"), input)
-		if !found {
-			Error(c, http.StatusNotFound, "NOT_FOUND", "Resource not found", nil)
-			return
-		}
-		Success(c, http.StatusOK, item)
-	}
-}
-
-func (h *SiteHandler) Delete(resource string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !h.store.Delete(resource, c.Param("id")) {
-			Error(c, http.StatusNotFound, "NOT_FOUND", "Resource not found", nil)
-			return
-		}
-		Success(c, http.StatusOK, gin.H{"deleted": true})
-	}
-}
-
-func (h *SiteHandler) SetStatus(resource, status string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		item, ok := h.store.SetStatus(resource, c.Param("id"), status)
-		if !ok {
-			Error(c, http.StatusNotFound, "NOT_FOUND", "Resource not found", nil)
-			return
-		}
-		Success(c, http.StatusOK, item)
-	}
-}
-
-func (h *SiteHandler) RotateAPIKey(c *gin.Context) {
-	item, ok := h.store.RotateAPIKey(c.Param("id"))
-	if !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "API key not found", nil)
+func (h *apiHandler) ready(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	result := gin.H{"database": "healthy", "redis": "disabled", "realtime": "healthy"}
+	if err := h.deps.Database.Ping(ctx); err != nil {
+		result["database"] = "unhealthy"
+		utils.Error(c, utils.ErrDependencyUnavailable)
 		return
 	}
-	Success(c, http.StatusOK, item)
-}
-
-func (h *SiteHandler) TestWebhook(c *gin.Context) {
-	if _, ok := h.store.Get("webhooks", c.Param("id")); !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Webhook not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, gin.H{"delivered": true, "status": "queued"})
-}
-
-func (h *SiteHandler) RunScheduleNow(c *gin.Context) {
-	item, ok := h.store.SetStatus("scheduling", c.Param("id"), "running")
-	if !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Schedule not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, gin.H{"job": item, "run": "queued"})
-}
-
-func (h *SiteHandler) UpdateUserRole(c *gin.Context) {
-	var input models.SiteResourceInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		Error(c, http.StatusBadRequest, "INVALID_PAYLOAD", "Invalid JSON payload", nil)
-		return
-	}
-	if strings.TrimSpace(input.Role) == "" {
-		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "Role is required", gin.H{"field": "role"})
-		return
-	}
-
-	item, ok := h.store.Update("users", c.Param("id"), input)
-	if !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "User not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, item)
-}
-
-func (h *SiteHandler) PublicContact(c *gin.Context) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	if input.Email == "" {
-		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "Email is required", gin.H{"field": "email"})
-		return
-	}
-	Success(c, http.StatusCreated, h.store.Create("contact", input))
-}
-
-func (h *SiteHandler) PublicNewsletterSubscribe(c *gin.Context) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	if input.Email == "" {
-		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "Email is required", gin.H{"field": "email"})
-		return
-	}
-	input.Status = "active"
-	Success(c, http.StatusCreated, h.store.Create("subscriptions", input))
-}
-
-func (h *SiteHandler) PublicNewsletterUnsubscribe(c *gin.Context) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	if input.Email == "" {
-		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "Email is required", gin.H{"field": "email"})
-		return
-	}
-	input.Status = "unsubscribed"
-	Success(c, http.StatusCreated, h.store.Create("subscriptions", input))
-}
-
-func (h *SiteHandler) PublicPageBySlug(c *gin.Context) {
-	item, ok := h.store.GetBySlug("pages", c.Param("slug"))
-	if !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Page not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, item)
-}
-
-func (h *SiteHandler) RequireAdmin() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if h.systemKey == "" {
-			c.Next()
-			return
-		}
-
-		key := c.GetHeader("X-System-Key")
-		if key == "" {
-			auth := c.GetHeader("Authorization")
-			if strings.HasPrefix(auth, "Bearer ") {
-				key = strings.TrimPrefix(auth, "Bearer ")
+	if h.deps.Config.Redis.Enabled {
+		if h.deps.Redis == nil || !h.deps.Redis.IsAvailable() {
+			if h.deps.Config.Redis.Required {
+				result["redis"] = "unhealthy"
+				utils.Error(c, utils.ErrDependencyUnavailable)
+				return
 			}
+			result["redis"] = "unavailable"
+		} else {
+			result["redis"] = "healthy"
 		}
-
-		if key != h.systemKey {
-			Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "System key required", nil)
-			c.Abort()
+	}
+	if h.deps.Config.Realtime.Enabled {
+		if err := h.deps.EventBus.Healthy(ctx); err != nil {
+			result["realtime"] = "unhealthy"
+			utils.Error(c, utils.ErrDependencyUnavailable)
 			return
 		}
-
-		c.Next()
 	}
-}
-
-// ==================== STATUS HANDLERS ====================
-
-type StatusHandler struct {
-	site *SiteHandler
-}
-
-func NewStatusHandler(site *SiteHandler) *StatusHandler {
-	return &StatusHandler{site: site}
-}
-
-func (h *StatusHandler) ListStatus(c *gin.Context) {
-	query := listQuery(c)
-	rows, total := h.site.store.List("status", query)
-	ListSuccess(c, rows, query.Page, query.PageSize, total)
-}
-
-func (h *StatusHandler) CreateStatus(c *gin.Context) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	Success(c, http.StatusCreated, h.site.store.Create("status", input))
-}
-
-func (h *StatusHandler) GetCurrentStatus(c *gin.Context) {
-	h.PublicStatus(c)
-}
-
-func (h *StatusHandler) PublicStatus(c *gin.Context) {
-	item, ok := h.site.store.Get("status", "current")
-	if !ok {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Status not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, item)
-}
-
-func (h *StatusHandler) CreateIncident(c *gin.Context) {
-	h.createStatusChild(c, "status-incidents")
-}
-
-func (h *StatusHandler) UpdateIncident(c *gin.Context) {
-	h.updateStatusChild(c, "status-incidents")
-}
-
-func (h *StatusHandler) ResolveIncident(c *gin.Context) {
-	h.setStatusChild(c, "status-incidents", "resolved")
-}
-
-func (h *StatusHandler) CreateMaintenance(c *gin.Context) {
-	h.createStatusChild(c, "status-maintenance")
-}
-
-func (h *StatusHandler) UpdateMaintenance(c *gin.Context) {
-	h.updateStatusChild(c, "status-maintenance")
-}
-
-func (h *StatusHandler) CancelMaintenance(c *gin.Context) {
-	h.setStatusChild(c, "status-maintenance", "canceled")
-}
-
-func (h *StatusHandler) createStatusChild(c *gin.Context, resource string) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	Success(c, http.StatusCreated, h.site.store.Create(resource, input))
-}
-
-func (h *StatusHandler) updateStatusChild(c *gin.Context, resource string) {
-	input, ok := bindResourceInput(c)
-	if !ok {
-		return
-	}
-	item, found := h.site.store.Update(resource, c.Param("id"), input)
-	if !found {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Status item not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, item)
-}
-
-func (h *StatusHandler) setStatusChild(c *gin.Context, resource string, status string) {
-	item, found := h.site.store.SetStatus(resource, c.Param("id"), status)
-	if !found {
-		Error(c, http.StatusNotFound, "NOT_FOUND", "Status item not found", nil)
-		return
-	}
-	Success(c, http.StatusOK, item)
-}
-
-// ==================== RESPONSE HELPERS ====================
-
-func Success(c *gin.Context, status int, data interface{}) {
-	c.JSON(status, models.APIEnvelope{
-		Success: true,
-		Data:    data,
-		Meta:    meta(c),
+	utils.Success(c, http.StatusOK, gin.H{
+		"status":   "ready",
+		"database": result["database"],
+		"redis":    result["redis"],
+		"realtime": result["realtime"],
+		"version":  h.deps.Config.App.Version,
 	})
 }
 
-func ListSuccess(c *gin.Context, data interface{}, page int, pageSize int, total int) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
-	}
-
-	totalPages := 0
-	if total > 0 {
-		totalPages = (total + pageSize - 1) / pageSize
-	}
-
-	c.JSON(http.StatusOK, models.APIEnvelope{
-		Success: true,
-		Data:    data,
-		Pagination: &models.Pagination{
-			Page:       page,
-			PageSize:   pageSize,
-			Total:      total,
-			TotalPages: totalPages,
-		},
-		Meta: meta(c),
-	})
-}
-
-func Error(c *gin.Context, status int, code string, message string, details interface{}) {
-	c.JSON(status, models.APIEnvelope{
-		Success: false,
-		Error: &models.APIError{
-			Code:    code,
-			Message: message,
-			Details: details,
-		},
-		Meta: meta(c),
-	})
-}
-
-func meta(c *gin.Context) models.APIMeta {
-	return models.APIMeta{
-		RequestID: c.GetString("request_id"),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}
-}
-
-// ==================== REQUEST HELPERS ====================
-
-func bindResourceInput(c *gin.Context) (models.SiteResourceInput, bool) {
-	var input models.SiteResourceInput
-	if c.Request.Body == nil {
-		return input, true
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		Error(c, http.StatusBadRequest, "INVALID_PAYLOAD", "Invalid JSON payload", nil)
-		return input, false
-	}
-
-	input.Email = strings.TrimSpace(input.Email)
-	if input.Email != "" && !strings.Contains(input.Email, "@") {
-		Error(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email", gin.H{"field": "email"})
-		return input, false
-	}
-
-	return input, true
-}
-
-func listQuery(c *gin.Context) models.ListQuery {
-	page := queryInt(c, "page", 1)
-	pageSize := queryInt(c, "pageSize", 20)
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-
-	return models.ListQuery{
-		Page:     page,
-		PageSize: pageSize,
-		Search:   strings.TrimSpace(c.Query("search")),
-		Status:   strings.TrimSpace(c.Query("status")),
-		Sort:     strings.TrimSpace(c.Query("sort")),
-		Order:    strings.TrimSpace(c.Query("order")),
-		From:     strings.TrimSpace(c.Query("from")),
-		To:       strings.TrimSpace(c.Query("to")),
-	}
-}
-
-func queryInt(c *gin.Context, key string, fallback int) int {
-	value := c.Query(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.Atoi(value)
+func (h *apiHandler) me(c *gin.Context) {
+	principal, _ := h.principal(c)
+	user, err := h.deps.UserService.GetMe(c.Request.Context(), principal)
 	if err != nil {
-		return fallback
+		utils.Error(c, err)
+		return
 	}
-	return parsed
+	utils.Success(c, http.StatusOK, user)
+}
+
+func (h *apiHandler) updateMe(c *gin.Context) {
+	var req struct {
+		DisplayName string `json:"displayName"`
+		AvatarURL   string `json:"avatarUrl"`
+		Status      string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	user, err := h.deps.UserService.UpdateMe(c.Request.Context(), principal, req.DisplayName, req.AvatarURL, req.Status)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, user)
+}
+
+func (h *apiHandler) listWorkspaces(c *gin.Context) {
+	principal, _ := h.principal(c)
+	items, err := h.deps.WorkspaceService.List(c.Request.Context(), principal)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
+}
+
+func (h *apiHandler) createWorkspace(c *gin.Context) {
+	var req struct {
+		Name        string `json:"name"`
+		Slug        string `json:"slug"`
+		Description string `json:"description"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.WorkspaceService.Create(c.Request.Context(), principal, req.Name, req.Slug, req.Description)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
+}
+
+func (h *apiHandler) getWorkspace(c *gin.Context)    { h.workspaceResource(c, "get") }
+func (h *apiHandler) updateWorkspace(c *gin.Context) { h.workspaceResource(c, "update") }
+func (h *apiHandler) deleteWorkspace(c *gin.Context) { h.workspaceResource(c, "delete") }
+
+func (h *apiHandler) workspaceResource(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("workspaceId")
+	switch action {
+	case "get":
+		item, err := h.deps.WorkspaceService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "update":
+		var req struct{ Name, Description string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.WorkspaceService.Update(c.Request.Context(), principal, id, req.Name, req.Description)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "delete":
+		if err := h.deps.WorkspaceService.Archive(c.Request.Context(), principal, id); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) listWorkspaceMembers(c *gin.Context)  { h.membersResource(c, "list") }
+func (h *apiHandler) createWorkspaceMember(c *gin.Context) { h.membersResource(c, "create") }
+func (h *apiHandler) updateWorkspaceMember(c *gin.Context) { h.membersResource(c, "update") }
+func (h *apiHandler) deleteWorkspaceMember(c *gin.Context) { h.membersResource(c, "delete") }
+
+func (h *apiHandler) membersResource(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "list":
+		items, err := h.deps.WorkspaceService.ListMembers(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.List(c, items, "", false)
+	case "create":
+		var req struct{ UserID, Role string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.WorkspaceService.AddMember(c.Request.Context(), principal, workspaceID, req.UserID, req.Role)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	case "update":
+		var req struct{ Role string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.WorkspaceService.UpdateMember(c.Request.Context(), principal, workspaceID, c.Param("userId"), req.Role)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "delete":
+		if err := h.deps.WorkspaceService.RemoveMember(c.Request.Context(), principal, workspaceID, c.Param("userId")); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) listTeams(c *gin.Context)          { h.teamCollection(c, "list") }
+func (h *apiHandler) createTeam(c *gin.Context)         { h.teamCollection(c, "create") }
+func (h *apiHandler) getTeam(c *gin.Context)            { h.teamItem(c, "get") }
+func (h *apiHandler) updateTeam(c *gin.Context)         { h.teamItem(c, "update") }
+func (h *apiHandler) deleteTeam(c *gin.Context)         { h.teamItem(c, "delete") }
+func (h *apiHandler) listChannels(c *gin.Context)       { h.channelCollection(c, "list") }
+func (h *apiHandler) createChannel(c *gin.Context)      { h.channelCollection(c, "create") }
+func (h *apiHandler) getChannel(c *gin.Context)         { h.channelItem(c, "get") }
+func (h *apiHandler) updateChannel(c *gin.Context)      { h.channelItem(c, "update") }
+func (h *apiHandler) deleteChannel(c *gin.Context)      { h.channelItem(c, "delete") }
+func (h *apiHandler) listConversations(c *gin.Context)  { h.conversationCollection(c, "list") }
+func (h *apiHandler) createConversation(c *gin.Context) { h.conversationCollection(c, "create") }
+func (h *apiHandler) getConversation(c *gin.Context)    { h.conversationItem(c, "get") }
+func (h *apiHandler) updateConversation(c *gin.Context) { h.conversationItem(c, "update") }
+func (h *apiHandler) deleteConversation(c *gin.Context) { h.conversationItem(c, "delete") }
+
+func (h *apiHandler) teamCollection(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "list":
+		items, err := h.deps.TeamService.List(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.List(c, items, "", false)
+	case "create":
+		var req struct{ Name, Description string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.TeamService.Create(c.Request.Context(), principal, workspaceID, req.Name, req.Description)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	}
+}
+
+func (h *apiHandler) teamItem(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("teamId")
+	switch action {
+	case "get":
+		item, err := h.deps.TeamService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "update":
+		var req struct{ Name, Description string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.TeamService.Update(c.Request.Context(), principal, id, req.Name, req.Description)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "delete":
+		if err := h.deps.TeamService.Delete(c.Request.Context(), principal, id); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) channelCollection(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "list":
+		items, err := h.deps.ChannelService.List(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.List(c, items, "", false)
+	case "create":
+		var req struct {
+			TeamID      *string `json:"teamId"`
+			Name        string  `json:"name"`
+			Slug        string  `json:"slug"`
+			Description string  `json:"description"`
+			Type        string  `json:"type"`
+			Visibility  string  `json:"visibility"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.ChannelService.Create(c.Request.Context(), principal, workspaceID, req.TeamID, req.Name, req.Slug, req.Description, req.Type, req.Visibility)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	}
+}
+
+func (h *apiHandler) channelItem(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("channelId")
+	switch action {
+	case "get":
+		item, err := h.deps.ChannelService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "update":
+		var req struct{ Name, Description, Visibility string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.ChannelService.Update(c.Request.Context(), principal, id, req.Name, req.Description, req.Visibility)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "delete":
+		if err := h.deps.ChannelService.Delete(c.Request.Context(), principal, id); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) conversationCollection(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "list":
+		items, err := h.deps.ConversationService.List(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.List(c, items, "", false)
+	case "create":
+		var req struct {
+			Type      string   `json:"type"`
+			Name      string   `json:"name"`
+			MemberIDs []string `json:"memberIds"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.ConversationService.Create(c.Request.Context(), principal, workspaceID, req.Type, req.Name, req.MemberIDs)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	}
+}
+
+func (h *apiHandler) conversationItem(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("conversationId")
+	switch action {
+	case "get":
+		item, err := h.deps.ConversationService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "update":
+		var req struct{ Name string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.ConversationService.Update(c.Request.Context(), principal, id, req.Name)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "delete":
+		if err := h.deps.ConversationService.Delete(c.Request.Context(), principal, id); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) listMessages(c *gin.Context) {
+	principal, _ := h.principal(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	items, next, hasMore, err := h.deps.MessageService.List(c.Request.Context(), principal, c.Param("conversationId"), c.Query("cursor"), limit)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, next, hasMore)
+}
+
+func (h *apiHandler) createMessage(c *gin.Context) {
+	var req struct {
+		Type     string         `json:"type"`
+		Content  string         `json:"content"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.MessageService.Create(c.Request.Context(), principal, c.Param("conversationId"), req.Type, req.Content, c.GetHeader("Idempotency-Key"), req.Metadata)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
+}
+
+func (h *apiHandler) getMessage(c *gin.Context) {
+	principal, _ := h.principal(c)
+	item, err := h.deps.MessageService.Get(c.Request.Context(), principal, c.Param("messageId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
+}
+
+func (h *apiHandler) updateMessage(c *gin.Context) {
+	var req struct{ Content string }
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.MessageService.Update(c.Request.Context(), principal, c.Param("messageId"), req.Content)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
+}
+
+func (h *apiHandler) deleteMessage(c *gin.Context) {
+	principal, _ := h.principal(c)
+	if err := h.deps.MessageService.Delete(c.Request.Context(), principal, c.Param("messageId")); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+}
+
+func (h *apiHandler) createReaction(c *gin.Context) {
+	var req struct {
+		Emoji string `json:"emoji"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.MessageService.AddReaction(c.Request.Context(), principal, c.Param("messageId"), req.Emoji)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
+}
+
+func (h *apiHandler) deleteReaction(c *gin.Context) {
+	principal, _ := h.principal(c)
+	if err := h.deps.MessageService.RemoveReaction(c.Request.Context(), principal, c.Param("messageId"), c.Param("emoji")); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+}
+
+func (h *apiHandler) markRead(c *gin.Context) {
+	var req struct {
+		MessageID string `json:"messageId"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	if err := h.deps.MessageService.MarkRead(c.Request.Context(), principal, c.Param("conversationId"), req.MessageID); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"updated": true})
+}
+
+func (h *apiHandler) listMeetings(c *gin.Context) {
+	principal, _ := h.principal(c)
+	items, err := h.deps.MeetingService.List(c.Request.Context(), principal, c.Param("workspaceId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
+}
+
+func (h *apiHandler) createMeeting(c *gin.Context) {
+	var req struct {
+		Title          string  `json:"title"`
+		ConversationID *string `json:"conversationId"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.MeetingService.Create(c.Request.Context(), principal, c.Param("workspaceId"), req.Title, req.ConversationID)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
+}
+
+func (h *apiHandler) getMeeting(c *gin.Context)   { h.meetingAction(c, "get") }
+func (h *apiHandler) startMeeting(c *gin.Context) { h.meetingAction(c, "start") }
+func (h *apiHandler) endMeeting(c *gin.Context)   { h.meetingAction(c, "end") }
+
+func (h *apiHandler) meetingAction(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("meetingId")
+	switch action {
+	case "get":
+		item, err := h.deps.MeetingService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "start":
+		item, err := h.deps.MeetingService.Start(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "end":
+		item, err := h.deps.MeetingService.End(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	}
+}
+
+func (h *apiHandler) meetingJoinToken(c *gin.Context) {
+	principal, _ := h.principal(c)
+	token, err := h.deps.MeetingService.JoinToken(c.Request.Context(), principal, c.Param("meetingId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"token": token})
+}
+
+func (h *apiHandler) listApplications(c *gin.Context)  { h.applicationCollection(c, "list") }
+func (h *apiHandler) createApplication(c *gin.Context) { h.applicationCollection(c, "create") }
+func (h *apiHandler) getApplication(c *gin.Context)    { h.applicationItem(c, "get") }
+func (h *apiHandler) updateApplication(c *gin.Context) { h.applicationItem(c, "update") }
+func (h *apiHandler) deleteApplication(c *gin.Context) { h.applicationItem(c, "delete") }
+
+func (h *apiHandler) applicationCollection(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "list":
+		items, err := h.deps.IntegrationService.List(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.List(c, items, "", false)
+	case "create":
+		var req struct {
+			Provider      string         `json:"provider"`
+			Name          string         `json:"name"`
+			Configuration map[string]any `json:"configuration"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.IntegrationService.Create(c.Request.Context(), principal, workspaceID, req.Provider, req.Name, req.Configuration)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	}
+}
+
+func (h *apiHandler) applicationItem(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	id := c.Param("applicationId")
+	switch action {
+	case "get":
+		item, err := h.deps.IntegrationService.Get(c.Request.Context(), principal, id)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, sanitizeIntegration(item))
+	case "update":
+		var req struct{ Name, Status string }
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.IntegrationService.Update(c.Request.Context(), principal, id, req.Name, req.Status)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, sanitizeIntegration(item))
+	case "delete":
+		if err := h.deps.IntegrationService.Delete(c.Request.Context(), principal, id); err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) webhook(c *gin.Context) {
+	payload, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err := h.deps.IntegrationService.HandleWebhook(c.Request.Context(), c.Param("provider"), c.Param("integrationId"), payload, c.Request.Header); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusAccepted, gin.H{"accepted": true})
+}
+
+func (h *apiHandler) listAuditLogs(c *gin.Context) {
+	principal, _ := h.principal(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	items, err := h.deps.AuditService.List(c.Request.Context(), principal, c.Param("workspaceId"), limit)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
+}
+
+func (h *apiHandler) realtime(c *gin.Context) {
+	principal, ok := h.principal(c)
+	if !ok {
+		utils.Error(c, utils.ErrUnauthorized)
+		return
+	}
+	h.deps.Hub.Handle(c, principal)
+}
+
+func sanitizeIntegration(item any) any {
+	return item
 }

@@ -1,0 +1,332 @@
+package services
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
+	"gorm.io/gorm"
+)
+
+type Repositories struct {
+	db *gorm.DB
+}
+
+func NewRepositories(db *gorm.DB) *Repositories {
+	return &Repositories{db: db}
+}
+
+func (r *Repositories) Users() interfaces.UserRepository { return &userRepository{db: r.db} }
+func (r *Repositories) Workspaces() interfaces.WorkspaceRepository {
+	return &workspaceRepository{db: r.db}
+}
+func (r *Repositories) WorkspaceMembers() interfaces.WorkspaceMemberRepository {
+	return &workspaceMemberRepository{db: r.db}
+}
+func (r *Repositories) Teams() interfaces.TeamRepository       { return &teamRepository{db: r.db} }
+func (r *Repositories) Channels() interfaces.ChannelRepository { return &channelRepository{db: r.db} }
+func (r *Repositories) Conversations() interfaces.ConversationRepository {
+	return &conversationRepository{db: r.db}
+}
+func (r *Repositories) ConversationMembers() interfaces.ConversationMemberRepository {
+	return &conversationMemberRepository{db: r.db}
+}
+func (r *Repositories) Messages() interfaces.MessageRepository { return &messageRepository{db: r.db} }
+func (r *Repositories) Reactions() interfaces.ReactionRepository {
+	return &reactionRepository{db: r.db}
+}
+func (r *Repositories) ReadReceipts() interfaces.ReadReceiptRepository {
+	return &readReceiptRepository{db: r.db}
+}
+func (r *Repositories) Meetings() interfaces.MeetingRepository { return &meetingRepository{db: r.db} }
+func (r *Repositories) Integrations() interfaces.IntegrationRepository {
+	return &integrationRepository{db: r.db}
+}
+func (r *Repositories) AuditLogs() interfaces.AuditLogRepository {
+	return &auditLogRepository{db: r.db}
+}
+func (r *Repositories) WithDB(db *gorm.DB) *Repositories { return &Repositories{db: db} }
+
+type userRepository struct{ db *gorm.DB }
+
+func (r *userRepository) Create(ctx context.Context, user *models.User) error {
+	return r.db.WithContext(ctx).Create(user).Error
+}
+func (r *userRepository) GetByID(ctx context.Context, id string) (*models.User, error) {
+	var user models.User
+	err := r.db.WithContext(ctx).First(&user, "id = ?", id).Error
+	return &user, normalizeNotFound(err, utils.NewError(404, "USER_NOT_FOUND", "The requested user was not found.", nil))
+}
+func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
+	var user models.User
+	err := r.db.WithContext(ctx).First(&user, "email = ?", email).Error
+	return &user, normalizeNotFound(err, utils.NewError(404, "USER_NOT_FOUND", "The requested user was not found.", nil))
+}
+func (r *userRepository) Update(ctx context.Context, user *models.User) error {
+	return r.db.WithContext(ctx).Save(user).Error
+}
+
+type workspaceRepository struct{ db *gorm.DB }
+
+func (r *workspaceRepository) Create(ctx context.Context, workspace *models.Workspace) error {
+	return r.db.WithContext(ctx).Create(workspace).Error
+}
+func (r *workspaceRepository) ListByUser(ctx context.Context, userID string) ([]models.Workspace, error) {
+	var items []models.Workspace
+	err := r.db.WithContext(ctx).
+		Table("workspaces").
+		Joins("join workspace_members on workspace_members.workspace_id = workspaces.id").
+		Where("workspace_members.user_id = ? AND workspaces.archived_at IS NULL", userID).
+		Order("workspaces.created_at asc").
+		Scan(&items).Error
+	return items, err
+}
+func (r *workspaceRepository) GetByID(ctx context.Context, id string) (*models.Workspace, error) {
+	var item models.Workspace
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.ErrWorkspaceNotFound)
+}
+func (r *workspaceRepository) Update(ctx context.Context, workspace *models.Workspace) error {
+	return r.db.WithContext(ctx).Save(workspace).Error
+}
+func (r *workspaceRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Workspace{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
+
+type workspaceMemberRepository struct{ db *gorm.DB }
+
+func (r *workspaceMemberRepository) Create(ctx context.Context, member *models.WorkspaceMember) error {
+	return r.db.WithContext(ctx).Create(member).Error
+}
+func (r *workspaceMemberRepository) Get(ctx context.Context, workspaceID, userID string) (*models.WorkspaceMember, error) {
+	var item models.WorkspaceMember
+	err := r.db.WithContext(ctx).First(&item, "workspace_id = ? AND user_id = ?", workspaceID, userID).Error
+	return &item, normalizeNotFound(err, utils.ErrMembershipRequired)
+}
+func (r *workspaceMemberRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.WorkspaceMember, error) {
+	var items []models.WorkspaceMember
+	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("joined_at asc").Find(&items).Error
+	return items, err
+}
+func (r *workspaceMemberRepository) Update(ctx context.Context, member *models.WorkspaceMember) error {
+	return r.db.WithContext(ctx).Save(member).Error
+}
+func (r *workspaceMemberRepository) Delete(ctx context.Context, workspaceID, userID string) error {
+	return r.db.WithContext(ctx).Delete(&models.WorkspaceMember{}, "workspace_id = ? AND user_id = ?", workspaceID, userID).Error
+}
+
+type teamRepository struct{ db *gorm.DB }
+
+func (r *teamRepository) Create(ctx context.Context, team *models.Team) error {
+	return r.db.WithContext(ctx).Create(team).Error
+}
+func (r *teamRepository) GetByID(ctx context.Context, id string) (*models.Team, error) {
+	var item models.Team
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "TEAM_NOT_FOUND", "The requested team was not found.", nil))
+}
+func (r *teamRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Team, error) {
+	var items []models.Team
+	err := r.db.WithContext(ctx).Where("workspace_id = ? AND archived_at IS NULL", workspaceID).Order("created_at asc").Find(&items).Error
+	return items, err
+}
+func (r *teamRepository) Update(ctx context.Context, team *models.Team) error {
+	return r.db.WithContext(ctx).Save(team).Error
+}
+func (r *teamRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Team{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
+
+type channelRepository struct{ db *gorm.DB }
+
+func (r *channelRepository) Create(ctx context.Context, channel *models.Channel) error {
+	return r.db.WithContext(ctx).Create(channel).Error
+}
+func (r *channelRepository) GetByID(ctx context.Context, id string) (*models.Channel, error) {
+	var item models.Channel
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "CHANNEL_NOT_FOUND", "The requested channel was not found.", nil))
+}
+func (r *channelRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Channel, error) {
+	var items []models.Channel
+	err := r.db.WithContext(ctx).Where("workspace_id = ? AND archived_at IS NULL", workspaceID).Order("created_at asc").Find(&items).Error
+	return items, err
+}
+func (r *channelRepository) Update(ctx context.Context, channel *models.Channel) error {
+	return r.db.WithContext(ctx).Save(channel).Error
+}
+func (r *channelRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Channel{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
+
+type conversationRepository struct{ db *gorm.DB }
+
+func (r *conversationRepository) Create(ctx context.Context, conversation *models.Conversation) error {
+	return r.db.WithContext(ctx).Create(conversation).Error
+}
+func (r *conversationRepository) GetByID(ctx context.Context, id string) (*models.Conversation, error) {
+	var item models.Conversation
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.ErrConversationNotFound)
+}
+func (r *conversationRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Conversation, error) {
+	var items []models.Conversation
+	err := r.db.WithContext(ctx).Where("workspace_id = ? AND archived_at IS NULL", workspaceID).Order("updated_at desc").Find(&items).Error
+	return items, err
+}
+func (r *conversationRepository) Update(ctx context.Context, conversation *models.Conversation) error {
+	return r.db.WithContext(ctx).Save(conversation).Error
+}
+func (r *conversationRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Conversation{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
+
+type conversationMemberRepository struct{ db *gorm.DB }
+
+func (r *conversationMemberRepository) Create(ctx context.Context, member *models.ConversationMember) error {
+	return r.db.WithContext(ctx).Create(member).Error
+}
+func (r *conversationMemberRepository) ListByConversation(ctx context.Context, conversationID string) ([]models.ConversationMember, error) {
+	var items []models.ConversationMember
+	err := r.db.WithContext(ctx).Where("conversation_id = ?", conversationID).Find(&items).Error
+	return items, err
+}
+func (r *conversationMemberRepository) Get(ctx context.Context, conversationID, userID string) (*models.ConversationMember, error) {
+	var item models.ConversationMember
+	err := r.db.WithContext(ctx).First(&item, "conversation_id = ? AND user_id = ?", conversationID, userID).Error
+	return &item, normalizeNotFound(err, utils.ErrMembershipRequired)
+}
+func (r *conversationMemberRepository) Update(ctx context.Context, member *models.ConversationMember) error {
+	return r.db.WithContext(ctx).Save(member).Error
+}
+
+type messageRepository struct{ db *gorm.DB }
+
+func (r *messageRepository) Create(ctx context.Context, message *models.Message) error {
+	return r.db.WithContext(ctx).Create(message).Error
+}
+func (r *messageRepository) GetByID(ctx context.Context, id string) (*models.Message, error) {
+	var item models.Message
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.ErrMessageNotFound)
+}
+func (r *messageRepository) ListByConversation(ctx context.Context, conversationID string, cursor string, limit int) ([]models.Message, string, bool, error) {
+	query := r.db.WithContext(ctx).Where("conversation_id = ?", conversationID).Order("created_at desc, id desc").Limit(limit + 1)
+	if cursor != "" {
+		createdAt, id, err := utils.DecodeCursor(cursor)
+		if err != nil {
+			return nil, "", false, utils.NewError(400, "INVALID_CURSOR", "The pagination cursor is invalid.", nil)
+		}
+		query = query.Where("(created_at, id) < (?, ?)", createdAt, id)
+	}
+	var items []models.Message
+	if err := query.Find(&items).Error; err != nil {
+		return nil, "", false, err
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	nextCursor := ""
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		nextCursor = utils.EncodeCursor(last.CreatedAt, last.ID)
+	}
+	return items, nextCursor, hasMore, nil
+}
+func (r *messageRepository) Update(ctx context.Context, message *models.Message) error {
+	return r.db.WithContext(ctx).Save(message).Error
+}
+func (r *messageRepository) SoftDelete(ctx context.Context, id string, deletedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Message{}).Where("id = ?", id).Update("deleted_at", deletedAt).Error
+}
+
+type reactionRepository struct{ db *gorm.DB }
+
+func (r *reactionRepository) Create(ctx context.Context, reaction *models.Reaction) error {
+	return r.db.WithContext(ctx).Create(reaction).Error
+}
+func (r *reactionRepository) Delete(ctx context.Context, messageID, userID, emoji string) error {
+	return r.db.WithContext(ctx).Delete(&models.Reaction{}, "message_id = ? AND user_id = ? AND emoji = ?", messageID, userID, emoji).Error
+}
+func (r *reactionRepository) ListByMessage(ctx context.Context, messageID string) ([]models.Reaction, error) {
+	var items []models.Reaction
+	err := r.db.WithContext(ctx).Where("message_id = ?", messageID).Find(&items).Error
+	return items, err
+}
+
+type readReceiptRepository struct{ db *gorm.DB }
+
+func (r *readReceiptRepository) Upsert(ctx context.Context, receipt *models.ReadReceipt) error {
+	return r.db.WithContext(ctx).Where(
+		"conversation_id = ? AND message_id = ? AND user_id = ?",
+		receipt.ConversationID,
+		receipt.MessageID,
+		receipt.UserID,
+	).Assign(receipt).FirstOrCreate(receipt).Error
+}
+
+type meetingRepository struct{ db *gorm.DB }
+
+func (r *meetingRepository) Create(ctx context.Context, meeting *models.Meeting) error {
+	return r.db.WithContext(ctx).Create(meeting).Error
+}
+func (r *meetingRepository) GetByID(ctx context.Context, id string) (*models.Meeting, error) {
+	var item models.Meeting
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "MEETING_NOT_FOUND", "The requested meeting was not found.", nil))
+}
+func (r *meetingRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Meeting, error) {
+	var items []models.Meeting
+	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Find(&items).Error
+	return items, err
+}
+func (r *meetingRepository) Update(ctx context.Context, meeting *models.Meeting) error {
+	return r.db.WithContext(ctx).Save(meeting).Error
+}
+
+type integrationRepository struct{ db *gorm.DB }
+
+func (r *integrationRepository) Create(ctx context.Context, integration *models.Integration) error {
+	return r.db.WithContext(ctx).Create(integration).Error
+}
+func (r *integrationRepository) GetByID(ctx context.Context, id string) (*models.Integration, error) {
+	var item models.Integration
+	err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "APPLICATION_NOT_FOUND", "The requested application was not found.", nil))
+}
+func (r *integrationRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Integration, error) {
+	var items []models.Integration
+	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Find(&items).Error
+	return items, err
+}
+func (r *integrationRepository) Update(ctx context.Context, integration *models.Integration) error {
+	return r.db.WithContext(ctx).Save(integration).Error
+}
+func (r *integrationRepository) Delete(ctx context.Context, id string) error {
+	return r.db.WithContext(ctx).Delete(&models.Integration{}, "id = ?", id).Error
+}
+
+type auditLogRepository struct{ db *gorm.DB }
+
+func (r *auditLogRepository) Create(ctx context.Context, audit *models.AuditLog) error {
+	return r.db.WithContext(ctx).Create(audit).Error
+}
+func (r *auditLogRepository) ListByWorkspace(ctx context.Context, workspaceID string, limit int) ([]models.AuditLog, error) {
+	var items []models.AuditLog
+	err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Order("created_at desc").Limit(limit).Find(&items).Error
+	return items, err
+}
+
+func normalizeNotFound(err error, notFound error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return notFound
+	}
+	return err
+}

@@ -1,0 +1,116 @@
+package interfaces
+
+import (
+	"context"
+	"time"
+
+	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+)
+
+type UserRepository interface {
+	Create(ctx context.Context, user *models.User) error
+	GetByID(ctx context.Context, id string) (*models.User, error)
+	GetByEmail(ctx context.Context, email string) (*models.User, error)
+	Update(ctx context.Context, user *models.User) error
+}
+
+type WorkspaceRepository interface {
+	Create(ctx context.Context, workspace *models.Workspace) error
+	ListByUser(ctx context.Context, userID string) ([]models.Workspace, error)
+	GetByID(ctx context.Context, id string) (*models.Workspace, error)
+	Update(ctx context.Context, workspace *models.Workspace) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
+type WorkspaceMemberRepository interface {
+	Create(ctx context.Context, member *models.WorkspaceMember) error
+	Get(ctx context.Context, workspaceID, userID string) (*models.WorkspaceMember, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.WorkspaceMember, error)
+	Update(ctx context.Context, member *models.WorkspaceMember) error
+	Delete(ctx context.Context, workspaceID, userID string) error
+}
+
+type TeamRepository interface {
+	Create(ctx context.Context, team *models.Team) error
+	GetByID(ctx context.Context, id string) (*models.Team, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Team, error)
+	Update(ctx context.Context, team *models.Team) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
+type ChannelRepository interface {
+	Create(ctx context.Context, channel *models.Channel) error
+	GetByID(ctx context.Context, id string) (*models.Channel, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Channel, error)
+	Update(ctx context.Context, channel *models.Channel) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
+type ConversationRepository interface {
+	Create(ctx context.Context, conversation *models.Conversation) error
+	GetByID(ctx context.Context, id string) (*models.Conversation, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Conversation, error)
+	Update(ctx context.Context, conversation *models.Conversation) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
+type ConversationMemberRepository interface {
+	Create(ctx context.Context, member *models.ConversationMember) error
+	ListByConversation(ctx context.Context, conversationID string) ([]models.ConversationMember, error)
+	Get(ctx context.Context, conversationID, userID string) (*models.ConversationMember, error)
+	Update(ctx context.Context, member *models.ConversationMember) error
+}
+
+type MessageRepository interface {
+	Create(ctx context.Context, message *models.Message) error
+	GetByID(ctx context.Context, id string) (*models.Message, error)
+	ListByConversation(ctx context.Context, conversationID string, cursor string, limit int) ([]models.Message, string, bool, error)
+	Update(ctx context.Context, message *models.Message) error
+	SoftDelete(ctx context.Context, id string, deletedAt time.Time) error
+}
+
+type ReactionRepository interface {
+	Create(ctx context.Context, reaction *models.Reaction) error
+	Delete(ctx context.Context, messageID, userID, emoji string) error
+	ListByMessage(ctx context.Context, messageID string) ([]models.Reaction, error)
+}
+
+type ReadReceiptRepository interface {
+	Upsert(ctx context.Context, receipt *models.ReadReceipt) error
+}
+
+type MeetingRepository interface {
+	Create(ctx context.Context, meeting *models.Meeting) error
+	GetByID(ctx context.Context, id string) (*models.Meeting, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Meeting, error)
+	Update(ctx context.Context, meeting *models.Meeting) error
+}
+
+type IntegrationRepository interface {
+	Create(ctx context.Context, integration *models.Integration) error
+	GetByID(ctx context.Context, id string) (*models.Integration, error)
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Integration, error)
+	Update(ctx context.Context, integration *models.Integration) error
+	Delete(ctx context.Context, id string) error
+}
+
+type AuditLogRepository interface {
+	Create(ctx context.Context, audit *models.AuditLog) error
+	ListByWorkspace(ctx context.Context, workspaceID string, limit int) ([]models.AuditLog, error)
+}
+
+type RepositorySet interface {
+	Users() UserRepository
+	Workspaces() WorkspaceRepository
+	WorkspaceMembers() WorkspaceMemberRepository
+	Teams() TeamRepository
+	Channels() ChannelRepository
+	Conversations() ConversationRepository
+	ConversationMembers() ConversationMemberRepository
+	Messages() MessageRepository
+	Reactions() ReactionRepository
+	ReadReceipts() ReadReceiptRepository
+	Meetings() MeetingRepository
+	Integrations() IntegrationRepository
+	AuditLogs() AuditLogRepository
+}

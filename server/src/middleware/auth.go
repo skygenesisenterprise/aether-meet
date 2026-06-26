@@ -1,94 +1,39 @@
 package middleware
 
 import (
-	"fmt"
-	"net/http"
 	"strings"
 
-	"github.com/skygenesisenterprise/aether-meet/server/src/services"
-
 	"github.com/gin-gonic/gin"
+	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
-type AuthMiddleware struct {
-	jwtService *services.JWTService
-}
+const principalKey = "principal"
 
-func NewAuthMiddleware(jwt *services.JWTService) *AuthMiddleware {
-	return &AuthMiddleware{
-		jwtService: jwt,
-	}
-}
-
-func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		authHeader := ctx.GetHeader("Authorization")
-		if authHeader == "" {
-			ctx.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "Authorization header required",
-			})
-			ctx.Abort()
+func Auth(provider interfaces.IdentityProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") {
+			utils.Error(c, utils.ErrUnauthorized)
+			c.Abort()
 			return
 		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			ctx.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "Invalid authorization header format",
-			})
-			ctx.Abort()
-			return
-		}
-
-		claims, err := m.jwtService.ValidateToken(parts[1])
+		principal, err := provider.Authenticate(c.Request.Context(), strings.TrimPrefix(header, "Bearer "))
 		if err != nil {
-			tokenPreview := parts[1]
-			if len(tokenPreview) > 50 {
-				tokenPreview = tokenPreview[:50]
-			}
-			fmt.Printf("[auth middleware] Token validation error: %v, token: %s...\n", err, tokenPreview)
-			ctx.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"error":   "Invalid or expired token",
-			})
-			ctx.Abort()
+			utils.Error(c, err)
+			c.Abort()
 			return
 		}
-
-		ctx.Set("userID", claims.UserID)
-		ctx.Set("email", claims.Email)
-		ctx.Set("username", claims.Username)
-
-		ctx.Next()
+		c.Set(principalKey, *principal)
+		c.Next()
 	}
 }
 
-func (m *AuthMiddleware) OptionalAuth() gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		authHeader := ctx.GetHeader("Authorization")
-		if authHeader == "" {
-			ctx.Next()
-			return
-		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			ctx.Next()
-			return
-		}
-
-		claims, err := m.jwtService.ValidateToken(parts[1])
-		if err != nil {
-			ctx.Next()
-			return
-		}
-
-		ctx.Set("userID", claims.UserID)
-		ctx.Set("email", claims.Email)
-		ctx.Set("username", claims.Username)
-
-		ctx.Next()
+func PrincipalFromGin(c *gin.Context) (interfaces.Principal, bool) {
+	value, ok := c.Get(principalKey)
+	if !ok {
+		return interfaces.Principal{}, false
 	}
+	principal, ok := value.(interfaces.Principal)
+	return principal, ok
 }

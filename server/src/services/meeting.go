@@ -1,193 +1,139 @@
 package services
 
 import (
-	"fmt"
+	"context"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/skygenesisenterprise/aether-meet/server/src/config"
+	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
 	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
-type MeetingService struct {
-	stalwart *StalwartService
+type DisabledMeetingProvider struct{}
+
+func (p *DisabledMeetingProvider) CreateRoom(context.Context, models.Meeting) (*interfaces.ProviderRoom, error) {
+	return nil, utils.ErrMeetingProviderUnavailable
+}
+func (p *DisabledMeetingProvider) CreateJoinToken(context.Context, models.Meeting, interfaces.Principal) (string, error) {
+	return "", utils.ErrMeetingProviderUnavailable
+}
+func (p *DisabledMeetingProvider) EndRoom(context.Context, models.Meeting) error {
+	return utils.ErrMeetingProviderUnavailable
 }
 
-func NewMeetingService(stalwart *StalwartService) *MeetingService {
-	return &MeetingService{
-		stalwart: stalwart,
-	}
+type LiveKitMeetingProvider struct {
+	cfg config.LiveKitConfig
 }
 
-func (s *MeetingService) GetMeetings(userID string, limit, offset int) ([]*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
+func (p *LiveKitMeetingProvider) CreateRoom(_ context.Context, meeting models.Meeting) (*interfaces.ProviderRoom, error) {
+	return &interfaces.ProviderRoom{ID: meeting.ID, URL: p.cfg.URL}, nil
 }
-
-func (s *MeetingService) GetMeeting(meetingID string) (*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) CreateMeeting(userID string, req *models.CreateMeetingRequest) (*models.Meeting, error) {
+func (p *LiveKitMeetingProvider) CreateJoinToken(_ context.Context, meeting models.Meeting, principal interfaces.Principal) (string, error) {
 	now := time.Now().UTC()
-	return &models.Meeting{
-		ID:          fmt.Sprintf("meeting-%d", now.UnixNano()),
-		UserID:     userID,
-		Title:      req.Title,
-		Description: req.Description,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Timezone:   req.Timezone,
-		Recurring:  req.Recurring,
-		Password:   req.Password,
-		Status:     "scheduled",
-		CreatedAt:  now.Format(time.RFC3339),
-		UpdatedAt:  now.Format(time.RFC3339),
-	}, nil
+	claims := jwt.MapClaims{
+		"iss": p.cfg.APIKey,
+		"sub": principal.UserID,
+		"nbf": now.Unix(),
+		"exp": now.Add(1 * time.Hour).Unix(),
+		"video": map[string]any{
+			"room":         meeting.ID,
+			"roomJoin":     true,
+			"canPublish":   true,
+			"canSubscribe": true,
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(p.cfg.APISecret))
+}
+func (p *LiveKitMeetingProvider) EndRoom(context.Context, models.Meeting) error { return nil }
+
+func NewMeetingProvider(cfg config.LiveKitConfig) interfaces.MeetingProvider {
+	if !cfg.Enabled {
+		return &DisabledMeetingProvider{}
+	}
+	return &LiveKitMeetingProvider{cfg: cfg}
 }
 
-func (s *MeetingService) UpdateMeeting(meetingID string, req *models.UpdateMeetingRequest) (*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
+type MeetingService struct {
+	meetings   interfaces.MeetingRepository
+	workspaces *WorkspaceService
+	provider   interfaces.MeetingProvider
 }
 
-func (s *MeetingService) DeleteMeeting(meetingID string) error {
-	return fmt.Errorf("not implemented")
+func NewMeetingService(meetings interfaces.MeetingRepository, workspaces *WorkspaceService, provider interfaces.MeetingProvider) *MeetingService {
+	return &MeetingService{meetings: meetings, workspaces: workspaces, provider: provider}
 }
 
-func (s *MeetingService) JoinMeeting(meetingID string, req *models.JoinMeetingRequest) (*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *MeetingService) List(ctx context.Context, principal interfaces.Principal, workspaceID string) ([]models.Meeting, error) {
+	if _, err := s.workspaces.AuthorizeWorkspace(ctx, principal, workspaceID); err != nil {
+		return nil, err
+	}
+	return s.meetings.ListByWorkspace(ctx, workspaceID)
 }
 
-func (s *MeetingService) StartMeeting(meetingID string) (*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *MeetingService) Create(ctx context.Context, principal interfaces.Principal, workspaceID, title string, conversationID *string) (*models.Meeting, error) {
+	if _, err := s.workspaces.AuthorizeWorkspace(ctx, principal, workspaceID); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	meeting := &models.Meeting{
+		Common:      models.Common{ID: utils.NewID(), CreatedAt: now, UpdatedAt: now},
+		WorkspaceID: workspaceID, ConversationID: conversationID, Provider: "livekit", Title: title, Status: "scheduled", CreatedBy: principal.UserID,
+	}
+	if err := s.meetings.Create(ctx, meeting); err != nil {
+		return nil, err
+	}
+	return meeting, nil
 }
 
-func (s *MeetingService) EndMeeting(meetingID string) (*models.Meeting, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *MeetingService) Get(ctx context.Context, principal interfaces.Principal, meetingID string) (*models.Meeting, error) {
+	meeting, err := s.meetings.GetByID(ctx, meetingID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.workspaces.AuthorizeWorkspace(ctx, principal, meeting.WorkspaceID); err != nil {
+		return nil, err
+	}
+	return meeting, nil
 }
 
-func (s *MeetingService) LeaveMeeting(meetingID string) error {
-	return fmt.Errorf("not implemented")
+func (s *MeetingService) Start(ctx context.Context, principal interfaces.Principal, meetingID string) (*models.Meeting, error) {
+	meeting, err := s.Get(ctx, principal, meetingID)
+	if err != nil {
+		return nil, err
+	}
+	room, err := s.provider.CreateRoom(ctx, *meeting)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	meeting.Status = "active"
+	meeting.ProviderRoomID = room.ID
+	meeting.StartedAt = &now
+	meeting.UpdatedAt = now
+	return meeting, s.meetings.Update(ctx, meeting)
 }
 
-func (s *MeetingService) GetConversations(userID string) ([]*models.MeetingConversation, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *MeetingService) End(ctx context.Context, principal interfaces.Principal, meetingID string) (*models.Meeting, error) {
+	meeting, err := s.Get(ctx, principal, meetingID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.provider.EndRoom(ctx, *meeting); err != nil && err != utils.ErrMeetingProviderUnavailable {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	meeting.Status = "ended"
+	meeting.EndedAt = &now
+	meeting.UpdatedAt = now
+	return meeting, s.meetings.Update(ctx, meeting)
 }
 
-func (s *MeetingService) GetConversation(conversationID string) (*models.MeetingConversation, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) StartCall(conversationID string) (*models.MeetingConversation, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) AcceptCall(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) DeclineCall(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) HoldCall(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) ResumeCall(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) Mute(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) Unmute(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) VideoOn(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) VideoOff(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) ScreenShare(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) StopScreenShare(conversationID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetMessages(conversationID string) ([]*models.ConversationMessage, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetMessage(conversationID, messageID string) (*models.ConversationMessage, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) SendMessage(conversationID, senderID, content string) (*models.ConversationMessage, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) DeleteMessage(conversationID, messageID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetParticipants(meetingID string) ([]*models.MeetingParticipant, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) InviteParticipants(meetingID string, emails []string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) RemoveParticipant(meetingID, userID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) MuteParticipant(meetingID, userID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) RemoveFromCall(meetingID, userID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetRecordings(meetingID string) ([]*models.MeetingRecording, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetRecording(recordingID string) (*models.MeetingRecording, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) StartRecording(meetingID string) (*models.MeetingRecording, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) StopRecording(meetingID string) (*models.MeetingRecording, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) DeleteRecording(recordingID string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *MeetingService) GetMeetingSettings(userID string) (*models.MeetingSettings, error) {
-	return &models.MeetingSettings{
-		ID:                  fmt.Sprintf("settings-%s", userID),
-		UserID:              userID,
-		DefaultDuration:     60,
-		DefaultTimezone:     "Europe/Paris",
-		WaitingRoomEnabled:  true,
-		ChatEnabled:        true,
-		ScreenShareEnabled: true,
-		RecordingEnabled:  false,
-	}, nil
-}
-
-func (s *MeetingService) UpdateMeetingSettings(userID string, settings *models.MeetingSettings) (*models.MeetingSettings, error) {
-	return settings, nil
+func (s *MeetingService) JoinToken(ctx context.Context, principal interfaces.Principal, meetingID string) (string, error) {
+	meeting, err := s.Get(ctx, principal, meetingID)
+	if err != nil {
+		return "", err
+	}
+	return s.provider.CreateJoinToken(ctx, *meeting, principal)
 }
