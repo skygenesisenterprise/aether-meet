@@ -79,7 +79,7 @@ function ChatPanel() {
   const customConversations = useChatStore((s) => s.customConversations);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const createConversation = useChatStore((s) => s.createConversation);
-  const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("unread");
+  const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
   const [createOpen, setCreateOpen] = React.useState(false);
   const [conversationType, setConversationType] = React.useState<"dm" | "channel">("dm");
   const [groupName, setGroupName] = React.useState("");
@@ -148,9 +148,9 @@ function ChatPanel() {
         </div>
         <div className="mt-3 flex gap-1.5">
           {[
-            { label: "Non lus", value: "unread" },
-            { label: "Canaux", value: "channel" },
             { label: "Messages", value: "dm" },
+            { label: "Canaux", value: "channel" },
+            { label: "Non lus", value: "unread" },
           ].map((filter) => (
             <button
               key={filter.value}
