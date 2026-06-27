@@ -114,6 +114,7 @@ func TestRoadmapRoutesRegistered(t *testing.T) {
 		"POST /api/v1/notifications/:notificationId/read",
 		"GET /api/v1/me/notification-preferences",
 		"PATCH /api/v1/me/preferences",
+		"POST /api/v1/workspaces/:workspaceId/members/provision",
 		"GET /api/v1/workspaces/:workspaceId/contacts",
 		"GET /api/v1/workspaces/:workspaceId/tasks",
 		"GET /api/v1/workspaces/:workspaceId/projects",

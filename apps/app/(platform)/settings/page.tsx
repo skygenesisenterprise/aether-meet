@@ -1,250 +1,191 @@
-import {
-  Bell,
-  Camera,
-  Languages,
-  LockKeyhole,
-  Mic,
-  Monitor,
-  Moon,
-  Settings2,
-  ShieldCheck,
-  UserRound,
-} from "lucide-react";
+"use client";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import { PresenceAvatar } from "@/components/platform/presence-avatar";
-import { WorkspaceHeader } from "@/components/platform/workspace-header";
+import * as React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-interface SettingRowProps {
-  title: string;
-  description: string;
-  children: React.ReactNode;
+import { SettingsShell } from "@/components/settings/settings-shell";
+import { AppearanceSettings } from "@/components/settings/appearance-settings";
+import { MediaSettings } from "@/components/settings/media-settings";
+import { NotificationSettings } from "@/components/settings/notification-settings";
+import { ProfileSettings } from "@/components/settings/profile-settings";
+import { SecuritySettings } from "@/components/settings/security-settings";
+import { SessionSettings } from "@/components/settings/session-settings";
+import {
+  buildSettingsHref,
+  canDeleteWorkspace,
+  canManageMembers,
+  canManageWorkspace,
+  canReadAuditLogs,
+  DEFAULT_SETTINGS_SECTION,
+  getWorkspaceMembership,
+  parseSettingsSection,
+  type SettingsSection,
+} from "@/components/settings/settings-utils";
+import { WorkspaceAuditSettings } from "@/components/settings/workspace-audit-settings";
+import { WorkspaceDangerSettings } from "@/components/settings/workspace-danger-settings";
+import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings";
+import { WorkspaceMembersSettings } from "@/components/settings/workspace-members-settings";
+import { WorkspaceRolesSettings } from "@/components/settings/workspace-roles-settings";
+import { useAuth } from "@/context/AuthContext";
+import { usePlatform } from "@/context/PlatformContext";
+import { ApiError, getUserFacingError } from "@/lib/api/errors";
+import { getWorkspace } from "@/lib/api/workspaces";
+import { listWorkspaceMembers } from "@/lib/api/members";
+import type { User, Workspace, WorkspaceMember } from "@/lib/api/types";
+
+function GlobalState({ message }: { message: string }) {
+  return <div className="flex h-full items-center justify-center bg-[#232426] p-6 text-sm text-zinc-400">{message}</div>;
 }
 
-function SettingRow({ title, description, children }: SettingRowProps) {
-  return (
-    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
+export default function SettingsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { currentUser, activeWorkspace, isLoading, error } = usePlatform();
+  const { logout } = useAuth();
+  const section = parseSettingsSection(searchParams.get("section"));
+  const [userState, setUserState] = React.useState<User | null>(null);
+  const [workspaceState, setWorkspaceState] = React.useState<Workspace | null>(null);
+  const [members, setMembers] = React.useState<WorkspaceMember[]>([]);
+  const [contentLoading, setContentLoading] = React.useState(true);
+  const [contentError, setContentError] = React.useState<string | null>(null);
+  const isWorkspaceSection = section === "workspace" || section === "members" || section === "roles" || section === "audit" || section === "danger";
 
-export default function SetingsPage() {
-  return (
-    <div className="flex h-full min-h-180 flex-col bg-[#232426]">
-      <WorkspaceHeader
-        title="Réglages"
-        description="Configurez votre compte et votre expérience Aether Meet."
-        icon={Settings2}
-        actions={
-          <Button size="sm" className="rounded-md">
-            Enregistrer
-          </Button>
+  React.useEffect(() => {
+    if (searchParams.get("section") && searchParams.get("section") !== section) {
+      router.replace(buildSettingsHref(DEFAULT_SETTINGS_SECTION, searchParams));
+    }
+  }, [router, searchParams, section]);
+
+  React.useEffect(() => {
+    setUserState(currentUser);
+  }, [currentUser]);
+
+  React.useEffect(() => {
+    if (isLoading) {
+      setContentLoading(true);
+      setContentError(null);
+      return;
+    }
+    setContentError(null);
+    if (!activeWorkspace) {
+      setWorkspaceState(null);
+      setMembers([]);
+      setContentLoading(false);
+      return;
+    }
+    if (!isWorkspaceSection) {
+      setWorkspaceState(activeWorkspace);
+      setMembers([]);
+      setContentLoading(false);
+      return;
+    }
+    const workspaceId = activeWorkspace.id;
+    let cancelled = false;
+    async function load() {
+      setContentLoading(true);
+      try {
+        const [workspaceDetails, workspaceMembers] = await Promise.all([
+          getWorkspace(workspaceId),
+          listWorkspaceMembers(workspaceId),
+        ]);
+        if (!cancelled) {
+          setWorkspaceState(workspaceDetails);
+          setMembers(workspaceMembers);
         }
-      />
+      } catch (cause) {
+        if (cancelled) {
+          return;
+        }
+        if (cause instanceof ApiError && (cause.code === "MEMBERSHIP_REQUIRED" || cause.status === 403 || cause.status === 404)) {
+          setWorkspaceState(null);
+          setMembers([]);
+          setContentError("Le workspace sélectionné n’est plus accessible pour ce compte.");
+          router.replace(buildSettingsHref(DEFAULT_SETTINGS_SECTION, searchParams));
+          return;
+        }
+        setWorkspaceState(activeWorkspace);
+        setMembers([]);
+        setContentError(getUserFacingError(cause));
+      } finally {
+        if (!cancelled) {
+          setContentLoading(false);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace, isLoading, isWorkspaceSection, router, searchParams]);
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[1fr_300px]">
-        <section className="space-y-5">
-          <Card className="gap-0 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <UserRound className="size-4 text-primary" />
-                Compte
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="py-5">
-              <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-                <PresenceAvatar
-                  initials="LW"
-                  status="online"
-                  className="size-16"
-                  fallbackClassName="text-lg"
-                />
-                <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="display-name">Nom affiché</Label>
-                    <Input id="display-name" defaultValue="Liam" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="status-message">Message de statut</Label>
-                    <Input id="status-message" defaultValue="Disponible" />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+  const membership = React.useMemo(
+    () => getWorkspaceMembership(userState, members, workspaceState ?? activeWorkspace),
+    [activeWorkspace, members, userState, workspaceState]
+  );
+  const canEditWorkspace = canManageWorkspace(userState, membership);
+  const canEditMembers = canManageMembers(userState, membership);
+  const canReadAudit = canReadAuditLogs(userState, membership);
+  const canDelete = canDeleteWorkspace(userState, membership);
 
-          <Card className="gap-0 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Monitor className="size-4 text-primary" />
-                Apparence et langue
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y">
-              <SettingRow
-                title="Thème"
-                description="Choisissez l’apparence de l’interface de collaboration."
-              >
-                <Select defaultValue="dark">
-                  <SelectTrigger className="w-40">
-                    <Moon className="size-4" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="dark">Sombre</SelectItem>
-                    <SelectItem value="light">Clair</SelectItem>
-                    <SelectItem value="system">Système</SelectItem>
-                  </SelectContent>
-                </Select>
-              </SettingRow>
-              <SettingRow
-                title="Langue"
-                description="Langue utilisée dans les menus, dates et notifications."
-              >
-                <Select defaultValue="fr">
-                  <SelectTrigger className="w-40">
-                    <Languages className="size-4" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fr">Français</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="de">Deutsch</SelectItem>
-                  </SelectContent>
-                </Select>
-              </SettingRow>
-            </CardContent>
-          </Card>
+  function handleSectionChange(nextSection: SettingsSection) {
+    router.replace(buildSettingsHref(nextSection, searchParams));
+  }
 
-          <Card className="gap-0 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Bell className="size-4 text-primary" />
-                Notifications
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y">
-              <SettingRow
-                title="Messages et mentions"
-                description="Recevoir une alerte lorsqu’un membre vous écrit ou vous mentionne."
-              >
-                <Switch defaultChecked aria-label="Messages et mentions" />
-              </SettingRow>
-              <SettingRow
-                title="Rappels de réunion"
-                description="Afficher un rappel avant une réunion planifiée."
-              >
-                <Switch defaultChecked aria-label="Rappels de réunion" />
-              </SettingRow>
-              <SettingRow
-                title="Sons de notification"
-                description="Jouer un son pour les appels et messages entrants."
-              >
-                <Switch defaultChecked aria-label="Sons de notification" />
-              </SettingRow>
-            </CardContent>
-          </Card>
+  if (isLoading) {
+    return <GlobalState message="Chargement de la console de paramètres…" />;
+  }
 
-          <Card className="gap-0 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Camera className="size-4 text-primary" />
-                Audio et vidéo
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y">
-              <SettingRow
-                title="Caméra"
-                description="Périphérique utilisé par défaut pour les réunions."
-              >
-                <Select defaultValue="camera">
-                  <SelectTrigger className="w-48">
-                    <Camera className="size-4" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="camera">Caméra intégrée</SelectItem>
-                    <SelectItem value="external">Caméra externe</SelectItem>
-                  </SelectContent>
-                </Select>
-              </SettingRow>
-              <SettingRow title="Microphone" description="Source audio utilisée pour les appels.">
-                <Select defaultValue="microphone">
-                  <SelectTrigger className="w-48">
-                    <Mic className="size-4" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="microphone">Microphone intégré</SelectItem>
-                    <SelectItem value="headset">Casque audio</SelectItem>
-                  </SelectContent>
-                </Select>
-              </SettingRow>
-            </CardContent>
-          </Card>
-        </section>
+  if (error) {
+    return <GlobalState message="Impossible de charger le contexte plateforme." />;
+  }
 
-        <aside className="space-y-5">
-          <Card className="gap-3 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="size-4 text-emerald-400" />
-                Sécurité
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 py-4">
-              <div>
-                <p className="text-sm font-medium">Session protégée</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Votre compte utilise Aether Identity et une session chiffrée.
-                </p>
-              </div>
-              <Separator />
-              <Button variant="outline" className="w-full rounded-md">
-                <LockKeyhole className="size-4" />
-                Gérer la sécurité
-              </Button>
-            </CardContent>
-          </Card>
+  if (contentLoading) {
+    return <GlobalState message="Chargement des données settings…" />;
+  }
 
-          <Card className="gap-3 rounded-md border-white/12 bg-[#292a2c] py-0 shadow-none">
-            <CardHeader className="border-b py-4">
-              <CardTitle className="text-base">Application</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 py-4 text-xs text-muted-foreground">
-              <div className="flex justify-between gap-3">
-                <span>Version</span>
-                <span className="font-mono text-foreground">1.0.0</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span>Canal</span>
-                <span className="text-foreground">Développement</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span>Région</span>
-                <span className="text-foreground">Europe</span>
-              </div>
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
-    </div>
+  if (isWorkspaceSection && !activeWorkspace) {
+    return <GlobalState message="Aucun workspace actif n’est disponible pour cette section." />;
+  }
+
+  if (isWorkspaceSection && contentError) {
+    return <GlobalState message={contentError} />;
+  }
+
+  return (
+    <SettingsShell section={section} onSectionChange={handleSectionChange} workspace={workspaceState ?? activeWorkspace}>
+      {section === "profile" ? <ProfileSettings user={userState} onUserChange={setUserState} /> : null}
+      {section === "appearance" ? <AppearanceSettings /> : null}
+      {section === "notifications" ? <NotificationSettings /> : null}
+      {section === "media" ? <MediaSettings /> : null}
+      {section === "security" ? <SecuritySettings user={userState} /> : null}
+      {section === "sessions" ? <SessionSettings onLoggedOut={logout} /> : null}
+      {section === "workspace" ? (
+        <WorkspaceGeneralSettings
+          workspace={workspaceState ?? activeWorkspace}
+          members={members}
+          canEdit={canEditWorkspace}
+          onWorkspaceChange={setWorkspaceState}
+        />
+      ) : null}
+      {section === "members" ? (
+        <WorkspaceMembersSettings
+          workspace={workspaceState ?? activeWorkspace}
+          currentUser={userState}
+          members={members}
+          actorRole={membership?.role}
+          canManage={canEditMembers}
+          onMembersChange={setMembers}
+        />
+      ) : null}
+      {section === "roles" ? <WorkspaceRolesSettings currentUser={userState} membership={membership} /> : null}
+      {section === "audit" ? <WorkspaceAuditSettings workspace={workspaceState ?? activeWorkspace} canRead={canReadAudit} members={members} /> : null}
+      {section === "danger" ? (
+        <WorkspaceDangerSettings
+          workspace={workspaceState ?? activeWorkspace}
+          canDelete={canDelete}
+          onWorkspaceDeleted={() => router.replace("/settings")}
+        />
+      ) : null}
+    </SettingsShell>
   );
 }

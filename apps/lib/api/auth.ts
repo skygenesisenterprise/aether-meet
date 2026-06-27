@@ -6,6 +6,51 @@ export interface AccessTokenProvider {
   refreshAccessToken?(): Promise<string | null>;
 }
 
+const ACCESS_TOKEN_KEY = "aether.auth.accessToken";
+const USER_KEY = "aether.auth.user";
+
+function readStorageToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    return raw ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    } else {
+      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+    }
+  } catch { /* quota exceeded */ }
+}
+
+function readStorageUser(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageUser(user: User | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (user) {
+      window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      window.localStorage.removeItem(USER_KEY);
+    }
+  } catch { /* quota exceeded */ }
+}
+
 let accessToken: string | null = null;
 let currentUser: User | null = null;
 let refreshPromise: Promise<string | null> | null = null;
@@ -13,7 +58,7 @@ let accessTokenProvider: AccessTokenProvider | null = null;
 
 const memoryTokenProvider: AccessTokenProvider = {
   async getAccessToken() {
-    return accessToken;
+    return getStoredAccessToken();
   },
   async refreshAccessToken() {
     return refreshAccessToken();
@@ -41,6 +86,11 @@ export interface ResetPasswordPayload {
   password: string;
 }
 
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export interface VerifyEmailPayload {
   token: string;
 }
@@ -61,24 +111,28 @@ export function getAccessTokenProvider(): AccessTokenProvider {
 }
 
 export function getStoredAccessToken(): string | null {
-  return accessToken;
+  return accessToken ?? readStorageToken();
 }
 
 export function clearStoredTokens(): void {
   accessToken = null;
   currentUser = null;
+  writeStorageToken(null);
+  writeStorageUser(null);
 }
 
 export function setStoredAccessToken(nextToken: string | null): void {
   accessToken = nextToken;
+  writeStorageToken(nextToken);
 }
 
 export function getStoredUser(): User | null {
-  return currentUser;
+  return currentUser ?? readStorageUser();
 }
 
 export function storeUser(user: User | null): void {
   currentUser = user;
+  writeStorageUser(user);
 }
 
 export async function refreshAccessToken(): Promise<string | null> {
@@ -91,6 +145,8 @@ export async function refreshAccessToken(): Promise<string | null> {
       .then((response) => {
         accessToken = response.accessToken;
         currentUser = response.user;
+        writeStorageToken(response.accessToken);
+        writeStorageUser(response.user);
         return response.accessToken;
       })
       .catch(() => {
@@ -109,6 +165,13 @@ export const authApi = {
   async bootstrap(): Promise<User | null> {
     const nextToken = await refreshAccessToken();
     if (!nextToken) {
+      const storedToken = readStorageToken();
+      const storedUser = readStorageUser();
+      if (storedToken && storedUser) {
+        accessToken = storedToken;
+        currentUser = storedUser;
+        return storedUser;
+      }
       return null;
     }
     if (currentUser) {
@@ -125,8 +188,8 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    accessToken = response.accessToken;
-    currentUser = response.user;
+    setStoredAccessToken(response.accessToken);
+    storeUser(response.user);
     return response;
   },
   async register(payload: RegisterPayload): Promise<TokenResponse> {
@@ -136,8 +199,8 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    accessToken = response.accessToken;
-    currentUser = response.user;
+    setStoredAccessToken(response.accessToken);
+    storeUser(response.user);
     return response;
   },
   async logout(): Promise<void> {
@@ -147,8 +210,7 @@ export const authApi = {
         skipRefresh: true,
       });
     } finally {
-      accessToken = null;
-      currentUser = null;
+      clearStoredTokens();
     }
   },
   async logoutAll(exceptCurrent = false): Promise<void> {
@@ -157,13 +219,12 @@ export const authApi = {
       body: { exceptCurrent },
     });
     if (!exceptCurrent) {
-      accessToken = null;
-      currentUser = null;
+      clearStoredTokens();
     }
   },
   async getCurrentUser(): Promise<User> {
     const user = await apiRequest<User>("/auth/me");
-    currentUser = user;
+    storeUser(user);
     return user;
   },
   async forgotPassword(payload: ForgotPasswordPayload): Promise<{ accepted: boolean }> {
@@ -180,6 +241,12 @@ export const authApi = {
       body: payload,
       skipAuth: true,
       skipRefresh: true,
+    });
+  },
+  async changePassword(payload: ChangePasswordPayload): Promise<{ updated: boolean }> {
+    return apiRequest<{ updated: boolean }, ChangePasswordPayload>("/auth/change-password", {
+      method: "POST",
+      body: payload,
     });
   },
   async verifyEmail(payload: VerifyEmailPayload): Promise<{ accepted: boolean }> {

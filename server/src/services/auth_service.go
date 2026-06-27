@@ -21,7 +21,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const refreshCookiePath = "/api/v1/auth"
+const refreshCookiePath = "/"
 
 type AuthService struct {
 	cfg          config.AuthConfig
@@ -381,6 +381,61 @@ func (s *AuthService) RevokeSession(ctx context.Context, principal interfaces.Pr
 		return utils.ErrForbidden
 	}
 	return s.repos.AuthSessions().Revoke(ctx, sessionID, "session_revoked_by_user", time.Now().UTC())
+}
+
+func (s *AuthService) ChangePassword(
+	ctx context.Context,
+	principal interfaces.Principal,
+	currentPassword string,
+	newPassword string,
+	meta RequestMetadata,
+) error {
+	if strings.TrimSpace(currentPassword) == "" || len(strings.TrimSpace(newPassword)) < s.cfg.PasswordMinLength {
+		return utils.ErrValidationFailed
+	}
+	user, err := s.repos.Users().GetByID(ctx, principal.UserID)
+	if err != nil {
+		return err
+	}
+	credential, err := s.repos.LocalCredentials().GetByUserID(ctx, principal.UserID)
+	if err != nil {
+		return err
+	}
+	valid, err := s.hasher.Verify(currentPassword, credential.PasswordHash)
+	if err != nil || !valid {
+		return utils.ErrInvalidCredentials
+	}
+	nextHash, err := s.hasher.Hash(newPassword)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return s.db.Transaction(ctx, func(tx *gorm.DB) error {
+		txRepos := s.repos.WithDB(tx)
+		credential.PasswordHash = nextHash
+		credential.UpdatedAt = now
+		if err := txRepos.LocalCredentials().Update(ctx, credential); err != nil {
+			return err
+		}
+		user.PasswordChangedAt = &now
+		user.UpdatedAt = now
+		if err := txRepos.Users().Update(ctx, user); err != nil {
+			return err
+		}
+		if s.outbox != nil {
+			payload, _ := json.Marshal(map[string]any{"eventType": "auth.password.changed", "userId": user.ID})
+			return txRepos.AuthAuditEvents().Create(ctx, &models.AuthAuditEvent{
+				Common:    models.Common{ID: utils.NewID(), CreatedAt: now, UpdatedAt: now},
+				UserID:    &user.ID,
+				SessionID: stringPtr(principal.SessionID),
+				EventType: "auth.password.changed",
+				IPAddress: stringPtr(meta.IPAddress),
+				UserAgent: stringPtr(meta.UserAgent),
+				Metadata:  payload,
+			})
+		}
+		return nil
+	})
 }
 
 func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {

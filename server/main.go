@@ -161,8 +161,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	userService := services.NewUserService(repos.Users())
-	workspaceService := services.NewWorkspaceService(db, repos.Users(), repos, repos.AuditLogs())
+	userService := services.NewUserService(repos.Users(), repos.UserSettings(), repos.NotificationPreferences())
+	workspaceService := services.NewWorkspaceService(db, cfg.Auth, repos.Users(), repos, repos.AuditLogs(), outboxService)
 	authService := services.NewAuthService(cfg.Auth, db, repos, identityProvider, outboxService, authLimiter, workspaceService)
 	teamService := services.NewTeamService(repos.Teams(), workspaceService)
 	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)

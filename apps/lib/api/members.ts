@@ -1,14 +1,10 @@
 import { apiListRequest, apiRequest } from "@/lib/api/client";
-import type { WorkspaceMember } from "@/lib/api/types";
-
-export interface CreateWorkspaceMemberInput {
-  userId: string;
-  role: string;
-}
-
-export interface UpdateWorkspaceMemberInput {
-  role: string;
-}
+import type {
+  CreateWorkspaceMemberInput,
+  ProvisionWorkspaceUserInput,
+  UpdateWorkspaceMemberInput,
+  WorkspaceMember,
+} from "@/lib/api/types";
 
 export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
   const response = await apiListRequest<WorkspaceMember>(`/workspaces/${workspaceId}/members`);
@@ -17,6 +13,16 @@ export async function listWorkspaceMembers(workspaceId: string): Promise<Workspa
 
 export function createWorkspaceMember(workspaceId: string, input: CreateWorkspaceMemberInput): Promise<WorkspaceMember> {
   return apiRequest<WorkspaceMember, CreateWorkspaceMemberInput>(`/workspaces/${workspaceId}/members`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function provisionWorkspaceUser(
+  workspaceId: string,
+  input: ProvisionWorkspaceUserInput
+): Promise<WorkspaceMember> {
+  return apiRequest<WorkspaceMember, ProvisionWorkspaceUserInput>(`/workspaces/${workspaceId}/members/provision`, {
     method: "POST",
     body: input,
   });

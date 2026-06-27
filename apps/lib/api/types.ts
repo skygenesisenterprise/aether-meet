@@ -46,6 +46,8 @@ export interface User {
   updatedAt: string;
   lastSeenAt?: string;
   disabledAt?: string;
+  emailVerifiedAt?: string;
+  passwordChangedAt?: string;
 }
 
 export interface Workspace {
@@ -69,7 +71,14 @@ export interface WorkspaceMember {
   lastSeenAt?: string;
   createdAt: string;
   updatedAt: string;
+  displayName?: string;
+  email?: string;
+  avatarUrl?: string;
+  status?: string;
+  presenceStatus?: string;
 }
+
+export type WorkspaceMemberRole = "owner" | "admin" | "member" | "guest";
 
 export interface Team {
   id: string;
@@ -275,17 +284,43 @@ export interface Notification {
 }
 
 export interface NotificationPreferences {
-  email?: boolean;
-  push?: boolean;
-  inApp?: boolean;
-  [key: string]: unknown;
+  directMessages: boolean;
+  mentions: boolean;
+  channelMessages: boolean;
+  meetingReminders: boolean;
+  incomingCalls: boolean;
+  emailNotifications: boolean;
+  sounds: boolean;
+  desktopNotifications: boolean;
 }
 
 export interface UserPreferences {
-  theme?: string;
-  locale?: string;
-  timezone?: string;
-  [key: string]: unknown;
+  theme: "light" | "dark" | "system";
+  language: string;
+  locale: string;
+  timezone: string;
+  statusMessage?: string;
+  density: "comfortable" | "compact";
+  contrast: "default" | "high";
+  soundEnabled: boolean;
+  secureSession: boolean;
+}
+
+export interface ProvisionWorkspaceUserInput {
+  email: string;
+  displayName: string;
+  role: WorkspaceMemberRole;
+  temporaryPassword: string;
+}
+
+export interface CreateWorkspaceMemberInput {
+  userId?: string;
+  email?: string;
+  role: WorkspaceMemberRole;
+}
+
+export interface UpdateWorkspaceMemberInput {
+  role: WorkspaceMemberRole;
 }
 
 export interface Contact {

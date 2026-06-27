@@ -31,6 +31,7 @@ function isValidLocale(locale: string): locale is Locale {
 
 const AUTH_PATHS = ["/login", "/register"];
 const PROTECTED_PATHS = ["/dashboard", "/user"];
+const REFRESH_COOKIE_NAME = process.env.AUTH_REFRESH_COOKIE_NAME ?? "aether_meet_refresh";
 const PLATFORM_PATHS = [
   "/contacts",
   "/dashboard",
@@ -68,6 +69,10 @@ function isValidJWT(token: string | undefined): boolean {
   return parts.length === 3;
 }
 
+function hasSessionCookie(request: NextRequest): boolean {
+  return Boolean(request.cookies.get(REFRESH_COOKIE_NAME)?.value);
+}
+
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const segments = pathname.split("/").filter(Boolean);
@@ -95,12 +100,18 @@ export default function proxy(request: NextRequest) {
   const isProtectedPath = PROTECTED_PATHS.some((p) => pathname.startsWith(p));
   if (isProtectedPath) {
     const authCookie = request.cookies.get("auth_token");
-    const isValid = isValidJWT(authCookie?.value);
+    const isValid = isValidJWT(authCookie?.value) || hasSessionCookie(request);
     if (!isValid) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
     }
+  }
+
+  if (isPlatformPath(pathname) && !hasSessionCookie(request) && !isLocalDevelopment(request)) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   if (firstSegment && isValidLocale(firstSegment)) {

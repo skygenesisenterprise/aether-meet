@@ -5,6 +5,7 @@ export PATH="/usr/local/go/bin:/go/bin:/root/go/bin:/root/.local/share/corepack:
 export NODE_ENV="${NODE_ENV:-development}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 export PRISMA_SCHEMA_DEPLOY="${PRISMA_SCHEMA_DEPLOY:-true}"
+export PRISMA_DB_PUSH="${PRISMA_DB_PUSH:-false}"
 export ALLOW_MIGRATION_FAILURE="${ALLOW_MIGRATION_FAILURE:-true}"
 
 timestamp_utc() {
@@ -402,6 +403,11 @@ run_prisma_schema_deploy() {
     log_info "Generating Prisma client..."
     # shellcheck disable=SC2086
     DATABASE_URL="${DATABASE_URL}" ${prisma_bin} generate
+
+    if [ "${PRISMA_DB_PUSH:-false}" != "true" ]; then
+        log_info "Prisma db push disabled; leaving database schema ownership to Go migrations"
+        return 0
+    fi
 
     log_info "Synchronizing Prisma schema..."
     # shellcheck disable=SC2086

@@ -4,6 +4,7 @@ import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { clearStoredTokens } from "@/lib/api/auth";
+import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api/errors";
 import { getMe } from "@/lib/api/me";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
@@ -43,8 +44,16 @@ function writeStoredWorkspaceId(workspaceId: string): void {
   window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, workspaceId);
 }
 
-function resolveWorkspaceId(searchParams: URLSearchParams | null): string | null {
-  return searchParams?.get("workspaceId") ?? readStoredWorkspaceId();
+function clearStoredWorkspaceId(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(ACTIVE_WORKSPACE_STORAGE_KEY);
+}
+
+function resolveWorkspaceId(workspaceIdFromQuery: string | null): string | null {
+  return workspaceIdFromQuery ?? readStoredWorkspaceId();
 }
 
 function replaceWorkspaceParam(
@@ -62,6 +71,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const workspaceIdFromQuery = searchParams.get("workspaceId");
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceIdState] = React.useState<string | null>(null);
@@ -69,6 +79,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = React.useState<ApiError | null>(null);
   const [isRealtimeConnected, setIsRealtimeConnected] = React.useState(false);
   const [lastRealtimeEvent, setLastRealtimeEvent] = React.useState<RealtimeEvent | null>(null);
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
 
   const setActiveWorkspaceId = React.useCallback(
     (workspaceId: string) => {
@@ -80,13 +91,24 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     [pathname, router, searchParams]
   );
 
+  React.useLayoutEffect(() => {
+    setIsLoading(true);
+    setError(null);
+    setWorkspaces([]);
+    setActiveWorkspaceIdState(null);
+  }, [pathname, workspaceIdFromQuery]);
+
   React.useEffect(() => {
+    if (isAuthLoading || !isAuthenticated) {
+      if (!isAuthLoading) {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     let cancelled = false;
 
     async function loadPlatformContext() {
-      setIsLoading(true);
-      setError(null);
-
       try {
         const [user, availableWorkspaces] = await Promise.all([getMe(), listWorkspaces()]);
         if (cancelled) {
@@ -96,7 +118,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
         setCurrentUser(user);
         setWorkspaces(availableWorkspaces);
 
-        const requestedWorkspaceId = resolveWorkspaceId(searchParams);
+        const requestedWorkspaceId = resolveWorkspaceId(workspaceIdFromQuery);
         const resolvedWorkspace =
           availableWorkspaces.find((workspace) => workspace.id === requestedWorkspaceId) ?? availableWorkspaces[0] ?? null;
 
@@ -106,6 +128,8 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
           if (requestedWorkspaceId !== resolvedWorkspace.id) {
             replaceWorkspaceParam(router, pathname, searchParams, resolvedWorkspace.id);
           }
+        } else {
+          clearStoredWorkspaceId();
         }
       } catch (cause) {
         if (cancelled) {
@@ -125,6 +149,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
         setCurrentUser(null);
         setWorkspaces([]);
         setActiveWorkspaceIdState(null);
+        clearStoredWorkspaceId();
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -137,7 +162,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [pathname, router, searchParams]);
+  }, [pathname, router, searchParams, workspaceIdFromQuery, isAuthLoading, isAuthenticated]);
 
   React.useEffect(() => {
     if (!activeWorkspaceId) {
@@ -165,7 +190,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     () => ({
       currentUser,
       workspaces,
-      activeWorkspace: workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
+      activeWorkspace: isLoading ? null : workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
       activeWorkspaceId,
       setActiveWorkspaceId,
       isLoading,

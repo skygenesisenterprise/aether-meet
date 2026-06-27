@@ -90,6 +90,7 @@ services:
       - ./apps:/app/apps
       - /app/apps/node_modules
       - /app/apps/.next
+      - ./entrypoint.sh:/entrypoint.sh
       - media:/media
       - certs:/certs
       - custom-templates:/templates
@@ -205,6 +206,7 @@ services:
       WEBRTC_BIND_IP: 0.0.0.0
       TURN_ENABLED: "false"
     volumes:
+      - ./entrypoint.sh:/entrypoint.sh
       - media:/media
       - certs:/certs
     depends_on:

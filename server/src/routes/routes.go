@@ -66,6 +66,7 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 		authProtected.Use(middleware.Auth(deps.IdentityProvider))
 		{
 			authProtected.POST("/logout-all", handler.logoutAll)
+			authProtected.POST("/change-password", handler.changePassword)
 			authProtected.GET("/me", handler.authMe)
 			authProtected.GET("/sessions", handler.listAuthSessions)
 			authProtected.DELETE("/sessions/:sessionId", handler.deleteAuthSession)
@@ -87,6 +88,7 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 
 		protected.GET("/workspaces/:workspaceId/members", handler.listWorkspaceMembers)
 		protected.POST("/workspaces/:workspaceId/members", handler.createWorkspaceMember)
+		protected.POST("/workspaces/:workspaceId/members/provision", handler.provisionWorkspaceUser)
 		protected.PATCH("/workspaces/:workspaceId/members/:userId", handler.updateWorkspaceMember)
 		protected.DELETE("/workspaces/:workspaceId/members/:userId", handler.deleteWorkspaceMember)
 
@@ -326,7 +328,23 @@ func (h *apiHandler) me(c *gin.Context) {
 		utils.Error(c, err)
 		return
 	}
-	utils.Success(c, http.StatusOK, user)
+	utils.Success(c, http.StatusOK, gin.H{
+		"id":                user.ID,
+		"email":             user.Email,
+		"displayName":       user.DisplayName,
+		"avatarUrl":         user.AvatarURL,
+		"status":            user.Status,
+		"presenceStatus":    user.PresenceStatus,
+		"roles":             principal.Roles,
+		"permissions":       principal.Permissions,
+		"workspaceId":       principal.WorkspaceID,
+		"createdAt":         user.CreatedAt,
+		"updatedAt":         user.UpdatedAt,
+		"lastSeenAt":        user.LastSeenAt,
+		"disabledAt":        user.DisabledAt,
+		"emailVerifiedAt":   user.EmailVerifiedAt,
+		"passwordChangedAt": user.PasswordChangedAt,
+	})
 }
 
 func (h *apiHandler) updateMe(c *gin.Context) {
@@ -345,7 +363,23 @@ func (h *apiHandler) updateMe(c *gin.Context) {
 		utils.Error(c, err)
 		return
 	}
-	utils.Success(c, http.StatusOK, user)
+	utils.Success(c, http.StatusOK, gin.H{
+		"id":                user.ID,
+		"email":             user.Email,
+		"displayName":       user.DisplayName,
+		"avatarUrl":         user.AvatarURL,
+		"status":            user.Status,
+		"presenceStatus":    user.PresenceStatus,
+		"roles":             principal.Roles,
+		"permissions":       principal.Permissions,
+		"workspaceId":       principal.WorkspaceID,
+		"createdAt":         user.CreatedAt,
+		"updatedAt":         user.UpdatedAt,
+		"lastSeenAt":        user.LastSeenAt,
+		"disabledAt":        user.DisabledAt,
+		"emailVerifiedAt":   user.EmailVerifiedAt,
+		"passwordChangedAt": user.PasswordChangedAt,
+	})
 }
 
 func (h *apiHandler) listWorkspaces(c *gin.Context) {
@@ -413,10 +447,11 @@ func (h *apiHandler) workspaceResource(c *gin.Context, action string) {
 	}
 }
 
-func (h *apiHandler) listWorkspaceMembers(c *gin.Context)  { h.membersResource(c, "list") }
-func (h *apiHandler) createWorkspaceMember(c *gin.Context) { h.membersResource(c, "create") }
-func (h *apiHandler) updateWorkspaceMember(c *gin.Context) { h.membersResource(c, "update") }
-func (h *apiHandler) deleteWorkspaceMember(c *gin.Context) { h.membersResource(c, "delete") }
+func (h *apiHandler) listWorkspaceMembers(c *gin.Context)   { h.membersResource(c, "list") }
+func (h *apiHandler) createWorkspaceMember(c *gin.Context)  { h.membersResource(c, "create") }
+func (h *apiHandler) provisionWorkspaceUser(c *gin.Context) { h.membersResource(c, "provision") }
+func (h *apiHandler) updateWorkspaceMember(c *gin.Context)  { h.membersResource(c, "update") }
+func (h *apiHandler) deleteWorkspaceMember(c *gin.Context)  { h.membersResource(c, "delete") }
 
 func (h *apiHandler) membersResource(c *gin.Context, action string) {
 	principal, _ := h.principal(c)
@@ -430,12 +465,44 @@ func (h *apiHandler) membersResource(c *gin.Context, action string) {
 		}
 		utils.List(c, items, "", false)
 	case "create":
-		var req struct{ UserID, Role string }
+		var req struct {
+			UserID string `json:"userId"`
+			Email  string `json:"email"`
+			Role   string `json:"role"`
+		}
 		if c.ShouldBindJSON(&req) != nil {
 			utils.Error(c, utils.ErrValidationFailed)
 			return
 		}
-		item, err := h.deps.WorkspaceService.AddMember(c.Request.Context(), principal, workspaceID, req.UserID, req.Role)
+		item, err := h.deps.WorkspaceService.AddMember(c.Request.Context(), principal, workspaceID, req.UserID, req.Email, req.Role)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusCreated, item)
+	case "provision":
+		var req struct {
+			Email             string `json:"email"`
+			DisplayName       string `json:"displayName"`
+			Role              string `json:"role"`
+			TemporaryPassword string `json:"temporaryPassword"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.WorkspaceService.ProvisionWorkspaceUser(
+			c.Request.Context(),
+			principal,
+			workspaceID,
+			services.ProvisionWorkspaceUserInput{
+				Email:             req.Email,
+				DisplayName:       req.DisplayName,
+				Role:              req.Role,
+				TemporaryPassword: req.TemporaryPassword,
+			},
+			requestMetadata(c),
+		)
 		if err != nil {
 			utils.Error(c, err)
 			return
@@ -1003,14 +1070,50 @@ func (h *apiHandler) markAllNotificationsRead(c *gin.Context) {
 	h.notImplemented(c, "notifications mark all as read")
 }
 func (h *apiHandler) getNotificationPreferences(c *gin.Context) {
-	h.notImplemented(c, "notification preferences")
+	principal, _ := h.principal(c)
+	item, err := h.deps.UserService.GetNotificationPreferences(c.Request.Context(), principal)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
 }
 func (h *apiHandler) updateNotificationPreferences(c *gin.Context) {
-	h.notImplemented(c, "notification preferences update")
+	principal, _ := h.principal(c)
+	var req services.NotificationPreferencesDTO
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	item, err := h.deps.UserService.UpdateNotificationPreferences(c.Request.Context(), principal, req)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
 }
-func (h *apiHandler) getPreferences(c *gin.Context) { h.notImplemented(c, "user preferences") }
+func (h *apiHandler) getPreferences(c *gin.Context) {
+	principal, _ := h.principal(c)
+	item, err := h.deps.UserService.GetPreferences(c.Request.Context(), principal)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
+}
 func (h *apiHandler) updatePreferences(c *gin.Context) {
-	h.notImplemented(c, "user preferences update")
+	principal, _ := h.principal(c)
+	var req services.UserPreferencesDTO
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	item, err := h.deps.UserService.UpdatePreferences(c.Request.Context(), principal, req)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, item)
 }
 
 func (h *apiHandler) listContacts(c *gin.Context)      { h.notImplemented(c, "contacts listing") }

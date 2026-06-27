@@ -15,6 +15,16 @@ type UserRepository interface {
 	Update(ctx context.Context, user *models.User) error
 }
 
+type UserSettingsRepository interface {
+	GetByUserID(ctx context.Context, userID string) (*models.UserSettings, error)
+	Upsert(ctx context.Context, settings *models.UserSettings) error
+}
+
+type NotificationPreferenceRepository interface {
+	GetByUserID(ctx context.Context, userID string) (*models.NotificationPreference, error)
+	Upsert(ctx context.Context, preference *models.NotificationPreference) error
+}
+
 type LocalCredentialRepository interface {
 	Create(ctx context.Context, credential *models.LocalCredential) error
 	GetByUserID(ctx context.Context, userID string) (*models.LocalCredential, error)
@@ -201,6 +211,8 @@ type OutboxRepository interface {
 
 type RepositorySet interface {
 	Users() UserRepository
+	UserSettings() UserSettingsRepository
+	NotificationPreferences() NotificationPreferenceRepository
 	LocalCredentials() LocalCredentialRepository
 	AuthSessions() AuthSessionRepository
 	AuthRefreshTokens() AuthRefreshTokenRepository

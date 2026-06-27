@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   CalendarDays,
   CalendarPlus,
+  UserRound, 
   Bell,
   ChevronDown,
   ChevronLeft,
@@ -19,17 +20,14 @@ import {
   MoreHorizontal,
   PhoneIncoming,
   PhoneOff,
-  Palette,
   Plus,
   Search,
   Share2,
   Settings2,
-  ShieldCheck,
   Star,
-  UserRound,
   UsersRound,
-  Video,
   Trash2,
+  Video,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -787,37 +785,6 @@ function NotificationsPanel() {
   );
 }
 
-function SettingsPanel() {
-  const entries = [
-    { label: "Compte", icon: UserRound },
-    { label: "Apparence", icon: Palette },
-    { label: "Notifications", icon: Bell },
-    { label: "Audio et vidéo", icon: Video },
-    { label: "Confidentialité", icon: ShieldCheck },
-  ];
-
-  return (
-    <>
-      <PanelTitle title="Réglages" />
-      <nav className="space-y-1 p-3">
-        {entries.map((entry, index) => (
-          <Link
-            key={entry.label}
-            href="/settings"
-            className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-100",
-              index === 0 && "bg-violet-500/10 text-violet-300"
-            )}
-          >
-            <entry.icon className="size-4" />
-            {entry.label}
-          </Link>
-        ))}
-      </nav>
-    </>
-  );
-}
-
 export function ContextPanel() {
   const pathname = usePathname();
 
@@ -828,7 +795,6 @@ export function ContextPanel() {
   if (pathname.startsWith("/calendar")) content = <CalendarPanel />;
   if (pathname.startsWith("/calls")) content = <CallsPanel />;
   if (pathname.startsWith("/drive")) content = <DrivePanel />;
-  if (pathname.startsWith("/settings")) content = <SettingsPanel />;
 
   return (
     <aside className="hidden h-full w-90 shrink-0 flex-col border-r border-white/7 bg-[#17191b] text-zinc-200 lg:flex">

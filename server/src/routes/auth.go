@@ -121,6 +121,23 @@ func (h *apiHandler) authMe(c *gin.Context) {
 	utils.Success(c, http.StatusOK, user)
 }
 
+func (h *apiHandler) changePassword(c *gin.Context) {
+	principal, _ := h.principal(c)
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	if err := h.deps.AuthService.ChangePassword(c.Request.Context(), principal, req.CurrentPassword, req.NewPassword, requestMetadata(c)); err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"updated": true})
+}
+
 func (h *apiHandler) listAuthSessions(c *gin.Context) {
 	principal, _ := h.principal(c)
 	items, err := h.deps.AuthService.ListSessions(c.Request.Context(), principal)

@@ -21,6 +21,12 @@ func NewRepositories(db *gorm.DB) *Repositories {
 }
 
 func (r *Repositories) Users() interfaces.UserRepository { return &userRepository{db: r.db} }
+func (r *Repositories) UserSettings() interfaces.UserSettingsRepository {
+	return &userSettingsRepository{db: r.db}
+}
+func (r *Repositories) NotificationPreferences() interfaces.NotificationPreferenceRepository {
+	return &notificationPreferenceRepository{db: r.db}
+}
 func (r *Repositories) LocalCredentials() interfaces.LocalCredentialRepository {
 	return &localCredentialRepository{db: r.db}
 }
@@ -116,6 +122,36 @@ func (r *userRepository) ListStale(ctx context.Context, before time.Time, limit 
 }
 func (r *userRepository) Update(ctx context.Context, user *models.User) error {
 	return r.db.WithContext(ctx).Save(user).Error
+}
+
+type userSettingsRepository struct{ db *gorm.DB }
+
+func (r *userSettingsRepository) GetByUserID(ctx context.Context, userID string) (*models.UserSettings, error) {
+	var item models.UserSettings
+	err := r.db.WithContext(ctx).First(&item, "user_id = ?", userID).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "USER_SETTINGS_NOT_FOUND", "The requested user settings were not found.", nil))
+}
+
+func (r *userSettingsRepository) Upsert(ctx context.Context, settings *models.UserSettings) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		UpdateAll: true,
+	}).Create(settings).Error
+}
+
+type notificationPreferenceRepository struct{ db *gorm.DB }
+
+func (r *notificationPreferenceRepository) GetByUserID(ctx context.Context, userID string) (*models.NotificationPreference, error) {
+	var item models.NotificationPreference
+	err := r.db.WithContext(ctx).First(&item, "user_id = ?", userID).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "NOTIFICATION_PREFERENCES_NOT_FOUND", "The requested notification preferences were not found.", nil))
+}
+
+func (r *notificationPreferenceRepository) Upsert(ctx context.Context, preference *models.NotificationPreference) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		UpdateAll: true,
+	}).Create(preference).Error
 }
 
 type localCredentialRepository struct{ db *gorm.DB }
