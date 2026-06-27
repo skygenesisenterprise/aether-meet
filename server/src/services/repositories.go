@@ -102,7 +102,7 @@ func (r *userRepository) GetByID(ctx context.Context, id string) (*models.User, 
 }
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	var user models.User
-	err := r.db.WithContext(ctx).First(&user, "email_normalized = ?", email).Error
+	err := r.db.WithContext(ctx).First(&user, "email_normalized = ? OR email = ?", email, email).Error
 	return &user, normalizeNotFound(err, utils.NewError(404, "USER_NOT_FOUND", "The requested user was not found.", nil))
 }
 func (r *userRepository) ListStale(ctx context.Context, before time.Time, limit int) ([]models.User, error) {

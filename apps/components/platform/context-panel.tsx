@@ -46,10 +46,13 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { conversations, currentUser, people, teams } from "@/lib/platform-data";
+import { currentUser, people, teams } from "@/lib/platform-data";
 import { notifications } from "@/lib/platform-notifications";
 import { useChatStore } from "@/lib/chat-store";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
+import { usePlatform } from "@/context/PlatformContext";
+import { getMembers } from "@/lib/api/chat-service";
+import type { ChatServiceDeps } from "@/lib/api/chat-service";
 
 interface PanelTitleProps {
   title: string;
@@ -75,8 +78,10 @@ function PanelTitle({ title, onCreate }: PanelTitleProps) {
 }
 
 function ChatPanel() {
+  const { activeWorkspaceId, currentUser } = usePlatform();
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const customConversations = useChatStore((s) => s.customConversations);
+  const conversations = useChatStore((s) => s.conversations);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const createConversation = useChatStore((s) => s.createConversation);
   const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
@@ -84,14 +89,46 @@ function ChatPanel() {
   const [conversationType, setConversationType] = React.useState<"dm" | "channel">("dm");
   const [groupName, setGroupName] = React.useState("");
   const [selectedMemberIds, setSelectedMemberIds] = React.useState<string[]>([]);
-  const availablePeople = people.filter((person) => person.id !== currentUser.id);
+  const [members, setMembers] = React.useState<Array<{ id: string; displayName: string; initials: string }>>([]);
+  const [memberSearch, setMemberSearch] = React.useState("");
+
+  const deps: ChatServiceDeps = React.useMemo(
+    () => ({ workspaceId: activeWorkspaceId, currentUser: currentUser ?? null }),
+    [activeWorkspaceId, currentUser]
+  );
+
+  React.useEffect(() => {
+    getMembers(deps).then((items) =>
+      setMembers(
+        items.map((m) => ({
+          ...m,
+          initials: m.displayName
+            .split(" ")
+            .map((p) => p[0] ?? "")
+            .join("")
+            .toUpperCase()
+            .slice(0, 2),
+        }))
+      )
+    );
+  }, [deps]);
+
+  const availableMembers = React.useMemo(() => {
+    const currentUserId = currentUser?.id ?? "";
+    return members.filter((m) => {
+      if (m.id === currentUserId) return false;
+      if (!memberSearch.trim()) return true;
+      return m.displayName.toLowerCase().includes(memberSearch.toLowerCase());
+    });
+  }, [members, currentUser, memberSearch]);
+
   const conversationList = React.useMemo(() => {
     const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
     return [
       ...customConversations,
       ...conversations.filter((conversation) => !customConversationIds.has(conversation.id)),
     ];
-  }, [customConversations]);
+  }, [conversations, customConversations]);
   const filteredConversations = React.useMemo(() => {
     if (activeFilter === "unread") {
       return conversationList.filter((conversation) => (conversation.unread ?? 0) > 0);
@@ -114,17 +151,18 @@ function ChatPanel() {
     setConversationType("dm");
     setGroupName("");
     setSelectedMemberIds([]);
+    setMemberSearch("");
   }
 
-  function handleCreateConversation() {
+  async function handleCreateConversation() {
     if (conversationType === "dm" && selectedMemberIds.length !== 1) return;
     if (conversationType === "channel" && (selectedMemberIds.length === 0 || !groupName.trim())) return;
 
-    createConversation({
+    await createConversation({
       type: conversationType,
       name: conversationType === "channel" ? groupName : undefined,
       memberIds: selectedMemberIds,
-    });
+    }, { workspaceId: activeWorkspaceId, currentUser: currentUser ?? null });
     setCreateOpen(false);
     resetDraft();
   }
@@ -231,11 +269,11 @@ function ChatPanel() {
           if (!open) resetDraft();
         }}
       >
-        <DialogContent className="border-white/12 bg-[#27282b] text-zinc-100 sm:max-w-md">
+        <DialogContent className="border-white/10 bg-[#1f2123] text-zinc-100 sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nouvelle conversation</DialogTitle>
-            <DialogDescription className="text-zinc-400">
-              Crée une conversation privée ou un groupe depuis le bouton `+`.
+            <DialogTitle className="text-base font-semibold">Nouvelle conversation</DialogTitle>
+            <DialogDescription className="text-zinc-500 text-xs">
+              Choisissez un type de conversation et sélectionnez les participants.
             </DialogDescription>
           </DialogHeader>
 
@@ -245,7 +283,10 @@ function ChatPanel() {
                 type="button"
                 variant={conversationType === "dm" ? "secondary" : "outline"}
                 size="sm"
-                className="rounded-md"
+                className={cn(
+                  "rounded-lg text-xs",
+                  conversationType === "dm" && "bg-violet-500/15 text-violet-200 border-violet-500/30"
+                )}
                 onClick={() => {
                   setConversationType("dm");
                   setGroupName("");
@@ -258,7 +299,10 @@ function ChatPanel() {
                 type="button"
                 variant={conversationType === "channel" ? "secondary" : "outline"}
                 size="sm"
-                className="rounded-md"
+                className={cn(
+                  "rounded-lg text-xs",
+                  conversationType === "channel" && "bg-violet-500/15 text-violet-200 border-violet-500/30"
+                )}
                 onClick={() => setConversationType("channel")}
               >
                 Groupe
@@ -266,8 +310,8 @@ function ChatPanel() {
             </div>
 
             {conversationType === "channel" && (
-              <div className="space-y-2">
-                <label htmlFor="group-name" className="text-sm font-medium text-zinc-200">
+              <div className="space-y-1.5">
+                <label htmlFor="group-name" className="text-xs font-medium text-zinc-300">
                   Nom du groupe
                 </label>
                 <Input
@@ -275,49 +319,72 @@ function ChatPanel() {
                   value={groupName}
                   onChange={(event) => setGroupName(event.target.value)}
                   placeholder="Ex. Squad lancement"
-                  className="border-white/10 bg-black/15"
+                  className="h-9 rounded-lg border-white/10 bg-black/20 text-sm placeholder:text-zinc-600"
                 />
               </div>
             )}
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-zinc-200">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-zinc-300">
                 {conversationType === "dm" ? "Choisir une personne" : "Ajouter des participants"}
               </p>
-              <div className="max-h-64 space-y-2 overflow-auto rounded-lg border border-white/10 bg-black/10 p-2">
-                {availablePeople.map((person) => {
-                  const checked = selectedMemberIds.includes(person.id);
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+                <Input
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="Rechercher…"
+                  className="h-8 rounded-lg border-white/10 bg-black/20 pl-8 text-xs placeholder:text-zinc-600"
+                />
+              </div>
+              <div className="max-h-56 space-y-0.5 overflow-auto rounded-lg border border-white/8 bg-black/15 p-1.5">
+                {availableMembers.length > 0 ? (
+                  availableMembers.map((member) => {
+                    const checked = selectedMemberIds.includes(member.id);
 
-                  return (
-                    <label
-                      key={person.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-white/5"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => {
-                          if (conversationType === "dm") {
-                            setSelectedMemberIds(checked ? [] : [person.id]);
-                            return;
-                          }
-
-                          toggleMember(person.id);
-                        }}
-                      />
-                      <PresenceAvatar initials={person.initials} status={person.status} className="size-8" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium text-zinc-100">{person.name}</span>
-                        <span className="block text-xs text-zinc-400">{person.role}</span>
-                      </span>
-                    </label>
-                  );
-                })}
+                    return (
+                      <label
+                        key={member.id}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-white/5",
+                          checked && "bg-violet-500/10"
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          className={cn(checked && "border-violet-400 text-violet-400")}
+                          onCheckedChange={() => {
+                            if (conversationType === "dm") {
+                              setSelectedMemberIds(checked ? [] : [member.id]);
+                              return;
+                            }
+                            toggleMember(member.id);
+                          }}
+                        />
+                        <PresenceAvatar initials={member.initials} status="online" className="size-7" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-zinc-200">
+                            {member.displayName}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <div className="flex items-center justify-center py-6 text-xs text-zinc-500">
+                    Aucun membre trouvé
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setCreateOpen(false)}
+              className="rounded-lg border-white/10 text-xs"
+            >
               Annuler
             </Button>
             <Button
@@ -327,6 +394,7 @@ function ChatPanel() {
                   ? selectedMemberIds.length !== 1
                   : selectedMemberIds.length === 0 || !groupName.trim()
               }
+              className="rounded-lg bg-violet-500/90 text-xs hover:bg-violet-500 disabled:opacity-40"
             >
               Créer
             </Button>
@@ -735,7 +803,7 @@ function SettingsPanel() {
         {entries.map((entry, index) => (
           <Link
             key={entry.label}
-            href="/setings"
+            href="/settings"
             className={cn(
               "flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-100",
               index === 0 && "bg-violet-500/10 text-violet-300"
@@ -760,7 +828,7 @@ export function ContextPanel() {
   if (pathname.startsWith("/calendar")) content = <CalendarPanel />;
   if (pathname.startsWith("/calls")) content = <CallsPanel />;
   if (pathname.startsWith("/drive")) content = <DrivePanel />;
-  if (pathname.startsWith("/setings")) content = <SettingsPanel />;
+  if (pathname.startsWith("/settings")) content = <SettingsPanel />;
 
   return (
     <aside className="hidden h-full w-90 shrink-0 flex-col border-r border-white/7 bg-[#17191b] text-zinc-200 lg:flex">

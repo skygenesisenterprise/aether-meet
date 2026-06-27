@@ -36,6 +36,19 @@ export interface ForgotPasswordPayload {
   email: string;
 }
 
+export interface ResetPasswordPayload {
+  token: string;
+  password: string;
+}
+
+export interface VerifyEmailPayload {
+  token: string;
+}
+
+export interface ResendVerificationPayload {
+  email: string;
+}
+
 export function configureAccessTokenProvider(provider: AccessTokenProvider): void {
   accessTokenProvider = provider;
 }
@@ -44,7 +57,7 @@ export function getAccessTokenProvider(): AccessTokenProvider {
   if (!accessTokenProvider) {
     accessTokenProvider = memoryTokenProvider;
   }
-  return accessTokenProvider
+  return accessTokenProvider;
 }
 
 export function getStoredAccessToken(): string | null {
@@ -72,6 +85,8 @@ export async function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
     refreshPromise = apiRequest<TokenResponse>("/auth/refresh", {
       method: "POST",
+      skipAuth: true,
+      skipRefresh: true,
     })
       .then((response) => {
         accessToken = response.accessToken;
@@ -107,6 +122,8 @@ export const authApi = {
     const response = await apiRequest<TokenResponse, LoginPayload>("/auth/login", {
       method: "POST",
       body: payload,
+      skipAuth: true,
+      skipRefresh: true,
     });
     accessToken = response.accessToken;
     currentUser = response.user;
@@ -116,6 +133,8 @@ export const authApi = {
     const response = await apiRequest<TokenResponse, RegisterPayload>("/auth/register", {
       method: "POST",
       body: payload,
+      skipAuth: true,
+      skipRefresh: true,
     });
     accessToken = response.accessToken;
     currentUser = response.user;
@@ -125,6 +144,7 @@ export const authApi = {
     try {
       await apiRequest<{ loggedOut: boolean }>("/auth/logout", {
         method: "POST",
+        skipRefresh: true,
       });
     } finally {
       accessToken = null;
@@ -150,6 +170,32 @@ export const authApi = {
     return apiRequest<{ accepted: boolean }, ForgotPasswordPayload>("/auth/forgot-password", {
       method: "POST",
       body: payload,
+      skipAuth: true,
+      skipRefresh: true,
+    });
+  },
+  async resetPassword(payload: ResetPasswordPayload): Promise<{ accepted: boolean }> {
+    return apiRequest<{ accepted: boolean }, ResetPasswordPayload>("/auth/reset-password", {
+      method: "POST",
+      body: payload,
+      skipAuth: true,
+      skipRefresh: true,
+    });
+  },
+  async verifyEmail(payload: VerifyEmailPayload): Promise<{ accepted: boolean }> {
+    return apiRequest<{ accepted: boolean }, VerifyEmailPayload>("/auth/verify-email", {
+      method: "POST",
+      body: payload,
+      skipAuth: true,
+      skipRefresh: true,
+    });
+  },
+  async resendVerification(payload: ResendVerificationPayload): Promise<{ accepted: boolean }> {
+    return apiRequest<{ accepted: boolean }, ResendVerificationPayload>("/auth/resend-verification", {
+      method: "POST",
+      body: payload,
+      skipAuth: true,
+      skipRefresh: true,
     });
   },
   async listSessions(): Promise<AuthSessionInfo[]> {

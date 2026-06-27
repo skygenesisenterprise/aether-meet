@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
     ports:
       - 8080:8080
-    command: all
+    command: air
     environment:
       NODE_ENV: development
       USE_EMBEDDED_DB: "false"
@@ -141,6 +141,12 @@ services:
       WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
       WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
     volumes:
+      - ./server:/app/server
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./entrypoint.sh:/entrypoint.sh
+      - ./.air.toml:/app/.air.toml
+      - gopkg:/go/pkg
       - media:/media
       - certs:/certs
       - custom-templates:/templates
@@ -212,6 +218,7 @@ services:
 volumes:
   database:
   redis:
+  gopkg:
   media:
   certs:
   custom-templates:

@@ -538,6 +538,25 @@ run_all() {
     exec "${backend_binary}" all "$@"
 }
 
+run_air() {
+    configure_runtime
+
+    log_info "Aether Meet air (hot-reload) starting"
+
+    if ! run_prisma_schema_deploy; then
+        if [ "${ALLOW_MIGRATION_FAILURE}" = "true" ]; then
+            log_warn "Prisma schema deployment failed; continuing because ALLOW_MIGRATION_FAILURE=true"
+        else
+            log_error "Prisma schema deployment failed"
+            return 1
+        fi
+    fi
+
+    log_info "Starting air for Go hot-reload"
+    cd /app
+    exec air "$@"
+}
+
 run_webrtc() {
     configure_runtime
 
@@ -594,6 +613,10 @@ case "${role}" in
     scheduler)
         shift || true
         run_scheduler "$@"
+        ;;
+    air)
+        shift || true
+        run_air "$@"
         ;;
     all)
         shift || true

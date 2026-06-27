@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { AppWindow, MoreHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { conversations, platformNavItems } from "@/lib/platform-data";
+import { platformNavItems } from "@/lib/platform-data";
 import { useChatStore } from "@/lib/chat-store";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -61,6 +61,7 @@ function DesktopNavLink({
 export function AdminSidebar() {
   const pathname = usePathname();
   const customConversations = useChatStore((s) => s.customConversations);
+  const conversations = useChatStore((s) => s.conversations);
   const chatUnreadCount = React.useMemo(() => {
     const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
     const mergedConversations = [
@@ -69,7 +70,7 @@ export function AdminSidebar() {
     ];
 
     return mergedConversations.reduce((total, conversation) => total + (conversation.unread ?? 0), 0);
-  }, [customConversations]);
+  }, [conversations, customConversations]);
   const navItems = React.useMemo(
     () =>
       platformNavItems.map((item) =>

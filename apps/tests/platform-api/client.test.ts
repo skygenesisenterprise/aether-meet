@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { configureAccessTokenProvider } from "../../lib/api/auth.ts";
+import { clearStoredTokens, configureAccessTokenProvider, getStoredAccessToken, setStoredAccessToken } from "../../lib/api/auth.ts";
 import { apiListRequest, apiRequest } from "../../lib/api/client.ts";
 import { ApiError } from "../../lib/api/errors.ts";
 import { createMeetingJoinToken } from "../../lib/api/meetings.ts";
@@ -10,9 +10,10 @@ const originalFetch = globalThis.fetch;
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  clearStoredTokens();
   configureAccessTokenProvider({
     async getAccessToken() {
-      return null;
+      return getStoredAccessToken();
     },
   });
 });
@@ -86,6 +87,120 @@ test("apiRequest normalizes HTTP errors", async () => {
       error.code === "WORKSPACE_NOT_FOUND" &&
       error.requestId === "req-404"
   );
+});
+
+test("apiRequest skips auth header and refresh when configured", async () => {
+  let getAccessTokenCalls = 0;
+  let refreshCalls = 0;
+
+  configureAccessTokenProvider({
+    async getAccessToken() {
+      getAccessTokenCalls += 1;
+      return "should-not-be-used";
+    },
+    async refreshAccessToken() {
+      refreshCalls += 1;
+      return "unexpected-refresh";
+    },
+  });
+
+  globalThis.fetch = async (_, init) => {
+    const headers = init?.headers as Headers;
+    assert.equal(headers.get("authorization"), null);
+
+    return new Response(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "nope" } }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await assert.rejects(() =>
+    apiRequest("/auth/login", {
+      method: "POST",
+      skipAuth: true,
+      skipRefresh: true,
+    })
+  );
+
+  assert.equal(getAccessTokenCalls, 0);
+  assert.equal(refreshCalls, 0);
+});
+
+test("apiRequest retries a protected request once after refresh", async () => {
+  let refreshCalls = 0;
+  let protectedCalls = 0;
+
+  configureAccessTokenProvider({
+    async getAccessToken() {
+      return getStoredAccessToken();
+    },
+    async refreshAccessToken() {
+      refreshCalls += 1;
+      setStoredAccessToken("access-2");
+      return "access-2";
+    },
+  });
+
+  setStoredAccessToken("access-1");
+
+  globalThis.fetch = async (_, init) => {
+    protectedCalls += 1;
+    const headers = init?.headers as Headers;
+
+    if (protectedCalls === 1) {
+      assert.equal(headers.get("authorization"), "Bearer access-1");
+      return new Response(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "expired" } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    assert.equal(headers.get("authorization"), "Bearer access-2");
+    return new Response(JSON.stringify({ data: { ok: true } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  const response = await apiRequest<{ ok: boolean }>("/me");
+
+  assert.deepEqual(response, { ok: true });
+  assert.equal(refreshCalls, 1);
+  assert.equal(protectedCalls, 2);
+});
+
+test("apiRequest stops after a second 401 following refresh", async () => {
+  let refreshCalls = 0;
+  let protectedCalls = 0;
+
+  configureAccessTokenProvider({
+    async getAccessToken() {
+      return getStoredAccessToken();
+    },
+    async refreshAccessToken() {
+      refreshCalls += 1;
+      setStoredAccessToken("access-2");
+      return "access-2";
+    },
+  });
+
+  setStoredAccessToken("access-1");
+
+  globalThis.fetch = async () => {
+    protectedCalls += 1;
+    return new Response(JSON.stringify({ error: { code: "UNAUTHORIZED", message: "still expired" } }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  await assert.rejects(
+    () => apiRequest("/me"),
+    (error: unknown) => error instanceof ApiError && error.status === 401 && error.code === "UNAUTHORIZED"
+  );
+
+  assert.equal(refreshCalls, 1);
+  assert.equal(protectedCalls, 2);
 });
 
 test("meeting join token rejects private signaling URLs in production", async () => {

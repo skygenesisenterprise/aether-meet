@@ -35,21 +35,25 @@ import { MessageComposer, type MessageComposerHandle } from "@/components/platfo
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { useChatStore } from "@/lib/chat-store";
 import {
-  conversations,
-  conversationMessages,
-  currentUser,
-  mockConversationMessages,
+  currentUser as mockCurrentUser,
   people,
   type Person,
 } from "@/lib/platform-data";
+import { usePlatform } from "@/context/PlatformContext";
 import { cn } from "@/lib/utils";
 
 export default function ChatPage() {
   const router = useRouter();
+  const { currentUser: apiUser, activeWorkspaceId } = usePlatform();
+  const currentUser = apiUser ?? mockCurrentUser;
   const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const conversations = useChatStore((s) => s.conversations);
+  const messages = useChatStore((s) => s.messages);
   const customConversations = useChatStore((s) => s.customConversations);
   const customMessages = useChatStore((s) => s.customMessages);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const loadChatData = useChatStore((s) => s.loadChatData);
+  const loadMessages = useChatStore((s) => s.loadMessages);
   const composerRef = React.useRef<MessageComposerHandle | null>(null);
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
@@ -60,16 +64,15 @@ export default function ChatPage() {
       ...customConversations,
       ...conversations.filter((conversation) => !customConversationIds.has(conversation.id)),
     ];
-  }, [customConversations]);
+  }, [conversations, customConversations]);
   const conversation =
     activeConversationId === null
       ? null
       : allConversations.find((item) => item.id === activeConversationId) ?? null;
-  const messages =
+  const conversationMessages =
     conversation && activeConversationId
       ? [
-          ...(customMessages[activeConversationId] ?? conversationMessages[activeConversationId] ?? []),
-          ...(mockConversationMessages[activeConversationId] ?? []),
+          ...(customMessages[activeConversationId] ?? messages[activeConversationId] ?? []),
         ]
       : [];
   const [callMode, setCallMode] = React.useState<"audio" | "video" | null>(null);
@@ -106,6 +109,16 @@ export default function ChatPage() {
       : `${callMode === "video" ? "Réunion vidéo" : "Appel de groupe"} dans ${conversation?.name ?? ""}.`;
 
   React.useEffect(() => {
+    loadChatData({ workspaceId: activeWorkspaceId, currentUser: apiUser ?? null });
+  }, [activeWorkspaceId, apiUser, loadChatData]);
+
+  React.useEffect(() => {
+    if (activeConversationId) {
+      loadMessages(activeConversationId, { workspaceId: activeWorkspaceId, currentUser: apiUser ?? null });
+    }
+  }, [activeConversationId, activeWorkspaceId, apiUser, loadMessages]);
+
+  React.useEffect(() => {
     if (!conversation) return;
 
     const frame = window.requestAnimationFrame(() => {
@@ -120,7 +133,7 @@ export default function ChatPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [conversation, activeConversationId, messages.length]);
+  }, [conversation, activeConversationId, conversationMessages.length]);
 
   function hasFiles(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) return false;
@@ -240,10 +253,10 @@ export default function ChatPage() {
                 <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span className="h-px flex-1 bg-white/10" />
-                    {messages.length > 0 ? "Aujourd’hui" : "Aucun message"}
+                    {conversationMessages.length > 0 ? "Aujourd’hui" : "Aucun message"}
                     <span className="h-px flex-1 bg-white/10" />
                   </div>
-                  {messages.map((message) => {
+                  {conversationMessages.map((message) => {
                     const isOwnMessage = message.authorId === currentUser.id;
                     const author = peopleById.get(message.authorId);
 
@@ -332,7 +345,7 @@ export default function ChatPage() {
                 <MessageComposer
                   ref={composerRef}
                   placeholder={`Écrire un message à ${conversation.name}`}
-                  onSend={(message) => sendMessage(conversation.id, message)}
+                  onSend={(message) => sendMessage(conversation.id, message, { workspaceId: activeWorkspaceId, currentUser: apiUser ?? null })}
                 />
               </div>
             </div>

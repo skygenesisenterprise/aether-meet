@@ -19,6 +19,7 @@ func (LocalCredential) TableName() string {
 
 type AuthSession struct {
 	Common
+	TokenHash            string     `gorm:"column:token_hash;type:text;uniqueIndex;not null" json:"-"`
 	UserID               string     `gorm:"column:user_id;type:text;index;not null" json:"userId"`
 	WorkspaceID          *string    `gorm:"column:workspace_id;type:text;index" json:"workspaceId,omitempty"`
 	RefreshTokenHash     string     `gorm:"column:refresh_token_hash;type:text;index;not null" json:"-"`

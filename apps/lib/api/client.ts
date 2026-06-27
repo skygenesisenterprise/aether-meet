@@ -12,6 +12,8 @@ export interface ApiRequestOptions<TBody = unknown> {
   workspaceId?: string;
   timeoutMs?: number;
   retry?: number;
+  skipAuth?: boolean;
+  skipRefresh?: boolean;
 }
 
 function mergeSignals(signal?: AbortSignal, timeoutMs = getRequestTimeoutMs()): AbortSignal {
@@ -100,7 +102,7 @@ async function fetchWithAuth<TResponse, TBody>(
   attempt = 0
 ): Promise<TResponse> {
   const provider = getAccessTokenProvider();
-  const token = await provider.getAccessToken();
+  const token = options.skipAuth ? null : await provider.getAccessToken();
   const signal = mergeSignals(options.signal, options.timeoutMs);
   const body = toJsonBody(options.body);
   const headers = new Headers(options.headers ?? {});
@@ -143,7 +145,7 @@ async function fetchWithAuth<TResponse, TBody>(
 
   const payload = await parseResponse(response);
 
-  if (response.status === 401 && attempt === 0 && provider.refreshAccessToken) {
+  if (response.status === 401 && attempt === 0 && !options.skipRefresh && provider.refreshAccessToken) {
     const refreshedToken = await provider.refreshAccessToken();
     if (refreshedToken) {
       return fetchWithAuth(url, options, attempt + 1);
@@ -186,11 +188,12 @@ export async function apiRequest<TResponse, TBody = unknown>(
 
 export async function apiListRequest<TItem, TBody = never>(
   path: string,
-  options: ApiRequestOptions<TBody> = {}
+  options: ApiRequestOptions<TBody> = {},
+  attempt = 0
 ): Promise<PaginatedResponse<TItem>> {
   const url = path.startsWith("http://") || path.startsWith("https://") ? path : joinApiPath(path);
   const provider = getAccessTokenProvider();
-  const token = await provider.getAccessToken();
+  const token = options.skipAuth ? null : await provider.getAccessToken();
   const signal = mergeSignals(options.signal, options.timeoutMs);
   const headers = new Headers(options.headers ?? {});
 
@@ -205,6 +208,14 @@ export async function apiListRequest<TItem, TBody = never>(
     credentials: "include",
     headers,
   });
+
+  if (response.status === 401 && attempt === 0 && !options.skipRefresh && provider.refreshAccessToken) {
+    const refreshedToken = await provider.refreshAccessToken();
+    if (refreshedToken) {
+      return apiListRequest(path, options, attempt + 1);
+    }
+  }
+
   const payload = (await parseResponse(response)) as ApiListEnvelope<TItem> | ApiFailureEnvelope | null;
 
   if (!response.ok) {

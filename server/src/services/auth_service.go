@@ -296,6 +296,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string, meta Req
 		if err := txRepos.AuthRefreshTokens().Create(ctx, next); err != nil {
 			return err
 		}
+		session.TokenHash = nextHash
 		session.RefreshTokenHash = nextHash
 		session.LastUsedAt = now
 		session.UserAgent = stringPtr(meta.UserAgent)
@@ -457,6 +458,7 @@ func (s *AuthService) createAuthenticatedSession(ctx context.Context, user *mode
 	}
 	session := &models.AuthSession{
 		Common:               models.Common{ID: utils.NewID(), CreatedAt: now, UpdatedAt: now},
+		TokenHash:            refreshHash,
 		UserID:               user.ID,
 		WorkspaceID:          workspaceID,
 		RefreshTokenHash:     refreshHash,

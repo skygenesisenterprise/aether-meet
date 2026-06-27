@@ -1,4 +1,4 @@
-.PHONY: help build build-app build-server build-dev build-cloud run-app run-server run-dev run-prod stop clean prune rmi-dev dev-up dev-down dev-logs
+.PHONY: help build build-app build-server build-dev build-cloud run-app run-server run-dev run-prod stop clean prune rmi-dev dev-up dev-up-fast dev-down dev-logs
 
 APP_NAME := aethermeet
 
@@ -17,7 +17,8 @@ help:
 	@echo "  clean         - Remove build artifacts"
 	@echo "  prune         - Clean up Docker system"
 	@echo "  rmi-dev       - Remove dev image and container"
-	@echo "  dev-up        - Start dev environment (docker-compose)"
+	@echo "  dev-up        - Start dev environment (docker-compose, rebuild)"
+	@echo "  dev-up-fast   - Start dev environment (docker-compose, no rebuild)"
 	@echo "  dev-down      - Stop dev environment"
 	@echo "  dev-logs      - View dev environment logs"
 	@echo "  cloud-up      - Start cloud environment (docker-compose)"
@@ -69,6 +70,9 @@ rmi-dev:
 
 dev-up:
 	docker compose -f docker-compose.dev.yml up -d --build
+
+dev-up-fast:
+	docker compose -f docker-compose.dev.yml up -d
 
 dev-down:
 	docker compose -f docker-compose.dev.yml down

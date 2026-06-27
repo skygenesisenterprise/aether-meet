@@ -95,7 +95,7 @@ export const platformNavItems: PlatformNavItem[] = [
   { label: "Documents", href: "/documents", icon: FileText },
   { label: "Contacts", href: "/contacts", icon: ContactRound },
   { label: "Ressources", href: "/resources", icon: BookOpenText },
-  { label: "Réglages", href: "/setings", icon: Settings2 },
+  { label: "Réglages", href: "/settings", icon: Settings2 },
 ];
 
 export const people: Person[] = [

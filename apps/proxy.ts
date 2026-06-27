@@ -44,7 +44,7 @@ const PLATFORM_PATHS = [
   "/chat",
   "/drive",
   "/notifications",
-  "/setings",
+  "/settings",
   "/teams",
 ];
 const NO_LOCALE_PATHS = ["/pgp", "/discord", "/dashboard", "/user", ...PLATFORM_PATHS];
