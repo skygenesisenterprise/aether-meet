@@ -1,4 +1,4 @@
-import { authApi, getAccessTokenProvider } from "@/lib/api/auth";
+import { getAccessTokenProvider } from "@/lib/api/auth";
 import { getApiBaseUrl, getRequestTimeoutMs, joinApiPath } from "@/lib/api/config";
 import { ApiError, classifyApiError } from "@/lib/api/errors";
 import type { ApiFailureEnvelope, ApiListEnvelope, ApiMeta, ApiSuccessEnvelope, PaginatedResponse } from "@/lib/api/types";
@@ -244,5 +244,3 @@ export const footerLinksApi = {
     return apiRequest<{ success: boolean; data?: FooterLink[] }>(`/footer-links${suffix}`);
   },
 };
-
-export { authApi };

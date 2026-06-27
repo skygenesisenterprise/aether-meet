@@ -7,17 +7,12 @@ import { useEffect } from "react";
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
-  const isDevelopment = process.env.NODE_ENV === "development";
 
   useEffect(() => {
-    if (!isDevelopment && !isLoading && !isAuthenticated) {
+    if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
-  }, [isAuthenticated, isDevelopment, isLoading, router]);
-
-  if (isDevelopment) {
-    return <>{children}</>;
-  }
+  }, [isAuthenticated, isLoading, router]);
 
   if (isLoading) {
     return (

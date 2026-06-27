@@ -15,6 +15,7 @@ type JWTIdentityProvider struct {
 	issuer string
 	secret []byte
 	ttl    time.Duration
+	repos  *Repositories
 }
 
 type principalClaims struct {
@@ -25,11 +26,12 @@ type principalClaims struct {
 	jwt.RegisteredClaims
 }
 
-func NewIdentityProvider(cfg config.AuthConfig) interfaces.IdentityProvider {
+func NewIdentityProvider(cfg config.AuthConfig, repos *Repositories) interfaces.IdentityProvider {
 	return &JWTIdentityProvider{
 		issuer: cfg.JWTIssuer,
 		secret: []byte(cfg.JWTSecret),
 		ttl:    cfg.JWTAccessTTL,
+		repos:  repos,
 	}
 }
 
@@ -44,8 +46,20 @@ func (p *JWTIdentityProvider) Authenticate(_ context.Context, token string) (*in
 	if err != nil || !parsed.Valid {
 		return nil, utils.ErrUnauthorized
 	}
-	if claims.Subject == "" {
+	if claims.Subject == "" || claims.Issuer != p.issuer || claims.ExpiresAt == nil || claims.ExpiresAt.Time.Before(time.Now().UTC()) {
 		return nil, utils.ErrUnauthorized
+	}
+	if claims.SessionID != "" && p.repos != nil {
+		session, err := p.repos.AuthSessions().GetByID(context.Background(), claims.SessionID)
+		if err != nil {
+			return nil, utils.ErrSessionRevoked
+		}
+		if session.RevokedAt != nil {
+			return nil, utils.ErrSessionRevoked
+		}
+		if session.ExpiresAt.Before(time.Now().UTC()) {
+			return nil, utils.ErrSessionExpired
+		}
 	}
 	return &interfaces.Principal{
 		UserID:      claims.Subject,
@@ -71,6 +85,7 @@ func (p *JWTIdentityProvider) IssueToken(_ context.Context, principal interfaces
 			Issuer:    p.issuer,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(p.ttl)),
+			ID:        utils.NewID(),
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(p.secret)

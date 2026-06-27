@@ -99,6 +99,30 @@ func (s *OutboxService) dispatch(ctx context.Context, item models.OutboxEvent) e
 			Payload:     item.Payload,
 		})
 		return err
+	case "auth.email_verification.requested":
+		_, err := s.producer.EnqueueJob(ctx, "maintenance", "auth.email_verification.requested", nil, interfaces.JobOptions{
+			WorkspaceID: item.WorkspaceID,
+			Payload:     item.Payload,
+		})
+		return err
+	case "auth.password_reset.requested":
+		_, err := s.producer.EnqueueJob(ctx, "maintenance", "auth.password_reset.requested", nil, interfaces.JobOptions{
+			WorkspaceID: item.WorkspaceID,
+			Payload:     item.Payload,
+		})
+		return err
+	case "auth.session.revoked":
+		_, err := s.producer.EnqueueJob(ctx, "maintenance", "auth.session.revoked", nil, interfaces.JobOptions{
+			WorkspaceID: item.WorkspaceID,
+			Payload:     item.Payload,
+		})
+		return err
+	case "auth.audit.persist":
+		_, err := s.producer.EnqueueJob(ctx, "maintenance", "auth.audit.persist", nil, interfaces.JobOptions{
+			WorkspaceID: item.WorkspaceID,
+			Payload:     item.Payload,
+		})
+		return err
 	case "meeting.started", "meeting.ended", "meeting.cancelled",
 		"meeting.session.created", "meeting.session.started", "meeting.session.ended",
 		"meeting.participant.joined", "meeting.participant.left",

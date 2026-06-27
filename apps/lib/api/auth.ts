@@ -1,102 +1,40 @@
-import { getMe } from "@/lib/api/me";
-import type { TokenResponse, User } from "@/lib/api/types";
+import { apiListRequest, apiRequest } from "@/lib/api/client";
+import type { AuthSessionInfo, TokenResponse, User } from "@/lib/api/types";
 
 export interface AccessTokenProvider {
   getAccessToken(): Promise<string | null>;
   refreshAccessToken?(): Promise<string | null>;
 }
 
-const ACCESS_TOKEN_KEY = "accessToken";
-const REFRESH_TOKEN_KEY = "refreshToken";
-const USER_KEY = "user";
-const IDENTITY_BASE_URL = process.env.NEXT_PUBLIC_IDENTITY_API_URL?.replace(/\/$/, "");
-
+let accessToken: string | null = null;
+let currentUser: User | null = null;
+let refreshPromise: Promise<string | null> | null = null;
 let accessTokenProvider: AccessTokenProvider | null = null;
 
-function readStorageItem(key: string): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.localStorage.getItem(key);
-}
-
-function writeStorageItem(key: string, value: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(key, value);
-}
-
-function removeStorageItem(key: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.removeItem(key);
-}
-
-async function requestIdentity<T>(path: string, init: RequestInit): Promise<T> {
-  if (!IDENTITY_BASE_URL) {
-    throw new Error("Identity API URL is not configured.");
-  }
-
-  const response = await fetch(`${IDENTITY_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-
-  const payload = (await response.json().catch(() => null)) as T | null;
-  if (!response.ok) {
-    throw new Error(`Identity request failed with status ${response.status}`);
-  }
-
-  return payload as T;
-}
-
-interface AuthApiResponse<TData> {
-  success: boolean;
-  data?: TData;
-  error?: string;
-}
-
-const localStorageTokenProvider: AccessTokenProvider = {
+const memoryTokenProvider: AccessTokenProvider = {
   async getAccessToken() {
-    return readStorageItem(ACCESS_TOKEN_KEY);
+    return accessToken;
   },
   async refreshAccessToken() {
-    const refreshToken = readStorageItem(REFRESH_TOKEN_KEY);
-    if (!refreshToken) {
-      return null;
-    }
-
-    try {
-      const response = await requestIdentity<{
-        data?: { accessToken?: string; refreshToken?: string };
-      }>("/oauth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      const nextAccessToken = response.data?.accessToken ?? null;
-      if (!nextAccessToken) {
-        clearStoredTokens();
-        return null;
-      }
-
-      storeTokens(nextAccessToken, response.data?.refreshToken ?? refreshToken);
-      return nextAccessToken;
-    } catch {
-      clearStoredTokens();
-      return null;
-    }
+    return refreshAccessToken();
   },
 };
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface RegisterPayload {
+  displayName: string;
+  email: string;
+  password: string;
+  workspaceName?: string;
+}
+
+export interface ForgotPasswordPayload {
+  email: string;
+}
 
 export function configureAccessTokenProvider(provider: AccessTokenProvider): void {
   accessTokenProvider = provider;
@@ -104,100 +42,130 @@ export function configureAccessTokenProvider(provider: AccessTokenProvider): voi
 
 export function getAccessTokenProvider(): AccessTokenProvider {
   if (!accessTokenProvider) {
-    accessTokenProvider = localStorageTokenProvider;
+    accessTokenProvider = memoryTokenProvider;
   }
-
-  return accessTokenProvider;
+  return accessTokenProvider
 }
 
 export function getStoredAccessToken(): string | null {
-  return readStorageItem(ACCESS_TOKEN_KEY);
-}
-
-export function getStoredRefreshToken(): string | null {
-  return readStorageItem(REFRESH_TOKEN_KEY);
-}
-
-export function storeTokens(accessToken: string, refreshToken: string): void {
-  if (accessToken) {
-    writeStorageItem(ACCESS_TOKEN_KEY, accessToken);
-  }
-
-  if (refreshToken) {
-    writeStorageItem(REFRESH_TOKEN_KEY, refreshToken);
-  }
+  return accessToken;
 }
 
 export function clearStoredTokens(): void {
-  removeStorageItem(ACCESS_TOKEN_KEY);
-  removeStorageItem(REFRESH_TOKEN_KEY);
+  accessToken = null;
+  currentUser = null;
+}
+
+export function setStoredAccessToken(nextToken: string | null): void {
+  accessToken = nextToken;
 }
 
 export function getStoredUser(): User | null {
-  const raw = readStorageItem(USER_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as User;
-  } catch {
-    return null;
-  }
+  return currentUser;
 }
 
-export function storeUser(user: User): void {
-  writeStorageItem(USER_KEY, JSON.stringify(user));
+export function storeUser(user: User | null): void {
+  currentUser = user;
 }
 
-export function clearStoredUser(): void {
-  removeStorageItem(USER_KEY);
-}
-
-export async function resolveAuthenticatedUser(): Promise<User | null> {
-  const token = await getAccessTokenProvider().getAccessToken();
-  if (!token) {
-    return null;
+export async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = apiRequest<TokenResponse>("/auth/refresh", {
+      method: "POST",
+    })
+      .then((response) => {
+        accessToken = response.accessToken;
+        currentUser = response.user;
+        return response.accessToken;
+      })
+      .catch(() => {
+        accessToken = null;
+        currentUser = null;
+        return null;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
   }
-
-  const user = await getMe();
-  storeUser(user);
-  return user;
+  return refreshPromise;
 }
 
 export const authApi = {
-  login(email: string, password: string) {
-    return requestIdentity<AuthApiResponse<TokenResponse>>("/oauth/token", {
+  async bootstrap(): Promise<User | null> {
+    const nextToken = await refreshAccessToken();
+    if (!nextToken) {
+      return null;
+    }
+    if (currentUser) {
+      return currentUser;
+    }
+    const user = await apiRequest<User>("/auth/me");
+    currentUser = user;
+    return user;
+  },
+  async login(payload: LoginPayload): Promise<TokenResponse> {
+    const response = await apiRequest<TokenResponse, LoginPayload>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: payload,
+    });
+    accessToken = response.accessToken;
+    currentUser = response.user;
+    return response;
+  },
+  async register(payload: RegisterPayload): Promise<TokenResponse> {
+    const response = await apiRequest<TokenResponse, RegisterPayload>("/auth/register", {
+      method: "POST",
+      body: payload,
+    });
+    accessToken = response.accessToken;
+    currentUser = response.user;
+    return response;
+  },
+  async logout(): Promise<void> {
+    try {
+      await apiRequest<{ loggedOut: boolean }>("/auth/logout", {
+        method: "POST",
+      });
+    } finally {
+      accessToken = null;
+      currentUser = null;
+    }
+  },
+  async logoutAll(exceptCurrent = false): Promise<void> {
+    await apiRequest<{ loggedOut: boolean }, { exceptCurrent: boolean }>("/auth/logout-all", {
+      method: "POST",
+      body: { exceptCurrent },
+    });
+    if (!exceptCurrent) {
+      accessToken = null;
+      currentUser = null;
+    }
+  },
+  async getCurrentUser(): Promise<User> {
+    const user = await apiRequest<User>("/auth/me");
+    currentUser = user;
+    return user;
+  },
+  async forgotPassword(payload: ForgotPasswordPayload): Promise<{ accepted: boolean }> {
+    return apiRequest<{ accepted: boolean }, ForgotPasswordPayload>("/auth/forgot-password", {
+      method: "POST",
+      body: payload,
     });
   },
-  register(input: { email: string; password: string; firstName?: string; lastName?: string }) {
-    return requestIdentity<AuthApiResponse<unknown>>("/oauth/register", {
-      method: "POST",
-      body: JSON.stringify(input),
+  async listSessions(): Promise<AuthSessionInfo[]> {
+    const response = await apiListRequest<AuthSessionInfo>("/auth/sessions");
+    return response.data;
+  },
+  async revokeSession(sessionId: string): Promise<void> {
+    await apiRequest<{ deleted: boolean }>(`/auth/sessions/${sessionId}`, {
+      method: "DELETE",
     });
-  },
-  logout() {
-    return IDENTITY_BASE_URL
-      ? requestIdentity<AuthApiResponse<unknown>>("/oauth/logout", { method: "POST" })
-      : Promise.resolve({ success: true });
-  },
-  refreshToken(refreshToken: string) {
-    return requestIdentity<AuthApiResponse<Partial<TokenResponse>>>("/oauth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken }),
-    });
-  },
-  getAccount() {
-    return getMe().then((user) => ({ success: true, data: { user } }));
   },
   getStoredToken: getStoredAccessToken,
-  storeTokens,
   clearTokens: clearStoredTokens,
+  setStoredAccessToken,
   getStoredUser,
   storeUser,
-  clearUser: clearStoredUser,
 };
 
 export type { TokenResponse };

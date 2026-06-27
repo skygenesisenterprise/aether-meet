@@ -25,6 +25,7 @@ type Dependencies struct {
 	Redis               *redisclient.Client
 	EventBus            interfaces.EventBus
 	IdentityProvider    interfaces.IdentityProvider
+	AuthService         *services.AuthService
 	Hub                 *services.Hub
 	UserService         *services.UserService
 	WorkspaceService    *services.WorkspaceService
@@ -51,6 +52,25 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 	api.GET("/ready", handler.ready)
 	api.POST("/internal/webrtc/livekit/webhook", handler.livekitWebhook)
 	api.POST("/webhooks/:provider/:integrationId", handler.webhook)
+	auth := api.Group("/auth")
+	{
+		auth.POST("/register", handler.register)
+		auth.POST("/login", handler.login)
+		auth.POST("/refresh", handler.refresh)
+		auth.POST("/logout", handler.logout)
+		auth.POST("/forgot-password", handler.forgotPassword)
+		auth.POST("/reset-password", handler.resetPassword)
+		auth.POST("/verify-email", handler.verifyEmail)
+		auth.POST("/resend-verification", handler.resendVerification)
+		authProtected := auth.Group("")
+		authProtected.Use(middleware.Auth(deps.IdentityProvider))
+		{
+			authProtected.POST("/logout-all", handler.logoutAll)
+			authProtected.GET("/me", handler.authMe)
+			authProtected.GET("/sessions", handler.listAuthSessions)
+			authProtected.DELETE("/sessions/:sessionId", handler.deleteAuthSession)
+		}
+	}
 
 	protected := api.Group("")
 	protected.Use(middleware.Auth(deps.IdentityProvider))

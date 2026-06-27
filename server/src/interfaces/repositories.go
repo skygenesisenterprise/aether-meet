@@ -15,6 +15,50 @@ type UserRepository interface {
 	Update(ctx context.Context, user *models.User) error
 }
 
+type LocalCredentialRepository interface {
+	Create(ctx context.Context, credential *models.LocalCredential) error
+	GetByUserID(ctx context.Context, userID string) (*models.LocalCredential, error)
+	Update(ctx context.Context, credential *models.LocalCredential) error
+}
+
+type AuthSessionRepository interface {
+	Create(ctx context.Context, session *models.AuthSession) error
+	GetByID(ctx context.Context, id string) (*models.AuthSession, error)
+	ListActiveByUser(ctx context.Context, userID string, now time.Time) ([]models.AuthSession, error)
+	ListByUser(ctx context.Context, userID string) ([]models.AuthSession, error)
+	Update(ctx context.Context, session *models.AuthSession) error
+	Revoke(ctx context.Context, id string, reason string, revokedAt time.Time) error
+	RevokeAllByUser(ctx context.Context, userID string, reason string, revokedAt time.Time, exceptSessionID string) error
+	RevokeFamily(ctx context.Context, familyID string, reason string, revokedAt time.Time) error
+	DeleteExpired(ctx context.Context, before time.Time) error
+}
+
+type AuthRefreshTokenRepository interface {
+	Create(ctx context.Context, token *models.AuthRefreshToken) error
+	GetByHash(ctx context.Context, tokenHash string) (*models.AuthRefreshToken, error)
+	Update(ctx context.Context, token *models.AuthRefreshToken) error
+	RevokeFamily(ctx context.Context, familyID string, revokedAt time.Time) error
+	DeleteExpired(ctx context.Context, before time.Time) error
+}
+
+type EmailVerificationTokenRepository interface {
+	Create(ctx context.Context, token *models.EmailVerificationToken) error
+	GetByHash(ctx context.Context, tokenHash string) (*models.EmailVerificationToken, error)
+	Update(ctx context.Context, token *models.EmailVerificationToken) error
+	DeleteExpired(ctx context.Context, before time.Time) error
+}
+
+type PasswordResetTokenRepository interface {
+	Create(ctx context.Context, token *models.PasswordResetToken) error
+	GetByHash(ctx context.Context, tokenHash string) (*models.PasswordResetToken, error)
+	Update(ctx context.Context, token *models.PasswordResetToken) error
+	DeleteExpired(ctx context.Context, before time.Time) error
+}
+
+type AuthAuditEventRepository interface {
+	Create(ctx context.Context, event *models.AuthAuditEvent) error
+}
+
 type WorkspaceRepository interface {
 	Create(ctx context.Context, workspace *models.Workspace) error
 	ListByUser(ctx context.Context, userID string) ([]models.Workspace, error)
@@ -157,6 +201,12 @@ type OutboxRepository interface {
 
 type RepositorySet interface {
 	Users() UserRepository
+	LocalCredentials() LocalCredentialRepository
+	AuthSessions() AuthSessionRepository
+	AuthRefreshTokens() AuthRefreshTokenRepository
+	EmailVerificationTokens() EmailVerificationTokenRepository
+	PasswordResetTokens() PasswordResetTokenRepository
+	AuthAuditEvents() AuthAuditEventRepository
 	Workspaces() WorkspaceRepository
 	WorkspaceMembers() WorkspaceMemberRepository
 	Teams() TeamRepository

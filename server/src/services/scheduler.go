@@ -38,6 +38,7 @@ func NewScheduler(redis *redisclient.Client, producer interfaces.JobProducer) *S
 			{Queue: "webrtc", Type: "webrtc.node.healthcheck", Every: time.Minute, LockName: "webrtc-node-healthcheck"},
 			{Queue: "webrtc", Type: "webrtc.session.expire", Every: 2 * time.Minute, LockName: "webrtc-session-expire"},
 			{Queue: "maintenance", Type: "maintenance.expired_sessions", Every: 15 * time.Minute, LockName: "session-retention"},
+			{Queue: "maintenance", Type: "auth.session.cleanup", Every: time.Hour, LockName: "auth-session-cleanup"},
 			{Queue: "maintenance", Type: "maintenance.orphaned_uploads", Every: time.Hour, LockName: "upload-retention"},
 		},
 	}

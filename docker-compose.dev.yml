@@ -87,6 +87,9 @@ services:
       NEXT_PUBLIC_LIVEKIT_URL: ws://livekit.localhost:${LIVEKIT_PORT:-7880}
       NEXT_PUBLIC_USE_PLATFORM_MOCKS: ${NEXT_PUBLIC_USE_PLATFORM_MOCKS:-false}
     volumes:
+      - ./apps:/app/apps
+      - /app/apps/node_modules
+      - /app/apps/.next
       - media:/media
       - certs:/certs
       - custom-templates:/templates
@@ -138,6 +141,11 @@ services:
       WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
       WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
     volumes:
+      - ./server:/app/server
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - go-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
       - media:/media
       - certs:/certs
       - custom-templates:/templates

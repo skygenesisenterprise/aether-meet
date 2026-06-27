@@ -187,7 +187,7 @@ func (w *Worker) runHeartbeat(ctx context.Context) error {
 	}
 }
 
-func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]interfaces.JobHandler, presence *PresenceService, integrations *IntegrationService, meetings *MeetingService) {
+func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]interfaces.JobHandler, presence *PresenceService, integrations *IntegrationService, meetings *MeetingService, auth *AuthService) {
 	for jobType, handler := range notifications {
 		registry.Register(jobType, handler)
 	}
@@ -205,7 +205,13 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 		}
 		return classifyRetry(presence.PersistLastSeen(ctx))
 	})
-	registry.Register("session.cleanup", func(context.Context, models.Job) error { return nil })
+	registry.Register("session.cleanup", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if auth == nil {
+			return nil
+		}
+		return classifyRetry(auth.CleanupExpired(ctx))
+	})
 	registry.Register("integration.webhook.process", func(ctx context.Context, job models.Job) error {
 		if integrations == nil {
 			return nil
@@ -297,9 +303,26 @@ func RegisterWorkerHandlers(registry *JobRegistry, notifications map[string]inte
 	registry.Register("attachment.process", func(context.Context, models.Job) error { return nil })
 	registry.Register("attachment.metadata", func(context.Context, models.Job) error { return nil })
 	registry.Register("attachment.cleanup", func(context.Context, models.Job) error { return nil })
-	registry.Register("maintenance.expired_sessions", func(context.Context, models.Job) error { return nil })
+	registry.Register("maintenance.expired_sessions", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if auth == nil {
+			return nil
+		}
+		return classifyRetry(auth.CleanupExpired(ctx))
+	})
 	registry.Register("maintenance.orphaned_uploads", func(context.Context, models.Job) error { return nil })
 	registry.Register("maintenance.old_notifications", func(context.Context, models.Job) error { return nil })
+	registry.Register("auth.email_verification.requested", func(context.Context, models.Job) error { return nil })
+	registry.Register("auth.password_reset.requested", func(context.Context, models.Job) error { return nil })
+	registry.Register("auth.session.revoked", func(context.Context, models.Job) error { return nil })
+	registry.Register("auth.session.cleanup", func(ctx context.Context, job models.Job) error {
+		_ = job
+		if auth == nil {
+			return nil
+		}
+		return classifyRetry(auth.CleanupExpired(ctx))
+	})
+	registry.Register("auth.audit.persist", func(context.Context, models.Job) error { return nil })
 }
 
 func classifyRetry(err error) error {

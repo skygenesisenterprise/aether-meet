@@ -149,7 +149,8 @@ func main() {
 	queue := services.NewJobQueue(logger, cfg, redis, metrics)
 	producer := services.NewQueueProducer(logger, queue, cfg.Worker.MaxAttempts, metrics)
 	outboxService := services.NewOutboxService(logger, cfg.Outbox, repos.OutboxEvents(), producer)
-	identityProvider := services.NewIdentityProvider(cfg.Auth)
+	identityProvider := services.NewIdentityProvider(cfg.Auth, repos)
+	authLimiter := services.NewAuthRateLimiter(redis)
 	eventBus := services.NewEventBus(cfg, redis)
 	defer eventBus.Close()
 	presence := services.NewPresenceService(logger, redis, eventBus, repos.Users(), cfg.Realtime.ClientTimeout)
@@ -162,6 +163,7 @@ func main() {
 
 	userService := services.NewUserService(repos.Users())
 	workspaceService := services.NewWorkspaceService(db, repos.Users(), repos, repos.AuditLogs())
+	authService := services.NewAuthService(cfg.Auth, db, repos, identityProvider, outboxService, authLimiter, workspaceService)
 	teamService := services.NewTeamService(repos.Teams(), workspaceService)
 	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)
 	channelService := services.NewChannelService(db, repos, workspaceService, repos.Conversations())
@@ -175,7 +177,7 @@ func main() {
 	notificationService := services.NewNotificationService(repos.Notifications(), eventBus)
 	registry := services.NewJobRegistry()
 	notificationHandlers := services.NewNotificationHandlers(eventBus, repos.Messages(), repos.ConversationMembers(), notificationService, repos.WorkspaceMembers())
-	services.RegisterWorkerHandlers(registry, notificationHandlers, presence, integrationService, meetingService)
+	services.RegisterWorkerHandlers(registry, notificationHandlers, presence, integrationService, meetingService, authService)
 	scheduler := services.NewScheduler(redis, producer)
 	worker := services.NewWorker(logger, cfg, redis, queue, producer, registry, outboxService, scheduler, presence, integrationService, meetingService, metrics)
 	hub := services.NewHub(ctx, logger, cfg.Realtime, cfg.CORS.AllowedOrigins, eventBus, presence, workspaceService, conversationService)
@@ -197,7 +199,7 @@ func main() {
 	}
 	routes.SetupRoutes(router, routes.Dependencies{
 		Config: cfg, Logger: logger, Database: db, Redis: redis, EventBus: eventBus,
-		IdentityProvider: identityProvider, Hub: hub, UserService: userService,
+		IdentityProvider: identityProvider, AuthService: authService, Hub: hub, UserService: userService,
 		WorkspaceService: workspaceService, TeamService: teamService, ChannelService: channelService,
 		ConversationService: conversationService, MessageService: messageService,
 		MeetingService: meetingService, WebRTCService: webrtcService, IntegrationService: integrationService, AuditService: auditService, WebRTCMetrics: webrtcMetrics,

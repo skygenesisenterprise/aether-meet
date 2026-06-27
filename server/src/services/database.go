@@ -47,6 +47,12 @@ func (s *DatabaseService) Transaction(ctx context.Context, fn func(tx *gorm.DB) 
 func (s *DatabaseService) AutoMigrate() error {
 	return s.db.AutoMigrate(
 		&models.User{},
+		&models.LocalCredential{},
+		&models.AuthSession{},
+		&models.AuthRefreshToken{},
+		&models.EmailVerificationToken{},
+		&models.PasswordResetToken{},
+		&models.AuthAuditEvent{},
 		&models.Workspace{},
 		&models.WorkspaceMember{},
 		&models.Team{},

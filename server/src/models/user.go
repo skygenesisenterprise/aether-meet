@@ -1,13 +1,26 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type User struct {
 	Common
-	Email       string     `gorm:"type:text;uniqueIndex;not null" json:"email"`
-	DisplayName string     `gorm:"type:text;not null" json:"displayName"`
-	AvatarURL   string     `gorm:"type:text" json:"avatarUrl,omitempty"`
-	Status      string     `gorm:"type:text;not null;default:'offline'" json:"status"`
-	LastSeenAt  *time.Time `gorm:"index" json:"lastSeenAt,omitempty"`
-	DisabledAt  *time.Time `json:"disabledAt,omitempty"`
+	Email             string         `gorm:"column:email;type:text;not null" json:"email"`
+	EmailNormalized   string         `gorm:"column:email_normalized;type:text;uniqueIndex;not null" json:"-"`
+	DisplayName       string         `gorm:"column:display_name;type:text;not null" json:"displayName"`
+	AvatarURL         *string        `gorm:"column:avatar_url;type:text" json:"avatarUrl,omitempty"`
+	Status            string         `gorm:"column:status;type:text;not null;default:'active'" json:"status"`
+	PresenceStatus    string         `gorm:"column:presence_status;type:text;not null;default:'offline'" json:"presenceStatus"`
+	LastSeenAt        *time.Time     `gorm:"column:last_seen_at;index" json:"lastSeenAt,omitempty"`
+	EmailVerifiedAt   *time.Time     `gorm:"column:email_verified_at" json:"emailVerifiedAt,omitempty"`
+	PasswordChangedAt *time.Time     `gorm:"column:password_changed_at" json:"passwordChangedAt,omitempty"`
+	DisabledAt        *time.Time     `gorm:"column:disabled_at" json:"disabledAt,omitempty"`
+	DeletedAt         gorm.DeletedAt `gorm:"column:deleted_at;index" json:"-"`
+}
+
+func (User) TableName() string {
+	return "users"
 }

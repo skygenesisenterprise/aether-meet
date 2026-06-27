@@ -133,10 +133,10 @@ func (s *PresenceService) ExpireStale(ctx context.Context, limit int) error {
 		return err
 	}
 	for _, user := range items {
-		if user.Status == "offline" {
+		if user.PresenceStatus == "offline" {
 			continue
 		}
-		user.Status = "offline"
+		user.PresenceStatus = "offline"
 		now := time.Now().UTC()
 		user.UpdatedAt = now
 		if err := s.users.Update(ctx, &user); err != nil {
@@ -167,7 +167,7 @@ func (s *PresenceService) PersistLastSeen(ctx context.Context) error {
 		if userErr != nil {
 			continue
 		}
-		user.Status = record.State
+		user.PresenceStatus = record.State
 		user.LastSeenAt = &record.LastSeenAt
 		user.UpdatedAt = time.Now().UTC()
 		if err := s.users.Update(ctx, user); err != nil {

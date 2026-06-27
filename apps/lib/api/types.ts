@@ -38,6 +38,10 @@ export interface User {
   displayName: string;
   avatarUrl?: string;
   status: string;
+  presenceStatus?: string;
+  workspaceId?: string;
+  roles?: string[];
+  permissions?: string[];
   createdAt: string;
   updatedAt: string;
   lastSeenAt?: string;
@@ -212,10 +216,20 @@ export interface JoinTokenResponse {
 
 export interface TokenResponse {
   accessToken: string;
-  refreshToken: string;
   tokenType?: string;
   expiresIn?: number;
   user: User;
+  sessionId?: string;
+}
+
+export interface AuthSessionInfo {
+  id: string;
+  userAgent?: string;
+  ipAddress?: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  current: boolean;
 }
 
 export interface Application {

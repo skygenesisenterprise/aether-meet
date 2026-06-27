@@ -8,7 +8,9 @@ import (
 	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
-const principalKey = "principal"
+type contextKey string
+
+const principalKey contextKey = "principal"
 
 func Auth(provider interfaces.IdentityProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -31,7 +33,7 @@ func Auth(provider interfaces.IdentityProvider) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.Set(principalKey, *principal)
+		c.Set(string(principalKey), *principal)
 		c.Next()
 	}
 }
@@ -58,11 +60,59 @@ func websocketProtocolToken(header string) string {
 	return token
 }
 
-func PrincipalFromGin(c *gin.Context) (interfaces.Principal, bool) {
-	value, ok := c.Get(principalKey)
+func GetPrincipal(c *gin.Context) (interfaces.Principal, bool) {
+	value, ok := c.Get(string(principalKey))
 	if !ok {
 		return interfaces.Principal{}, false
 	}
 	principal, ok := value.(interfaces.Principal)
 	return principal, ok
+}
+
+func PrincipalFromGin(c *gin.Context) (interfaces.Principal, bool) { return GetPrincipal(c) }
+
+func RequireAuth(provider interfaces.IdentityProvider) gin.HandlerFunc {
+	return Auth(provider)
+}
+
+func RequireRole(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		principal, ok := GetPrincipal(c)
+		if !ok {
+			utils.Error(c, utils.ErrUnauthorized)
+			c.Abort()
+			return
+		}
+		for _, current := range principal.Roles {
+			for _, allowed := range roles {
+				if current == allowed {
+					c.Next()
+					return
+				}
+			}
+		}
+		utils.Error(c, utils.ErrForbidden)
+		c.Abort()
+	}
+}
+
+func RequirePermission(permissions ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		principal, ok := GetPrincipal(c)
+		if !ok {
+			utils.Error(c, utils.ErrUnauthorized)
+			c.Abort()
+			return
+		}
+		for _, current := range principal.Permissions {
+			for _, allowed := range permissions {
+				if current == allowed {
+					c.Next()
+					return
+				}
+			}
+		}
+		utils.Error(c, utils.ErrForbidden)
+		c.Abort()
+	}
 }

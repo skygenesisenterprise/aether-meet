@@ -68,11 +68,25 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	Mode          string
-	JWTSecret     string
-	JWTIssuer     string
-	JWTAccessTTL  time.Duration
-	JWTRefreshTTL time.Duration
+	Enabled                bool
+	LocalEnabled           bool
+	Mode                   string
+	JWTSecret              string
+	JWTIssuer              string
+	JWTAccessTTL           time.Duration
+	JWTRefreshTTL          time.Duration
+	RefreshCookieName      string
+	CookieSecure           bool
+	CookieSameSite         string
+	CookieDomain           string
+	PasswordMinLength      int
+	Argon2Memory           uint32
+	Argon2Iterations       uint32
+	Argon2Parallelism      uint8
+	SessionCleanupInterval time.Duration
+	EmailVerificationTTL   time.Duration
+	PasswordResetTTL       time.Duration
+	RateLimitEnabled       bool
 }
 
 type CORSConfig struct {
@@ -186,11 +200,25 @@ func Load() (Config, error) {
 			MaxRetries:     getEnvInt("REDIS_MAX_RETRIES", 3),
 		},
 		Auth: AuthConfig{
-			Mode:          strings.ToLower(getEnv("AUTH_MODE", "jwt")),
-			JWTSecret:     getEnv("JWT_SECRET", ""),
-			JWTIssuer:     getEnv("JWT_ISSUER", "aether-meet"),
-			JWTAccessTTL:  getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute),
-			JWTRefreshTTL: getEnvDuration("JWT_REFRESH_TTL", 24*time.Hour),
+			Enabled:                getEnvBool("AUTH_ENABLED", true),
+			LocalEnabled:           getEnvBool("AUTH_LOCAL_ENABLED", true),
+			Mode:                   strings.ToLower(getEnv("AUTH_MODE", "jwt")),
+			JWTSecret:              getEnv("AUTH_JWT_SECRET", getEnv("JWT_SECRET", "")),
+			JWTIssuer:              getEnv("AUTH_JWT_ISSUER", getEnv("JWT_ISSUER", "aether-meet")),
+			JWTAccessTTL:           getEnvDuration("AUTH_ACCESS_TOKEN_TTL", getEnvDuration("JWT_ACCESS_TTL", 15*time.Minute)),
+			JWTRefreshTTL:          getEnvDuration("AUTH_REFRESH_TOKEN_TTL", getEnvDuration("JWT_REFRESH_TTL", 30*24*time.Hour)),
+			RefreshCookieName:      getEnv("AUTH_REFRESH_COOKIE_NAME", "aether_meet_refresh"),
+			CookieSecure:           getEnvBool("AUTH_COOKIE_SECURE", strings.EqualFold(getEnv("APP_ENV", "development"), "production")),
+			CookieSameSite:         strings.ToLower(getEnv("AUTH_COOKIE_SAME_SITE", "lax")),
+			CookieDomain:           strings.TrimSpace(getEnv("AUTH_COOKIE_DOMAIN", "")),
+			PasswordMinLength:      getEnvInt("AUTH_PASSWORD_MIN_LENGTH", 12),
+			Argon2Memory:           uint32(getEnvInt("AUTH_ARGON2_MEMORY", 64*1024)),
+			Argon2Iterations:       uint32(getEnvInt("AUTH_ARGON2_ITERATIONS", 3)),
+			Argon2Parallelism:      uint8(getEnvInt("AUTH_ARGON2_PARALLELISM", 2)),
+			SessionCleanupInterval: getEnvDuration("AUTH_SESSION_CLEANUP_INTERVAL", time.Hour),
+			EmailVerificationTTL:   getEnvDuration("AUTH_EMAIL_VERIFICATION_TTL", 24*time.Hour),
+			PasswordResetTTL:       getEnvDuration("AUTH_PASSWORD_RESET_TTL", time.Hour),
+			RateLimitEnabled:       getEnvBool("AUTH_RATE_LIMIT_ENABLED", true),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnvSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000"}),
@@ -299,11 +327,33 @@ func (c Config) Validate() error {
 		return errors.New("API_PORT is required")
 	}
 	if c.App.Env == "production" {
-		if c.Auth.Mode == "jwt" && (c.Auth.JWTSecret == "" || c.Auth.JWTSecret == devJWTSecret) {
-			return errors.New("JWT_SECRET must be configured for production")
+		if c.Auth.Enabled && c.Auth.Mode == "jwt" && (c.Auth.JWTSecret == "" || c.Auth.JWTSecret == devJWTSecret || len(c.Auth.JWTSecret) < 32) {
+			return errors.New("AUTH_JWT_SECRET or JWT_SECRET must be configured with a strong value for production")
 		}
 		if len(c.CORS.AllowedOrigins) == 0 {
 			return errors.New("CORS_ALLOWED_ORIGINS must be configured for production")
+		}
+	}
+	if c.Auth.Enabled && c.Auth.LocalEnabled {
+		if c.Auth.JWTIssuer == "" {
+			return errors.New("AUTH_JWT_ISSUER or JWT_ISSUER is required when local auth is enabled")
+		}
+		if c.Auth.JWTAccessTTL <= 0 || c.Auth.JWTRefreshTTL <= 0 || c.Auth.EmailVerificationTTL <= 0 || c.Auth.PasswordResetTTL <= 0 || c.Auth.SessionCleanupInterval <= 0 {
+			return errors.New("auth durations must be greater than zero")
+		}
+		if c.Auth.PasswordMinLength < 8 {
+			return errors.New("AUTH_PASSWORD_MIN_LENGTH must be at least 8")
+		}
+		if c.Auth.Argon2Memory == 0 || c.Auth.Argon2Iterations == 0 || c.Auth.Argon2Parallelism == 0 {
+			return errors.New("argon2 parameters must be greater than zero")
+		}
+		switch c.Auth.CookieSameSite {
+		case "lax", "strict", "none":
+		default:
+			return errors.New("AUTH_COOKIE_SAME_SITE must be one of lax, strict, none")
+		}
+		if c.Database.URL == "" {
+			return errors.New("database must be configured when local auth is enabled")
 		}
 	}
 	if c.LiveKit.Enabled || c.WebRTC.Provider == "livekit" {

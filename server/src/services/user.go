@@ -24,10 +24,12 @@ func (s *UserService) EnsureUser(ctx context.Context, principal interfaces.Princ
 		return user, nil
 	}
 	user = &models.User{
-		Common:      models.Common{ID: principal.UserID, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		Email:       principal.UserID + "@local.aether",
-		DisplayName: principal.UserID,
-		Status:      "online",
+		Common:          models.Common{ID: principal.UserID, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		Email:           principal.UserID + "@local.aether",
+		EmailNormalized: principal.UserID + "@local.aether",
+		DisplayName:     principal.UserID,
+		Status:          "active",
+		PresenceStatus:  "online",
 	}
 	if createErr := s.users.Create(ctx, user); createErr != nil {
 		return nil, createErr
@@ -47,9 +49,13 @@ func (s *UserService) UpdateMe(ctx context.Context, principal interfaces.Princip
 	if displayName != "" {
 		user.DisplayName = strings.TrimSpace(displayName)
 	}
-	user.AvatarURL = strings.TrimSpace(avatarURL)
+	if trimmed := strings.TrimSpace(avatarURL); trimmed != "" {
+		user.AvatarURL = &trimmed
+	} else {
+		user.AvatarURL = nil
+	}
 	if status != "" {
-		user.Status = status
+		user.PresenceStatus = status
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
