@@ -566,7 +566,10 @@ run_webrtc() {
     fi
 
     if [ -n "${backend_binary}" ]; then
-        log_warn "Backend binary found at ${backend_binary}, but current Go implementation only supports 'server' and 'worker' modes"
+        wait_for_database
+        log_redis_configuration
+        log_info "Starting Go backend WebRTC runtime"
+        exec "${backend_binary}" webrtc "$@"
     fi
 
     log_error "WebRTC role requested, but no WebRTC executable or supported backend command was found"

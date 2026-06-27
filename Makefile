@@ -68,7 +68,7 @@ rmi-dev:
 	docker rmi $(APP_NAME)-dev:latest 2>/dev/null || true
 
 dev-up:
-	docker compose -f docker-compose.dev.yml up -d
+	docker compose -f docker-compose.dev.yml up -d --build
 
 dev-down:
 	docker compose -f docker-compose.dev.yml down
@@ -78,7 +78,7 @@ dev-logs:
 
 dev-rebuild:
 	docker compose -f docker-compose.dev.yml down
-	docker build --no-cache -f Dockerfile.dev -t $(APP_NAME):latest .
+	docker compose -f docker-compose.dev.yml build --no-cache
 	docker compose -f docker-compose.dev.yml up -d
 
 cloud-up:

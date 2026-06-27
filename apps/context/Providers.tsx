@@ -2,11 +2,14 @@
 
 import { AuthProvider } from "@/context/AuthContext";
 import { LicenseProvider } from "@/context/LicenseContext";
+import { PlatformProvider } from "@/context/PlatformContext";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <LicenseProvider>
-      <AuthProvider>{children}</AuthProvider>
+      <AuthProvider>
+        <PlatformProvider>{children}</PlatformProvider>
+      </AuthProvider>
     </LicenseProvider>
   );
 }

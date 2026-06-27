@@ -173,7 +173,10 @@ func NewHub(ctx context.Context, logger *slog.Logger, cfg config.RealtimeConfig,
 	}
 	h := &Hub{
 		logger:   logger,
-		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return isAllowedOrigin(allowedOrigins, r) }},
+		upgrader: websocket.Upgrader{
+			CheckOrigin:  func(r *http.Request) bool { return isAllowedOrigin(allowedOrigins, r) },
+			Subprotocols: []string{"bearer"},
+		},
 		clients:  map[*client]struct{}{},
 		bus:      bus, presence: presence, workspaceService: workspaces, conversations: conversations,
 		heartbeat: cfg.HeartbeatInterval, timeout: cfg.ClientTimeout,

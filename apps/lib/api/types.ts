@@ -1,491 +1,371 @@
+export interface ApiMeta {
+  requestId?: string;
+}
+
+export interface PaginationMeta extends ApiMeta {
+  nextCursor?: string;
+  hasMore?: boolean;
+}
+
+export interface ApiSuccessEnvelope<T> {
+  data: T;
+  meta?: ApiMeta;
+}
+
+export interface ApiListEnvelope<T> {
+  data: T[];
+  meta?: PaginationMeta;
+}
+
+export interface ApiFailureEnvelope {
+  error: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+  meta?: ApiMeta;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  meta: PaginationMeta;
+}
+
 export interface User {
   id: string;
   email: string;
-  name: string;
-  username?: string;
+  name?: string;
+  displayName: string;
   avatarUrl?: string;
-  role?: string;
-  active?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt?: string;
+  disabledAt?: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  visibility: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+  lastSeenAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Team {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface Channel {
+  id: string;
+  workspaceId: string;
+  teamId?: string;
+  name: string;
+  slug: string;
+  description?: string;
+  type: string;
+  visibility: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface Conversation {
+  id: string;
+  workspaceId: string;
+  channelId?: string;
+  type: string;
+  name?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+export interface ConversationMember {
+  id: string;
+  conversationId: string;
+  userId: string;
+  role: string;
+  joinedAt: string;
+  lastReadMessageId?: string;
+  lastReadAt?: string;
+  mutedUntil?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Message {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  authorId: string;
+  parentMessageId?: string;
+  type: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+  editedAt?: string;
+  deletedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MessageReaction {
+  id: string;
+  messageId: string;
+  userId: string;
+  emoji: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Meeting {
+  id: string;
+  workspaceId: string;
+  conversationId?: string;
+  provider: string;
+  providerRoomId?: string;
+  title: string;
+  status: string;
+  createdBy: string;
+  startedAt?: string;
+  endedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingParticipant {
+  id: string;
+  meetingId: string;
+  userId: string;
+  role: string;
+  status: string;
+  metadata?: Record<string, unknown>;
+  joinedAt?: string;
+  leftAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingSession {
+  id: string;
+  meetingId: string;
+  workspaceId: string;
+  provider: string;
+  providerRoomName: string;
+  providerRoomId?: string;
+  nodeId: string;
+  status: string;
+  publicUrl: string;
+  signalingUrl: string;
+  connectionDetails?: Record<string, unknown>;
+  startedAt?: string;
+  endedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingJoinCredentials {
+  meetingId: string;
+  sessionId: string;
+  roomName: string;
+  participantIdentity: string;
+  token: string;
+  signalingUrl: string;
+  expiresAt: string;
+  iceServers?: RTCIceServer[];
+}
+
+export interface JoinTokenResponse {
+  token: string;
+  meetingId: string;
+  sessionId: string;
+  roomName: string;
+  participantIdentity: string;
+  signalingUrl: string;
+  expiresAt: string;
+  iceServers?: RTCIceServer[];
 }
 
 export interface TokenResponse {
   accessToken: string;
   refreshToken: string;
-  tokenType: string;
-  expiresIn: number;
+  tokenType?: string;
+  expiresIn?: number;
   user: User;
 }
 
-export interface AuthResponse {
-  success: boolean;
-  data?: TokenResponse;
-  error?: string;
-  message?: string;
-}
-
-export interface ProfileData {
+export interface Application {
   id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  gender: string;
-  phone: string;
-  birthDate: string;
-  language: string;
-  avatarUrl: string;
-  aetherId: string;
-  accountType: string;
-  addresses: Address[];
+  workspaceId: string;
+  provider: string;
+  name: string;
+  status: string;
+  configuration?: Record<string, unknown>;
+  createdBy: string;
   createdAt: string;
+  updatedAt: string;
 }
 
-export interface Address {
+export interface AuditLog {
   id: string;
-  label: string;
-  value: string;
-  isPrimary: boolean;
-}
-
-export interface ProfileResponse {
-  success: boolean;
-  data?: ProfileData;
-  error?: string;
-}
-
-export interface Password {
-  id: string;
-  name: string;
-  username: string;
-  password: string;
-  url?: string;
-  favorite: boolean;
-  category: string;
-  notes?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface PasswordListResponse {
-  success: boolean;
-  data?: Password[];
-  error?: string;
-}
-
-export interface PasswordResponse {
-  success: boolean;
-  data?: Password;
-  error?: string;
-}
-
-export interface Device {
-  id: string;
-  name: string;
-  type: string;
-  os?: string;
-  browser?: string;
-  lastSeen?: string;
-  isTrusted: boolean;
-}
-
-export interface Session {
-  id: string;
-  token?: string;
-  deviceId?: string;
+  workspaceId: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
-  expiresAt?: string;
-  createdAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface SecurityActivity {
+export interface Notification {
   id: string;
+  workspaceId: string;
+  userId: string;
   type: string;
   title: string;
-  description?: string;
-  device?: string;
-  ipAddress?: string;
-  time?: string;
+  body: string;
+  resourceType?: string;
+  resourceId?: string;
+  metadata?: Record<string, unknown>;
+  readAt?: string;
+  idempotencyKey?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface TwoFactorConfig {
-  enabled: boolean;
-  method?: string;
+export interface NotificationPreferences {
+  email?: boolean;
+  push?: boolean;
+  inApp?: boolean;
+  [key: string]: unknown;
 }
 
-export interface SecurityData {
-  devices: Device[];
-  sessions: Session[];
-  activities: SecurityActivity[];
-  twoFactor: TwoFactorConfig;
-  passkeyEnabled: boolean;
-  secureNavigation: boolean;
-}
-
-export interface SecurityResponse {
-  success: boolean;
-  data?: SecurityData;
-  error?: string;
-}
-
-export interface DevicesResponse {
-  success: boolean;
-  data?: Device[];
-  error?: string;
-}
-
-export interface SessionsResponse {
-  success: boolean;
-  data?: Session[];
-  error?: string;
-}
-
-export interface ActivitiesResponse {
-  success: boolean;
-  data?: SecurityActivity[];
-  error?: string;
-}
-
-export interface ThirdPartyApp {
-  id: string;
-  name: string;
-  accessLevel: string;
-  connectedAt?: string;
-}
-
-export interface ThirdPartyResponse {
-  success: boolean;
-  data?: ThirdPartyApp[];
-  error?: string;
+export interface UserPreferences {
+  theme?: string;
+  locale?: string;
+  timezone?: string;
+  [key: string]: unknown;
 }
 
 export interface Contact {
   id: string;
-  accountId?: string;
+  workspaceId?: string;
   name: string;
-  firstName?: string;
-  lastName?: string;
-  email: string;
-  nickname?: string;
-  company?: string;
-  jobTitle?: string;
-  department?: string;
+  email?: string;
   phone?: string;
-  mobile?: string;
-  address?: string;
-  avatarUrl?: string;
-  starred?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  [key: string]: unknown;
 }
 
 export interface ContactGroup {
   id: string;
-  accountId?: string;
+  workspaceId?: string;
   name: string;
   description?: string;
-  totalContacts?: number;
-  createdAt?: string;
+  [key: string]: unknown;
 }
 
-export interface ContactList {
-  accountId: string;
-  totalContacts: number;
-  contacts: Contact[];
-  hasMore: boolean;
-  offset: number;
-  limit: number;
-}
-
-export interface ContactListResponse {
-  success: boolean;
-  data?: ContactList;
-  error?: string;
-}
-
-export interface ContactResponse {
-  success: boolean;
-  data?: Contact;
-  error?: string;
-}
-
-export interface GroupListResponse {
-  success: boolean;
-  data?: {
-    accountId: string;
-    groups: ContactGroup[];
-    total: number;
-  };
-  error?: string;
-}
-
-export interface GroupResponse {
-  success: boolean;
-  data?: ContactGroup;
-  error?: string;
-}
-
-export interface AccountPrivacySettings {
-  profileVisibility: string;
-  showEmail: boolean;
-  showPhone: boolean;
-  showActivity: boolean;
-  dataCollection: boolean;
-  personalizedAds: boolean;
-  analytics: boolean;
-  locationTracking: boolean;
-}
-
-export interface PrivacyResponse {
-  success: boolean;
-  data?: AccountPrivacySettings;
-  error?: string;
-}
-
-export interface DataExportResponse {
-  success: boolean;
-  message?: string;
-  dataUrl?: string;
-  error?: string;
-}
-
-// ==================== ETHERIA TYPES ====================
-
-export type ArticleStatus = "DRAFT" | "REVIEW" | "PUBLISHED" | "ARCHIVED";
-export type SubscriptionPlan = "ESSENTIAL" | "PREMIUM";
-export type SubscriptionStatus = "ACTIVE" | "CANCELLED" | "EXPIRED" | "PAST_DUE";
-export type NotificationType = "ARTICLE" | "BOOKMARK" | "SYSTEM" | "ACCOUNT" | "COMMENT";
-
-export interface Article {
+export interface Task {
   id: string;
-  title: string;
-  slug: string;
-  excerpt?: string;
-  content: string;
-  contentHtml?: string;
-  status: ArticleStatus;
-  featured: boolean;
-  publishedAt?: string;
-  scheduledAt?: string;
-  viewCount: number;
-  readTime: number;
-  imageUrl?: string;
-  imageAlt?: string;
-  seoTitle?: string;
-  seoDescription?: string;
-  seoKeywords?: string;
-  authorId: string;
-  categoryId?: string;
-  createdAt: string;
-  updatedAt: string;
+  workspaceId?: string;
+  title?: string;
+  status?: string;
+  [key: string]: unknown;
 }
 
-export interface Category {
+export interface TaskComment {
   id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  color?: string;
-  isVisible: boolean;
-  parentId?: string;
-  createdAt: string;
-  updatedAt: string;
+  taskId?: string;
+  content?: string;
+  [key: string]: unknown;
 }
 
-export interface Comment {
+export interface Project {
   id: string;
-  content: string;
-  isApproved: boolean;
-  isFlagged: boolean;
-  flagReason?: string;
-  parentId?: string;
-  articleId: string;
-  authorId: string;
-  createdAt: string;
-  updatedAt: string;
+  workspaceId?: string;
+  name?: string;
+  status?: string;
+  [key: string]: unknown;
 }
 
-export interface Bookmark {
+export interface ProjectMember {
   id: string;
-  userId: string;
-  articleId: string;
-  createdAt: string;
-}
-
-export interface ReadingHistory {
-  id: string;
-  userId: string;
-  articleId: string;
-  readAt: string;
-}
-
-export interface EtheriaNotification {
-  id: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  link?: string;
-  isRead: boolean;
-  priority: string;
-  userId: string;
-  createdAt: string;
-}
-
-export interface Media {
-  id: string;
-  filename: string;
-  originalName: string;
-  mimeType: string;
-  size: number;
-  url: string;
-  alt?: string;
-  width?: number;
-  height?: number;
-  articleId?: string;
-  categoryId?: string;
-  createdAt: string;
-}
-
-export interface Subscription {
-  id: string;
-  userId: string;
-  plan: SubscriptionPlan;
-  status: SubscriptionStatus;
-  startedAt: string;
-  expiresAt?: string;
-  lastPaymentDate?: string;
-  nextPaymentDate?: string;
-  paymentMethod?: string;
-  paymentLast4?: string;
-  cancelAtPeriodEnd: boolean;
-}
-
-export interface SystemSettings {
-  id: string;
-  siteName: string;
-  siteDescription?: string;
-  siteUrl?: string;
-  logoUrl?: string;
-  faviconUrl?: string;
-  email?: string;
-  smtpHost?: string;
-  smtpPort?: number;
-  smtpUser?: string;
-  fromName?: string;
-  fromEmail?: string;
-  maintenanceMode: boolean;
-  registrationOpen: boolean;
-  commentsEnabled: boolean;
-  newsletterEnabled: boolean;
-  analyticsEnabled: boolean;
-  sslEnforced: boolean;
-  dockerImage: string;
-  version: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-export interface ApiResponse {
-  success: boolean;
-  data?: unknown;
-  message?: string;
-  error?: string;
-}
-
-export interface ArticleListResponse extends ApiResponse {
-  data?: Article[];
-  total?: number;
-  page?: number;
-  pageSize?: number;
-  totalPages?: number;
-}
-export interface ArticleResponse extends ApiResponse {
-  data?: Article;
-}
-
-export interface HomepageArticlesResponse extends ApiResponse {
-  data?: {
-    featured: Article;
-    topArticles: Article[];
-    mostRead: Article[];
-    sections: Record<string, Article[]>;
-  };
-}
-
-export interface SectionArticlesResponse extends ApiResponse {
-  data?: Article[];
-}
-
-export interface CategoryListResponse extends ApiResponse {
-  data?: Category[];
-  total?: number;
-}
-export interface CategoryResponse extends ApiResponse {
-  data?: Category;
-}
-export interface CommentListResponse extends ApiResponse {
-  data?: Comment[];
-  total?: number;
-  page?: number;
-  pageSize?: number;
-  totalPages?: number;
-}
-export interface CommentResponse extends ApiResponse {
-  data?: Comment;
-}
-export interface BookmarkListResponse extends ApiResponse {
-  data?: Bookmark[];
-}
-export interface BookmarkResponse extends ApiResponse {
-  data?: Bookmark;
-}
-export interface HistoryListResponse extends ApiResponse {
-  data?: ReadingHistory[];
-}
-export interface NotificationListResponse extends ApiResponse {
-  data?: EtheriaNotification[];
-  total?: number;
-  page?: number;
-  pageSize?: number;
-  totalPages?: number;
-}
-export interface NotificationResponse extends ApiResponse {}
-export interface SubscriptionResponse extends ApiResponse {}
-export interface MediaListResponse extends ApiResponse {
-  data?: Media[];
-}
-export interface MediaResponse extends ApiResponse {}
-export interface SettingsResponse extends ApiResponse {
-  data?: SystemSettings;
-}
-export interface EtheriaUserResponse extends ApiResponse {}
-export interface EtheriaUserListResponse {
-  success?: boolean;
-  data?: AdminUser[];
-  total?: number;
-  page?: number;
-  pageSize?: number;
-  totalPages?: number;
-  error?: string;
-}
-
-export interface AdminUser {
-  id: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  avatarUrl?: string;
+  projectId?: string;
+  userId?: string;
   role?: string;
-  isActive?: boolean;
+  [key: string]: unknown;
+}
+
+export interface FileRecord {
+  id: string;
+  workspaceId?: string;
+  name?: string;
+  contentType?: string;
+  status?: string;
+  sizeBytes?: number;
+  storageKey?: string;
+  metadata?: Record<string, unknown>;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Document {
+  id: string;
+  workspaceId?: string;
+  title?: string;
+  [key: string]: unknown;
+}
+
+export interface Resource {
+  id: string;
+  workspaceId?: string;
+  title?: string;
+  [key: string]: unknown;
+}
+
+export interface CallHistoryItem {
+  id: string;
+  workspaceId?: string;
+  [key: string]: unknown;
+}
+
+export interface Voicemail {
+  id: string;
+  callId?: string;
+  [key: string]: unknown;
+}
+
+export interface RealtimeEvent<T = unknown> {
+  id: string;
+  type: string;
+  workspaceId?: string;
+  resourceId?: string;
+  occurredAt: string;
+  data: T;
 }

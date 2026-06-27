@@ -25,6 +25,7 @@
     "build:web": "node ./scripts/build-web.mjs",
     "web:start": "next start",
     "web:lint": "eslint",
+    "test": "node --test --experimental-strip-types tests/platform-api/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next out .expo",
     "lint": "expo lint"

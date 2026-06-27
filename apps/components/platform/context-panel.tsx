@@ -147,11 +147,11 @@ function ChatPanel() {
           />
         </div>
         <div className="mt-3 flex gap-1.5">
-          {[
+          {([
             { label: "Messages", value: "dm" },
             { label: "Canaux", value: "channel" },
             { label: "Non lus", value: "unread" },
-          ].map((filter) => (
+          ] as const).map((filter) => (
             <button
               key={filter.value}
               type="button"
