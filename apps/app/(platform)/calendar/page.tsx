@@ -332,7 +332,7 @@ export default function CalendarPage() {
                     index % 7 === 6 && "border-r-0",
                     index >= 28 && "border-b-0",
                     date.current && "bg-violet-500/5 ring-1 ring-inset ring-violet-400/70",
-                    date.month === "current" && "cursor-pointer hover:bg-white/[0.03]"
+                    date.month === "current" && "cursor-pointer hover:bg-white/3"
                   )}
                   onClick={() => {
                     if (date.month !== "current") return;

@@ -161,7 +161,7 @@ export default function NotificationsPage() {
                 </div>
               </div>
 
-              <div className="mt-8 rounded-[20px] border border-white/8 bg-[#20252c] p-6">
+              <div className="mt-8 rounded-3xl border border-white/8 bg-[#20252c] p-6">
                 <p className="text-[16px] leading-8 text-[#aebbd1]">{detailSummary}</p>
                 <p className="mt-5 text-sm leading-7 text-[#d6dbe4]">{selectedNotification.description}</p>
               </div>

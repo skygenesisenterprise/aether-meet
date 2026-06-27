@@ -77,10 +77,10 @@ export function AdminSidebar() {
       ),
     [chatUnreadCount]
   );
-  const settingsItem = navItems.find((item) => item.href === "/setings");
-  const mainItems = navItems.filter((item) => item.href !== "/setings");
+  const settingsItem = navItems.find((item) => item.href === "/settings");
+  const mainItems = navItems.filter((item) => item.href !== "/settings");
   const mobileItems = navItems.filter((item) =>
-    ["/home", "/chat", "/tasks", "/calendar", "/drive", "/setings"].includes(item.href)
+    ["/home", "/chat", "/tasks", "/calendar", "/drive", "/settings"].includes(item.href)
   );
 
   return (

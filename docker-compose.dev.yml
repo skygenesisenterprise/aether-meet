@@ -141,11 +141,6 @@ services:
       WEBRTC_REGION: ${WEBRTC_REGION:-eu-west}
       WEBRTC_TOKEN_TTL: ${WEBRTC_TOKEN_TTL:-10m}
     volumes:
-      - ./server:/app/server
-      - ./go.mod:/app/go.mod
-      - ./go.sum:/app/go.sum
-      - go-cache:/go/pkg/mod
-      - go-build-cache:/root/.cache/go-build
       - media:/media
       - certs:/certs
       - custom-templates:/templates

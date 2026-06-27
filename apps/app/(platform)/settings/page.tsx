@@ -47,7 +47,7 @@ function SettingRow({ title, description, children }: SettingRowProps) {
 
 export default function SetingsPage() {
   return (
-    <div className="flex h-full min-h-[720px] flex-col bg-[#232426]">
+    <div className="flex h-full min-h-180 flex-col bg-[#232426]">
       <WorkspaceHeader
         title="Réglages"
         description="Configurez votre compte et votre expérience Aether Meet."

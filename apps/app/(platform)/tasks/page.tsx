@@ -265,7 +265,7 @@ export default function TasksPage() {
                           </article>
                         ))
                       ) : (
-                        <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-xs leading-5 text-zinc-500">
+                        <div className="rounded-xl border border-dashed border-white/10 bg-white/2 p-4 text-xs leading-5 text-zinc-500">
                           Aucune tache dans cette colonne pour le filtre actif.
                         </div>
                       )}
