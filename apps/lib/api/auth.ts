@@ -7,12 +7,52 @@ export interface AccessTokenProvider {
 }
 
 const ACCESS_TOKEN_KEY = "aether.auth.accessToken";
+const REFRESH_TOKEN_KEY = "aether.auth.refreshToken";
 const USER_KEY = "aether.auth.user";
+let storageMigrated = false;
 
-function readStorageToken(): string | null {
+function getBrowserStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function getLegacySessionStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function migrateAuthStorage(): void {
+  if (storageMigrated) return;
+  storageMigrated = true;
+
+  const browserStorage = getBrowserStorage();
+  const sessionStorage = getLegacySessionStorage();
+  if (!browserStorage) return;
+
+  for (const key of [ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]) {
+    const browserValue = browserStorage.getItem(key);
+    if (browserValue !== null) continue;
+
+    const sessionValue = sessionStorage?.getItem(key);
+    if (sessionValue === null || sessionValue === undefined) continue;
+
+    browserStorage.setItem(key, sessionValue);
+    sessionStorage?.removeItem(key);
+  }
+}
+
+function readStorageToken(): string | null {
+  migrateAuthStorage();
+  try {
+    const raw = getBrowserStorage()?.getItem(ACCESS_TOKEN_KEY);
     return raw ?? null;
   } catch {
     return null;
@@ -20,20 +60,45 @@ function readStorageToken(): string | null {
 }
 
 function writeStorageToken(token: string | null): void {
-  if (typeof window === "undefined") return;
+  migrateAuthStorage();
   try {
+    const storage = getBrowserStorage();
+    if (!storage) return;
     if (token) {
-      window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+      storage.setItem(ACCESS_TOKEN_KEY, token);
     } else {
-      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+      storage.removeItem(ACCESS_TOKEN_KEY);
+    }
+  } catch { /* quota exceeded */ }
+}
+
+function readStorageRefreshToken(): string | null {
+  migrateAuthStorage();
+  try {
+    const raw = getBrowserStorage()?.getItem(REFRESH_TOKEN_KEY);
+    return raw ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageRefreshToken(token: string | null): void {
+  migrateAuthStorage();
+  try {
+    const storage = getBrowserStorage();
+    if (!storage) return;
+    if (token) {
+      storage.setItem(REFRESH_TOKEN_KEY, token);
+    } else {
+      storage.removeItem(REFRESH_TOKEN_KEY);
     }
   } catch { /* quota exceeded */ }
 }
 
 function readStorageUser(): User | null {
-  if (typeof window === "undefined") return null;
+  migrateAuthStorage();
   try {
-    const raw = window.localStorage.getItem(USER_KEY);
+    const raw = getBrowserStorage()?.getItem(USER_KEY);
     return raw ? (JSON.parse(raw) as User) : null;
   } catch {
     return null;
@@ -41,12 +106,14 @@ function readStorageUser(): User | null {
 }
 
 function writeStorageUser(user: User | null): void {
-  if (typeof window === "undefined") return;
+  migrateAuthStorage();
   try {
+    const storage = getBrowserStorage();
+    if (!storage) return;
     if (user) {
-      window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+      storage.setItem(USER_KEY, JSON.stringify(user));
     } else {
-      window.localStorage.removeItem(USER_KEY);
+      storage.removeItem(USER_KEY);
     }
   } catch { /* quota exceeded */ }
 }
@@ -118,7 +185,15 @@ export function clearStoredTokens(): void {
   accessToken = null;
   currentUser = null;
   writeStorageToken(null);
+  writeStorageRefreshToken(null);
   writeStorageUser(null);
+  try {
+    getLegacySessionStorage()?.removeItem(ACCESS_TOKEN_KEY);
+    getLegacySessionStorage()?.removeItem(REFRESH_TOKEN_KEY);
+    getLegacySessionStorage()?.removeItem(USER_KEY);
+  } catch {
+    // ignore legacy cleanup failures
+  }
 }
 
 export function setStoredAccessToken(nextToken: string | null): void {
@@ -137,49 +212,72 @@ export function storeUser(user: User | null): void {
 
 export async function refreshAccessToken(): Promise<string | null> {
   if (!refreshPromise) {
-    refreshPromise = apiRequest<TokenResponse>("/auth/refresh", {
+    refreshPromise = doRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+async function doRefresh(): Promise<string | null> {
+  const storedRefreshToken = readStorageRefreshToken();
+  if (storedRefreshToken) {
+    try {
+      const response = await apiRequest<TokenResponse>("/auth/refresh", {
+        method: "POST",
+        skipAuth: true,
+        skipRefresh: true,
+        body: { refreshToken: storedRefreshToken },
+      });
+      applyRefreshResult(response);
+      return response.accessToken;
+    } catch {
+      // stored refresh token failed – fall through to cookie fallback
+      writeStorageRefreshToken(null);
+    }
+  }
+  try {
+    const response = await apiRequest<TokenResponse>("/auth/refresh", {
       method: "POST",
       skipAuth: true,
       skipRefresh: true,
-    })
-      .then((response) => {
-        accessToken = response.accessToken;
-        currentUser = response.user;
-        writeStorageToken(response.accessToken);
-        writeStorageUser(response.user);
-        return response.accessToken;
-      })
-      .catch(() => {
-        accessToken = null;
-        currentUser = null;
-        return null;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+    });
+    applyRefreshResult(response);
+    return response.accessToken;
+  } catch {
+    return null;
   }
-  return refreshPromise;
+}
+
+function applyRefreshResult(response: TokenResponse): void {
+  accessToken = response.accessToken;
+  currentUser = response.user;
+  writeStorageToken(response.accessToken);
+  writeStorageUser(response.user);
+  if (response.refreshToken) {
+    writeStorageRefreshToken(response.refreshToken);
+  }
 }
 
 export const authApi = {
   async bootstrap(): Promise<User | null> {
     const nextToken = await refreshAccessToken();
-    if (!nextToken) {
-      const storedToken = readStorageToken();
-      const storedUser = readStorageUser();
-      if (storedToken && storedUser) {
-        accessToken = storedToken;
-        currentUser = storedUser;
-        return storedUser;
+    if (nextToken) {
+      if (currentUser) {
+        return currentUser;
       }
-      return null;
+      const user = await apiRequest<User>("/auth/me");
+      storeUser(user);
+      return user;
     }
-    if (currentUser) {
-      return currentUser;
+    const storedToken = getStoredAccessToken();
+    const storedUser = getStoredUser();
+    if (storedToken && storedUser) {
+      accessToken = storedToken;
+      currentUser = storedUser;
+      return storedUser;
     }
-    const user = await apiRequest<User>("/auth/me");
-    currentUser = user;
-    return user;
+    return null;
   },
   async login(payload: LoginPayload): Promise<TokenResponse> {
     const response = await apiRequest<TokenResponse, LoginPayload>("/auth/login", {
@@ -188,8 +286,7 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    setStoredAccessToken(response.accessToken);
-    storeUser(response.user);
+    applyRefreshResult(response);
     return response;
   },
   async register(payload: RegisterPayload): Promise<TokenResponse> {
@@ -199,8 +296,7 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    setStoredAccessToken(response.accessToken);
-    storeUser(response.user);
+    applyRefreshResult(response);
     return response;
   },
   async logout(): Promise<void> {

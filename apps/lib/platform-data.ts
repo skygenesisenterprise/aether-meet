@@ -37,6 +37,7 @@ export interface ChatMessage {
   initials: string;
   time: string;
   content: string;
+  editedAt?: string;
 }
 
 export interface Conversation {

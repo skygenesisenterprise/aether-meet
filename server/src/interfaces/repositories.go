@@ -46,6 +46,7 @@ type AuthSessionRepository interface {
 type AuthRefreshTokenRepository interface {
 	Create(ctx context.Context, token *models.AuthRefreshToken) error
 	GetByHash(ctx context.Context, tokenHash string) (*models.AuthRefreshToken, error)
+	GetByID(ctx context.Context, id string) (*models.AuthRefreshToken, error)
 	Update(ctx context.Context, token *models.AuthRefreshToken) error
 	RevokeFamily(ctx context.Context, familyID string, revokedAt time.Time) error
 	DeleteExpired(ctx context.Context, before time.Time) error
@@ -114,6 +115,7 @@ type ConversationMemberRepository interface {
 	ListByConversation(ctx context.Context, conversationID string) ([]models.ConversationMember, error)
 	Get(ctx context.Context, conversationID, userID string) (*models.ConversationMember, error)
 	Update(ctx context.Context, member *models.ConversationMember) error
+	Delete(ctx context.Context, conversationID, userID string) error
 }
 
 type TaskRepository interface {

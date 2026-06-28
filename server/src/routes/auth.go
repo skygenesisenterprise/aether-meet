@@ -65,10 +65,18 @@ func (h *apiHandler) refresh(c *gin.Context) {
 	if !h.validateCSRFCookieOrigin(c) {
 		return
 	}
-	refreshToken, err := c.Cookie(h.deps.Config.Auth.RefreshCookieName)
-	if err != nil {
-		utils.Error(c, utils.ErrUnauthorized)
-		return
+	var body struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	refreshToken := strings.TrimSpace(body.RefreshToken)
+	if refreshToken == "" {
+		cookieToken, err := c.Cookie(h.deps.Config.Auth.RefreshCookieName)
+		if err != nil {
+			utils.Error(c, utils.ErrUnauthorized)
+			return
+		}
+		refreshToken = cookieToken
 	}
 	result, err := h.deps.AuthService.Refresh(c.Request.Context(), refreshToken, requestMetadata(c))
 	if err != nil {

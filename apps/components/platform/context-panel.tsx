@@ -82,8 +82,13 @@ function ChatPanel() {
   const conversations = useChatStore((s) => s.conversations);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const createConversation = useChatStore((s) => s.createConversation);
+  const deleteConversation = useChatStore((s) => s.deleteConversation);
   const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [pendingDeleteConversation, setPendingDeleteConversation] = React.useState<null | {
+    id: string;
+    name: string;
+  }>(null);
   const [conversationType, setConversationType] = React.useState<"dm" | "channel">("dm");
   const [groupName, setGroupName] = React.useState("");
   const [selectedMemberIds, setSelectedMemberIds] = React.useState<string[]>([]);
@@ -110,6 +115,26 @@ function ChatPanel() {
       )
     );
   }, [deps]);
+
+  const membersById = React.useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+
+  const getConversationIdentity = React.useCallback(
+    (conversation: { type: "dm" | "channel"; name: string; initials: string; memberIds: string[] }) => {
+      if (conversation.type !== "dm") {
+        return { label: conversation.name, initials: conversation.initials };
+      }
+
+      const currentUserId = currentUser?.id ?? "";
+      const otherMemberId = conversation.memberIds.find((memberId) => memberId !== currentUserId);
+      const otherMember = otherMemberId ? membersById.get(otherMemberId) : null;
+
+      return {
+        label: otherMember?.displayName ?? conversation.name,
+        initials: otherMember?.initials ?? conversation.initials,
+      };
+    },
+    [currentUser?.id, membersById]
+  );
 
   const availableMembers = React.useMemo(() => {
     const currentUserId = currentUser?.id ?? "";
@@ -165,6 +190,16 @@ function ChatPanel() {
     resetDraft();
   }
 
+  async function handleDeleteConversation() {
+    if (!pendingDeleteConversation) return;
+
+    await deleteConversation(pendingDeleteConversation.id, {
+      workspaceId: activeWorkspaceId,
+      currentUser: currentUser ?? null,
+    });
+    setPendingDeleteConversation(null);
+  }
+
   return (
     <>
       <PanelTitle
@@ -214,43 +249,66 @@ function ChatPanel() {
           </button>
           <div className="mt-1 space-y-1">
             {filteredConversations.length > 0 ? (
-              filteredConversations.map((conversation) => (
-                <button
-                  key={conversation.id}
-                  type="button"
-                  onClick={() =>
-                    setActiveConversation(
-                      activeConversationId === conversation.id ? null : conversation.id
-                    )
-                  }
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
-                    activeConversationId === conversation.id && "bg-violet-500/10"
-                  )}
-                >
-                  <PresenceAvatar
-                    initials={conversation.initials}
-                    status={conversation.status}
-                    className="size-9"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">{conversation.name}</span>
-                      <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
-                    </span>
-                    <span className="mt-0.5 flex items-start gap-2">
-                      <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
-                        {conversation.preview}
-                      </span>
-                      {conversation.unread ? (
-                        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
-                          {conversation.unread}
+              filteredConversations.map((conversation) => {
+                const conversationIdentity = getConversationIdentity(conversation);
+
+                return (
+                  <div
+                    key={conversation.id}
+                    className={cn(
+                      "group flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
+                      activeConversationId === conversation.id && "bg-violet-500/10"
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveConversation(
+                          activeConversationId === conversation.id ? null : conversation.id
+                        )
+                      }
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <PresenceAvatar
+                        initials={conversationIdentity.initials}
+                        status={conversation.status}
+                        className="size-9"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{conversationIdentity.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
                         </span>
-                      ) : null}
-                    </span>
-                  </span>
-                </button>
-              ))
+                        <span className="mt-0.5 flex items-start gap-2">
+                          <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                            {conversation.preview}
+                          </span>
+                          {conversation.unread ? (
+                            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+                              {conversation.unread}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0 rounded-md text-zinc-500 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Supprimer ${conversationIdentity.label}`}
+                      onClick={() =>
+                        setPendingDeleteConversation({
+                          id: conversation.id,
+                          name: conversationIdentity.label,
+                        })
+                      }
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                );
+              })
             ) : (
               <div className="rounded-md border border-dashed border-white/10 bg-black/10 px-3 py-4 text-sm text-zinc-400">
                 Aucun résultat pour ce filtre.
@@ -395,6 +453,36 @@ function ChatPanel() {
               className="rounded-lg bg-violet-500/90 text-xs hover:bg-violet-500 disabled:opacity-40"
             >
               Créer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingDeleteConversation !== null} onOpenChange={(open) => !open && setPendingDeleteConversation(null)}>
+        <DialogContent className="border-white/10 bg-[#1f2123] text-zinc-100 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Supprimer la conversation</DialogTitle>
+            <DialogDescription className="text-zinc-500 text-xs">
+              Cette conversation disparaîtra de votre liste. Les autres participants peuvent encore y accéder si la conversation existe pour eux.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-white/8 bg-black/15 px-3 py-2 text-sm text-zinc-300">
+            {pendingDeleteConversation?.name}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingDeleteConversation(null)}
+              className="rounded-lg border-white/10 text-xs"
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConversation}
+              className="rounded-lg text-xs"
+            >
+              Supprimer
             </Button>
           </DialogFooter>
         </DialogContent>

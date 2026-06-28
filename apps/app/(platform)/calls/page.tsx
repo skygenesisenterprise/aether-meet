@@ -1,3 +1,6 @@
+"use client";
+
+import * as React from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -14,53 +17,131 @@ import {
 import { Button } from "@/components/ui/button";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { cn } from "@/lib/utils";
+import { usePlatform } from "@/context/PlatformContext";
+import { listCallHistory } from "@/lib/api/calls";
+import { listContacts } from "@/lib/api/contacts";
+import { ApiError } from "@/lib/api/errors";
+import type { CallHistoryItem, Contact } from "@/lib/api/types";
 
-const calls = [
-  {
-    id: "1",
-    name: "Marcus Chen",
-    initials: "MC",
-    type: "Sortant",
-    time: "Aujourd’hui, 11:24",
-    duration: "18 min",
-    missed: false,
-    video: true,
-  },
-  {
-    id: "2",
-    name: "Sarah Kim",
-    initials: "SK",
-    type: "Manqué",
-    time: "Aujourd’hui, 09:10",
-    duration: "—",
-    missed: true,
-    video: false,
-  },
-  {
-    id: "3",
-    name: "Comité sécurité",
-    initials: "CS",
-    type: "Entrant",
-    time: "Hier, 16:42",
-    duration: "43 min",
-    missed: false,
-    video: true,
-  },
-  {
-    id: "4",
-    name: "Elena Martin",
-    initials: "EM",
-    type: "Manqué",
-    time: "Hier, 14:05",
-    duration: "—",
-    missed: true,
-    video: true,
-  },
-] as const;
+interface CallLogItem {
+  id: string;
+  name: string;
+  initials: string;
+  type: "Sortant" | "Manqué" | "Entrant";
+  time: string;
+  duration: string;
+  missed: boolean;
+  video: boolean;
+}
 
 const filters = ["Tout", "Manqué(s)", "Entrant", "Sortant", "Messagerie vocale"];
 
+function initialsFromName(name: string): string {
+  return name
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase())
+    .slice(0, 2)
+    .join("");
+}
+
+function formatCallTime(isoString: string | undefined): string {
+  if (!isoString) return "—";
+  const date = new Date(isoString);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (days === 0) return `Aujourd’hui, ${time}`;
+  if (days === 1) return `Hier, ${time}`;
+  return `${date.toLocaleDateString("fr-FR")}, ${time}`;
+}
+
+function formatDuration(seconds: number | undefined): string {
+  if (!seconds || seconds <= 0) return "—";
+  const min = Math.floor(seconds / 60);
+  if (min < 1) return "< 1 min";
+  return `${min} min`;
+}
+
+function toCallLogItem(item: CallHistoryItem): CallLogItem {
+  const name = (item.callerName as string) ?? (item.name as string) ?? "Inconnu";
+  const direction = item.direction as string | undefined;
+  const missed = (item.missed as boolean) ?? false;
+  const isVideo = (item.video as boolean) ?? false;
+  const durationSec = item.durationSeconds as number | undefined;
+
+  let type: CallLogItem["type"] = "Entrant";
+  if (direction === "outbound" || direction === "outgoing") type = "Sortant";
+  if (missed) type = "Manqué";
+
+  return {
+    id: item.id,
+    name,
+    initials: initialsFromName(name),
+    type,
+    time: formatCallTime(item.startedAt as string | undefined),
+    duration: formatDuration(durationSec),
+    missed,
+    video: isVideo,
+  };
+}
+
 export default function CallsPage() {
+  const { activeWorkspaceId } = usePlatform();
+  const [calls, setCalls] = React.useState<CallLogItem[]>([]);
+  const [contacts, setContacts] = React.useState<Contact[]>([]);
+  const [activeFilter, setActiveFilter] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      setCalls([]);
+      setContacts([]);
+      setLoading(false);
+      return;
+    }
+    const workspaceId: string = activeWorkspaceId;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [historyResponse, contactList] = await Promise.all([
+          listCallHistory(workspaceId),
+          listContacts(workspaceId),
+        ]);
+        if (cancelled) return;
+        setCalls(historyResponse.data.map(toCallLogItem));
+        setContacts(contactList);
+      } catch (err) {
+        if (!cancelled) {
+          if (err instanceof ApiError && err.status === 501) {
+            setError("L'historique des appels n'est pas encore disponible.");
+          } else {
+            setError("Impossible de charger l'historique des appels.");
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
+
+  const filteredCalls = React.useMemo(() => {
+    if (activeFilter === 0) return calls;
+    const filterLabel = filters[activeFilter];
+    if (filterLabel === "Manqué(s)") return calls.filter((c) => c.missed);
+    if (filterLabel === "Entrant") return calls.filter((c) => c.type === "Entrant");
+    if (filterLabel === "Sortant") return calls.filter((c) => c.type === "Sortant");
+    return calls;
+  }, [calls, activeFilter]);
+
   return (
     <div className="flex h-full min-h-180 flex-col bg-[#202123]">
       <header className="flex min-h-15.5 shrink-0 items-center justify-between border-b border-white/12 bg-[#202123] px-5">
@@ -107,9 +188,10 @@ export default function CallsPage() {
                 <button
                   key={filter}
                   type="button"
+                  onClick={() => setActiveFilter(index)}
                   className={cn(
                     "rounded-full border border-zinc-600 px-3 py-1 text-sm text-zinc-200 transition-colors hover:bg-white/5",
-                    index === 0 && "border-[#7775ff] bg-[#7775ff] font-semibold text-white"
+                    activeFilter === index && "border-[#7775ff] bg-[#7775ff] font-semibold text-white"
                   )}
                 >
                   {filter}
@@ -135,7 +217,20 @@ export default function CallsPage() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            {calls.map((call) => (
+            {loading ? (
+              <div className="flex h-full items-center justify-center text-sm text-zinc-400">
+                Chargement de l’historique…
+              </div>
+            ) : error ? (
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-rose-200">
+                {error}
+              </div>
+            ) : filteredCalls.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+                Aucun appel pour le moment.
+              </div>
+            ) : (
+            filteredCalls.map((call) => (
               <article
                 key={call.id}
                 className="group flex items-center gap-3 border-b border-white/7 px-5 py-3 transition-colors hover:bg-white/2.5"
@@ -170,7 +265,8 @@ export default function CallsPage() {
                   {call.video ? <Video className="size-4" /> : <Phone className="size-4" />}
                 </Button>
               </article>
-            ))}
+            ))
+            )}
           </div>
         </section>
 
@@ -187,22 +283,27 @@ export default function CallsPage() {
             </Button>
           </div>
           <div className="p-5">
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-sm p-1 text-left transition-colors hover:bg-white/5"
-            >
-              <PresenceAvatar initials="EM" status="away" className="size-9" />
-              <span className="text-sm font-medium">Elena Martin</span>
-              <Phone className="ml-auto size-3.5 text-zinc-500" />
-            </button>
-            <button
-              type="button"
-              className="mt-3 flex w-full items-center gap-3 rounded-sm p-1 text-left transition-colors hover:bg-white/5"
-            >
-              <PresenceAvatar initials="MC" status="busy" className="size-9" />
-              <span className="text-sm font-medium">Marcus Chen</span>
-              <Video className="ml-auto size-3.5 text-zinc-500" />
-            </button>
+            {loading ? (
+              <p className="text-sm text-zinc-500">Chargement des contacts…</p>
+            ) : contacts.length === 0 ? (
+              <p className="text-sm text-zinc-500">Aucun contact rapide.</p>
+            ) : (
+              contacts.slice(0, 5).map((contact) => (
+                <button
+                  key={contact.id}
+                  type="button"
+                  className="mt-3 flex w-full items-center gap-3 rounded-sm p-1 text-left transition-colors hover:bg-white/5 first:mt-0"
+                >
+                  <PresenceAvatar
+                    initials={initialsFromName(contact.name)}
+                    status="online"
+                    className="size-9"
+                  />
+                  <span className="truncate text-sm font-medium">{contact.name}</span>
+                  <Phone className="ml-auto size-3.5 shrink-0 text-zinc-500" />
+                </button>
+              ))
+            )}
           </div>
         </aside>
       </div>

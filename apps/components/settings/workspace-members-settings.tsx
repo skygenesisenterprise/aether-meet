@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Search, UserPlus, UserRoundPlus } from "lucide-react";
+import { Eye, EyeOff, Loader2, Search, UserPlus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -22,21 +22,24 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { createWorkspaceMember, deleteWorkspaceMember, provisionWorkspaceUser, updateWorkspaceMember } from "@/lib/api/members";
+import { deleteWorkspaceMember, provisionWorkspaceUser, updateWorkspaceMember } from "@/lib/api/members";
 import type { User, Workspace, WorkspaceMember, WorkspaceMemberRole } from "@/lib/api/types";
 
-const existingMemberSchema = z.object({
-  email: z.string().email("Email invalide"),
-  role: z.enum(["admin", "member", "guest"]),
-});
-
-const provisionSchema = z.object({
-  email: z.string().email("Email invalide"),
+const memberSchema = z.object({
   displayName: z.string().trim().min(2, "Nom requis"),
+  email: z.string().email("Email invalide"),
   role: z.enum(["admin", "member", "guest"]),
   temporaryPassword: z.string().min(12, "12 caractères minimum"),
   confirmTemporaryPassword: z.string().min(12, "Confirmation requise"),
@@ -66,25 +69,19 @@ export function WorkspaceMembersSettings({
 }: WorkspaceMembersSettingsProps) {
   const [search, setSearch] = React.useState("");
   const [roleFilter, setRoleFilter] = React.useState("all");
-  const [mode, setMode] = React.useState<"existing" | "provision">("existing");
   const [open, setOpen] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
   const [pendingRemoval, setPendingRemoval] = React.useState<WorkspaceMember | null>(null);
-  const existingForm = useForm<z.infer<typeof existingMemberSchema>>({
-    resolver: zodResolver(existingMemberSchema),
-    defaultValues: { email: "", role: "member" },
-  });
-  const provisionForm = useForm<z.infer<typeof provisionSchema>>({
-    resolver: zodResolver(provisionSchema),
-    defaultValues: { email: "", displayName: "", role: "member", temporaryPassword: "", confirmTemporaryPassword: "" },
+  const form = useForm<z.infer<typeof memberSchema>>({
+    resolver: zodResolver(memberSchema),
+    defaultValues: { displayName: "", email: "", role: "member", temporaryPassword: "", confirmTemporaryPassword: "" },
   });
 
   React.useEffect(() => {
     if (!open) {
-      existingForm.reset();
-      provisionForm.reset();
-      setMode("existing");
+      form.reset();
     }
-  }, [existingForm, open, provisionForm]);
+  }, [form, open]);
 
   const filteredMembers = React.useMemo(() => {
     return members.filter((member) => {
@@ -94,22 +91,7 @@ export function WorkspaceMembersSettings({
     });
   }, [members, roleFilter, search]);
 
-  async function submitExisting(values: z.infer<typeof existingMemberSchema>) {
-    if (!workspace) {
-      return;
-    }
-    try {
-      const created = await createWorkspaceMember(workspace.id, values);
-      onMembersChange([...members, created]);
-      existingForm.reset();
-      setOpen(false);
-      toast.success("Membre ajouté.");
-    } catch {
-      toast.error("Impossible d’ajouter ce membre.");
-    }
-  }
-
-  async function submitProvision(values: z.infer<typeof provisionSchema>) {
+  async function submitMember(values: z.infer<typeof memberSchema>) {
     if (!workspace) {
       return;
     }
@@ -121,19 +103,19 @@ export function WorkspaceMembersSettings({
         temporaryPassword: values.temporaryPassword,
       });
       onMembersChange([...members, created]);
-      provisionForm.reset();
+      form.reset();
       setOpen(false);
-      toast.success("Compte local provisionné.");
+      toast.success("Membre ajouté au workspace.");
     } catch {
-      toast.error("Provisionnement impossible.");
+      toast.error("Impossible de créer ce membre.");
     }
   }
 
   function generateTemporaryPassword() {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
     const password = Array.from({ length: 16 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
-    provisionForm.setValue("temporaryPassword", password, { shouldDirty: true, shouldValidate: true });
-    provisionForm.setValue("confirmTemporaryPassword", password, { shouldDirty: true, shouldValidate: true });
+    form.setValue("temporaryPassword", password, { shouldDirty: true, shouldValidate: true });
+    form.setValue("confirmTemporaryPassword", password, { shouldDirty: true, shouldValidate: true });
   }
 
   async function handleRoleChange(member: WorkspaceMember, role: WorkspaceMemberRole) {
@@ -172,78 +154,57 @@ export function WorkspaceMembersSettings({
       <SettingsSectionHeader
         eyebrow="Workspace"
         title="Membres"
-        description={canManage ? "Ajoutez des membres existants ou provisionnez un nouveau compte local directement dans le workspace actif." : "Liste des membres du workspace en lecture seule."}
+        description={canManage ? "Créez un nouveau membre directement rattaché au workspace actif." : "Liste des membres du workspace en lecture seule."}
         actions={
           canManage ? (
-            <Button size="sm" onClick={() => setOpen((current) => !current)}>
+            <Button size="sm" onClick={() => setOpen(true)}>
               <UserPlus className="size-4" />
-              {open ? "Fermer" : "Ajouter un membre"}
+              Ajouter un membre
             </Button>
           ) : null
         }
       />
-      {canManage && open ? (
-        <div className="space-y-4 rounded-md border border-white/10 bg-black/10 p-4">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Ajouter un membre</h3>
-            <p className="mt-1 text-sm text-zinc-400">
-              Deux modes sont disponibles: rattacher un compte existant ou provisionner un nouvel utilisateur local.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant={mode === "existing" ? "default" : "outline"} onClick={() => setMode("existing")}>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="border-white/12 bg-[#27282b] text-zinc-100 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
               <UserPlus className="size-4" />
-              Utilisateur existant
-            </Button>
-            <Button type="button" variant={mode === "provision" ? "default" : "outline"} onClick={() => setMode("provision")}>
-              <UserRoundPlus className="size-4" />
-              Nouveau compte local
-            </Button>
-          </div>
-          {mode === "existing" ? (
-            <Form {...existingForm}>
-              <form className="space-y-4" onSubmit={existingForm.handleSubmit((values) => void submitExisting(values))}>
-                <FormField control={existingForm.control} name="email" render={({ field }) => (
-                  <FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={existingForm.control} name="role" render={({ field }) => (
-                  <FormItem><FormLabel>Rôle</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger className="border-white/10 bg-[#232426]"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="member">Member</SelectItem><SelectItem value="guest">Guest</SelectItem></SelectContent></Select><FormMessage /></FormItem>
-                )} />
-                <Button type="submit" disabled={existingForm.formState.isSubmitting}>{existingForm.formState.isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}Ajouter</Button>
-              </form>
-            </Form>
-          ) : (
-            <Form {...provisionForm}>
-              <form className="space-y-4" onSubmit={provisionForm.handleSubmit((values) => void submitProvision(values))}>
-                <FormField control={provisionForm.control} name="email" render={({ field }) => (
-                  <FormItem><FormLabel>Email de connexion</FormLabel><FormControl><Input {...field} type="email" placeholder="membre@aether.local" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={provisionForm.control} name="displayName" render={({ field }) => (
-                  <FormItem><FormLabel>Nom affiché</FormLabel><FormControl><Input {...field} placeholder="Nom visible dans la plateforme" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={provisionForm.control} name="role" render={({ field }) => (
-                  <FormItem><FormLabel>Rôle</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger className="border-white/10 bg-[#232426]"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="member">Member</SelectItem><SelectItem value="guest">Guest</SelectItem></SelectContent></Select><FormMessage /></FormItem>
-                )} />
-                <div className="rounded-md border border-white/10 bg-black/10 p-3 text-xs text-zinc-400">
-                  Le compte local sera créé avec cet email, ce nom affiché et ce rôle, puis ajouté immédiatement au workspace actif.
-                </div>
-                <FormField control={provisionForm.control} name="temporaryPassword" render={({ field }) => (
-                  <FormItem><FormLabel>Mot de passe temporaire</FormLabel><FormControl><Input {...field} type="password" placeholder="12 caractères minimum" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <FormField control={provisionForm.control} name="confirmTemporaryPassword" render={({ field }) => (
-                  <FormItem><FormLabel>Confirmation du mot de passe</FormLabel><FormControl><Input {...field} type="password" placeholder="Répéter le mot de passe temporaire" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
-                )} />
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={generateTemporaryPassword}>
-                    Générer un mot de passe
-                  </Button>
-                  <Button type="submit" disabled={provisionForm.formState.isSubmitting}>{provisionForm.formState.isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}Provisionner</Button>
-                </div>
-              </form>
-            </Form>
-          )}
-        </div>
-      ) : null}
+              Ajouter un membre
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Le compte sera créé et rattaché automatiquement au workspace actif.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form className="space-y-4" onSubmit={form.handleSubmit((values) => void submitMember(values))}>
+              <FormField control={form.control} name="displayName" render={({ field }) => (
+                <FormItem><FormLabel>Nom affiché</FormLabel><FormControl><Input {...field} placeholder="Nom visible dans la plateforme" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="email" render={({ field }) => (
+                <FormItem><FormLabel>Email de connexion</FormLabel><FormControl><Input {...field} type="email" placeholder="membre@aether.local" className="border-white/10 bg-[#232426]" /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="role" render={({ field }) => (
+                <FormItem><FormLabel>Rôle</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger className="border-white/10 bg-[#232426]"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="member">Member</SelectItem><SelectItem value="guest">Guest</SelectItem></SelectContent></Select><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="temporaryPassword" render={({ field }) => (
+                <FormItem><FormLabel>Mot de passe temporaire</FormLabel><FormControl><div className="relative"><Input {...field} type={showPassword ? "text" : "password"} placeholder="12 caractères minimum" className="border-white/10 bg-[#232426] pr-10" /><button type="button" onClick={() => setShowPassword((c) => !c)} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200" tabIndex={-1} aria-label={showPassword ? "Masquer" : "Afficher"}>{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="confirmTemporaryPassword" render={({ field }) => (
+                <FormItem><FormLabel>Confirmation du mot de passe</FormLabel><FormControl><div className="relative"><Input {...field} type={showPassword ? "text" : "password"} placeholder="Répéter le mot de passe temporaire" className="border-white/10 bg-[#232426] pr-10" /></div></FormControl><FormMessage /></FormItem>
+              )} />
+              <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+                <Button type="button" variant="outline" className="gap-1" onClick={generateTemporaryPassword}>
+                  Générer un mot de passe
+                </Button>
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  {form.formState.isSubmitting ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Créer le membre
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
       {errorMessage ? (
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
           {errorMessage}

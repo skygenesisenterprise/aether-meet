@@ -4,14 +4,20 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Check,
   ChevronDown,
+  FileText,
+  Image,
   Info,
   MessageSquarePlus,
   MoreHorizontal,
+  Paperclip,
+  Pencil,
   Phone,
   Search,
   UsersRound,
   Video,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,14 +43,41 @@ import { useChatStore } from "@/lib/chat-store";
 import {
   currentUser as mockCurrentUser,
   people,
+  type ChatMessage,
   type Person,
 } from "@/lib/platform-data";
 import { usePlatform } from "@/context/PlatformContext";
+import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { cn } from "@/lib/utils";
+
+interface ContentSegment {
+  type: "text" | "image" | "file";
+  value: string;
+}
+
+function parseContent(content: string): ContentSegment[] {
+  const pattern = /\[(Image|Fichier):\s*(.*?)\]/g;
+  const segments: ContentSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", value: content.slice(lastIndex, match.index) });
+    }
+    const kind = match[1] === "Image" ? "image" : "file";
+    segments.push({ type: kind, value: match[2].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    segments.push({ type: "text", value: content.slice(lastIndex) });
+  }
+  return segments;
+}
 
 export default function ChatPage() {
   const router = useRouter();
-  const { currentUser: apiUser, activeWorkspaceId } = usePlatform();
+  const { currentUser: apiUser, activeWorkspaceId, lastRealtimeEvent } = usePlatform();
   const currentUser = apiUser ?? mockCurrentUser;
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const conversations = useChatStore((s) => s.conversations);
@@ -69,22 +102,35 @@ export default function ChatPage() {
     activeConversationId === null
       ? null
       : allConversations.find((item) => item.id === activeConversationId) ?? null;
-  const conversationMessages =
+  const rawConversationMessages =
     conversation && activeConversationId
-      ? [
-          ...(customMessages[activeConversationId] ?? messages[activeConversationId] ?? []),
-        ]
+      ? [...(customMessages[activeConversationId] ?? messages[activeConversationId] ?? [])]
       : [];
+  const conversationMessages = apiUser ? rawConversationMessages.reverse() : rawConversationMessages;
   const [callMode, setCallMode] = React.useState<"audio" | "video" | null>(null);
   const [infoOpen, setInfoOpen] = React.useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = React.useState(false);
-  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const [typingUsers, setTypingUsers] = React.useState<string[]>([]);
+  const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
+  const [editingText, setEditingText] = React.useState("");
+  const [openMenuMessageId, setOpenMenuMessageId] = React.useState<string | null>(null);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const peopleById = React.useMemo(() => new Map(people.map((person) => [person.id, person])), []);
   const members = conversation
     ? conversation.memberIds
         .map((memberId) => peopleById.get(memberId))
         .filter((member): member is Person => Boolean(member))
     : [];
   const otherMembers = members.filter((member) => member.id !== currentUser.id);
+  const conversationIdentity = React.useMemo(
+    () => ({
+      name: conversation?.type === "dm" ? otherMembers[0]?.name ?? conversation.name : conversation?.name ?? "",
+      initials: conversation?.type === "dm" ? otherMembers[0]?.initials ?? conversation.initials : conversation?.initials ?? "",
+      subtitle: conversation?.type === "dm" ? otherMembers[0]?.role ?? conversation.subtitle : conversation?.subtitle ?? "",
+      status: conversation?.type === "dm" ? otherMembers[0]?.status ?? conversation.status : conversation?.status ?? "offline",
+    }),
+    [conversation, otherMembers]
+  );
   const openCall = (mode: "audio" | "video") => {
     if (!conversation) return;
     setInfoOpen(false);
@@ -102,21 +148,54 @@ export default function ChatPage() {
   const callTargets =
     conversation?.type === "dm"
       ? otherMembers.map((member) => member.name).join(", ")
-      : conversation?.name ?? "";
+      : conversationIdentity.name;
   const callDescription =
     conversation?.type === "dm"
       ? `${callMode === "video" ? "Visioconférence" : "Appel audio"} avec ${callTargets}.`
-      : `${callMode === "video" ? "Réunion vidéo" : "Appel de groupe"} dans ${conversation?.name ?? ""}.`;
+      : `${callMode === "video" ? "Réunion vidéo" : "Appel de groupe"} dans ${conversationIdentity.name}.`;
 
   React.useEffect(() => {
+    if (!activeWorkspaceId || !apiUser) {
+      return;
+    }
+
     loadChatData({ workspaceId: activeWorkspaceId, currentUser: apiUser ?? null });
   }, [activeWorkspaceId, apiUser, loadChatData]);
 
   React.useEffect(() => {
-    if (activeConversationId) {
-      loadMessages(activeConversationId, { workspaceId: activeWorkspaceId, currentUser: apiUser ?? null });
+    if (!activeWorkspaceId || !apiUser || !conversation?.id) {
+      return;
     }
-  }, [activeConversationId, activeWorkspaceId, apiUser, loadMessages]);
+
+    if (conversation?.id) {
+      loadMessages(conversation.id, { workspaceId: activeWorkspaceId, currentUser: apiUser });
+    }
+  }, [conversation?.id, activeWorkspaceId, apiUser, loadMessages]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId || !apiUser || !lastRealtimeEvent?.conversationId) {
+      return;
+    }
+
+    if (
+      lastRealtimeEvent.type === "conversation.created" ||
+      lastRealtimeEvent.type === "conversation.updated" ||
+      lastRealtimeEvent.type === "conversation.left" ||
+      lastRealtimeEvent.type === "conversation.deleted"
+    ) {
+      loadChatData({ workspaceId: activeWorkspaceId, currentUser: apiUser });
+      return;
+    }
+
+    if (lastRealtimeEvent.type !== "message.created" && lastRealtimeEvent.type !== "message.updated") {
+      return;
+    }
+
+    loadMessages(lastRealtimeEvent.conversationId, {
+      workspaceId: activeWorkspaceId,
+      currentUser: apiUser,
+    });
+  }, [activeWorkspaceId, apiUser, lastRealtimeEvent, loadMessages]);
 
   React.useEffect(() => {
     if (!conversation) return;
@@ -134,6 +213,70 @@ export default function ChatPage() {
 
     return () => window.cancelAnimationFrame(frame);
   }, [conversation, activeConversationId, conversationMessages.length]);
+
+  const typingTimeoutsRef = React.useRef<Map<string, number>>(new Map());
+
+  React.useEffect(() => {
+    if (!activeConversationId) return;
+
+    const realtime = getSharedRealtimeClient();
+    const subscription = realtime.subscribe((event) => {
+      if (
+        (event.type !== "typing.started" && event.type !== "typing.stopped") ||
+        event.conversationId !== activeConversationId ||
+        !event.actorId ||
+        event.actorId === currentUser.id
+      ) {
+        return;
+      }
+
+      const person = peopleById.get(event.actorId);
+      if (!person) return;
+
+      if (event.type === "typing.started") {
+        setTypingUsers((prev) => {
+          if (prev.includes(person.name)) return prev;
+          const next = [...prev, person.name];
+
+          const existingTimeout = typingTimeoutsRef.current.get(person.name);
+          if (existingTimeout !== undefined) {
+            window.clearTimeout(existingTimeout);
+          }
+
+          const timeout = window.setTimeout(() => {
+            setTypingUsers((p) => p.filter((n) => n !== person.name));
+            typingTimeoutsRef.current.delete(person.name);
+          }, 5000);
+          typingTimeoutsRef.current.set(person.name, timeout);
+
+          return next;
+        });
+      } else {
+        setTypingUsers((prev) => prev.filter((n) => n !== person.name));
+        const existingTimeout = typingTimeoutsRef.current.get(person.name);
+        if (existingTimeout !== undefined) {
+          window.clearTimeout(existingTimeout);
+          typingTimeoutsRef.current.delete(person.name);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      typingTimeoutsRef.current.forEach((t) => window.clearTimeout(t));
+      typingTimeoutsRef.current.clear();
+      setTypingUsers([]);
+    };
+  }, [activeConversationId, currentUser.id, peopleById]);
+
+  function handleOwnTyping(isTyping: boolean) {
+    if (!activeConversationId) return;
+    const realtime = getSharedRealtimeClient();
+    realtime.send({
+      type: isTyping ? "typing.started" : "typing.stopped",
+      conversationId: activeConversationId,
+    });
+  }
 
   function hasFiles(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) return false;
@@ -170,10 +313,37 @@ export default function ChatPage() {
     composerRef.current?.addDroppedFiles(event.dataTransfer.files);
   }
 
+  function startEditing(message: ChatMessage) {
+    setEditingText(message.content);
+    setEditingMessageId(message.id);
+    setOpenMenuMessageId(null);
+  }
+
+  function handleEditSave(conversationId: string, messageId: string) {
+    if (!editingText.trim()) return;
+    updateMessage(conversationId, messageId, editingText, {
+      workspaceId: activeWorkspaceId,
+      currentUser: apiUser ?? null,
+    });
+    setEditingMessageId(null);
+    setEditingText("");
+  }
+
+  function handleEditCancel() {
+    setEditingMessageId(null);
+    setEditingText("");
+  }
+
+  const isRestoringConversation = Boolean(activeConversationId && !conversation && apiUser && activeWorkspaceId);
+
   return (
     <>
       <div className="flex h-full min-h-180 flex-col bg-[#232426]">
-        {conversation ? (
+        {isRestoringConversation ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-zinc-400">
+            Chargement de la conversation…
+          </div>
+        ) : conversation ? (
           <div
             className="relative flex min-h-0 flex-1 flex-col"
             onDragEnter={handleConversationDragEnter}
@@ -183,10 +353,10 @@ export default function ChatPage() {
           >
             <header className="flex min-h-15.5 flex-wrap items-center justify-between gap-2 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
               <div className="flex min-w-0 items-center gap-3">
-                <PresenceAvatar initials={conversation.initials} status={conversation.status} className="size-8" />
+                <PresenceAvatar initials={conversationIdentity.initials} status={conversationIdentity.status} className="size-8" />
                 <div className="min-w-0">
-                  <h1 className="truncate text-sm font-semibold">{conversation.name}</h1>
-                  <p className="truncate text-xs text-zinc-400">{conversation.subtitle}</p>
+                  <h1 className="truncate text-sm font-semibold">{conversationIdentity.name}</h1>
+                  <p className="truncate text-xs text-zinc-400">{conversationIdentity.subtitle}</p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -241,13 +411,6 @@ export default function ChatPage() {
               </div>
             </header>
 
-            <div className="flex h-10.5 shrink-0 items-center border-b border-violet-400/70 bg-[#252628] px-4 text-sm text-zinc-300">
-              <span className="mr-2 text-zinc-400">À :</span>
-              <span className="truncate">{conversation.name}</span>
-              {conversation.type === "channel" && <span className="truncate text-zinc-500">, canal Design</span>}
-              <ChevronDown className="ml-auto size-4 text-zinc-500" />
-            </div>
-
             <div ref={scrollAreaRef} className="min-h-0 flex-1">
               <ScrollArea key={activeConversationId} className="h-full bg-[#232426]">
                 <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
@@ -259,6 +422,8 @@ export default function ChatPage() {
                   {conversationMessages.map((message) => {
                     const isOwnMessage = message.authorId === currentUser.id;
                     const author = peopleById.get(message.authorId);
+                    const isEditing = editingMessageId === message.id;
+                    const isMenuOpen = openMenuMessageId === message.id;
 
                     return (
                       <article
@@ -288,29 +453,144 @@ export default function ChatPage() {
                             <time className="font-mono text-[10px] text-muted-foreground">
                               {message.time}
                             </time>
-                            {isOwnMessage && <h2 className="text-sm font-semibold">Vous</h2>}
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className={cn(
-                                "rounded-md opacity-0 transition-opacity group-hover:opacity-100",
-                                isOwnMessage ? "order-first" : "ml-auto"
-                              )}
-                              aria-label="Actions du message"
-                            >
-                              <MoreHorizontal className="size-4" />
-                            </Button>
-                          </div>
-                          <div
-                            className={cn(
-                              "mt-1 rounded-2xl px-4 py-3",
-                              isOwnMessage
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-[#2b2d31] text-foreground/90"
+                            {message.editedAt && (
+                              <span className="font-mono text-[10px] text-muted-foreground/60">
+                                (modifié)
+                              </span>
                             )}
-                          >
-                            <p className="text-sm leading-6">{message.content}</p>
+                            {isOwnMessage && <h2 className="text-sm font-semibold">Vous</h2>}
+                            {isOwnMessage && (
+                              <div className="relative">
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className={cn(
+                                    "rounded-md opacity-0 transition-opacity group-hover:opacity-100",
+                                    isOwnMessage ? "order-first" : "ml-auto"
+                                  )}
+                                  aria-label="Actions du message"
+                                  onClick={() => setOpenMenuMessageId(isMenuOpen ? null : message.id)}
+                                >
+                                  <MoreHorizontal className="size-4" />
+                                </Button>
+                                {isMenuOpen && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-40"
+                                      onClick={() => setOpenMenuMessageId(null)}
+                                    />
+                                    <div className="absolute bottom-full right-0 z-50 mb-1 min-w-32 rounded-lg border border-white/12 bg-[#2b2d31] py-1 shadow-xl">
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-white/8"
+                                        onClick={() => startEditing(message)}
+                                      >
+                                        <Pencil className="size-3.5" />
+                                        Éditer
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
+                          {isEditing ? (
+                            <div className="mt-1 w-full">
+                              <textarea
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                className="w-full resize-none rounded-2xl border border-white/15 bg-[#2b2d31] px-4 py-3 text-sm text-foreground/90 outline-none ring-0 focus:border-primary/50"
+                                rows={3}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleEditSave(conversation.id, message.id);
+                                  }
+                                  if (e.key === "Escape") {
+                                    handleEditCancel();
+                                  }
+                                }}
+                              />
+                              <div className="mt-2 flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  className="rounded-md gap-1"
+                                  onClick={() => handleEditSave(conversation.id, message.id)}
+                                >
+                                  <Check className="size-3.5" />
+                                  Enregistrer
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="rounded-md gap-1"
+                                  onClick={handleEditCancel}
+                                >
+                                  <X className="size-3.5" />
+                                  Annuler
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div
+                              className={cn(
+                                "mt-1 rounded-2xl px-4 py-3",
+                                isOwnMessage
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-[#2b2d31] text-foreground/90"
+                              )}
+                            >
+                              {parseContent(message.content).map((segment, i) =>
+                                segment.type === "text" ? (
+                                  <p key={i} className="text-sm leading-6">{segment.value}</p>
+                                ) : (
+                                  <div
+                                    key={i}
+                                    className={cn(
+                                      "mt-2 flex items-center gap-3 rounded-xl border px-4 py-3",
+                                      isOwnMessage
+                                        ? "border-white/15 bg-white/8"
+                                        : "border-white/10 bg-black/15"
+                                    )}
+                                  >
+                                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-black/20">
+                                      {segment.type === "image" ? (
+                                        <Image className="size-5" />
+                                      ) : (
+                                        <FileText className="size-5" />
+                                      )}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-medium">{segment.value}</p>
+                                      <p className="mt-0.5 text-xs text-zinc-400">
+                                        {segment.type === "image" ? "Image" : "Fichier"}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const blob = new Blob(
+                                          ["Téléchargement de " + segment.value],
+                                          { type: "text/plain" }
+                                        );
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement("a");
+                                        a.href = url;
+                                        a.download = segment.value;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                      }}
+                                      className="flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+                                      aria-label={`Télécharger ${segment.value}`}
+                                    >
+                                      <Paperclip className="size-4" />
+                                    </button>
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
                         </div>
                       </article>
                     );
@@ -342,10 +622,17 @@ export default function ChatPage() {
 
             <div className="shrink-0 bg-[#232426] px-4 pb-5 pt-3 lg:px-8">
               <div className="mx-auto max-w-4xl">
+                {typingUsers.length > 0 && (
+                  <p className="mb-1.5 text-xs text-zinc-400">
+                    {typingUsers.join(" et ")}{" "}
+                    {typingUsers.length > 1 ? "écrivent" : "est en train d'écrire"}…
+                  </p>
+                )}
                 <MessageComposer
                   ref={composerRef}
-                  placeholder={`Écrire un message à ${conversation.name}`}
+                  placeholder={`Écrire un message à ${conversationIdentity.name}`}
                   onSend={(message) => sendMessage(conversation.id, message, { workspaceId: activeWorkspaceId, currentUser: apiUser ?? null })}
+                  onTypingChange={handleOwnTyping}
                 />
               </div>
             </div>
@@ -451,7 +738,7 @@ export default function ChatPage() {
 
           <div className="rounded-lg border border-white/10 bg-black/10 p-4">
             <p className="text-sm font-medium text-zinc-100">
-              {conversation?.type === "dm" ? callTargets : conversation?.name}
+              {conversation?.type === "dm" ? callTargets : conversationIdentity.name}
             </p>
             <p className="mt-1 text-xs text-zinc-400">
               {conversation?.type === "dm"
@@ -490,9 +777,9 @@ export default function ChatPage() {
             <>
               <SheetHeader className="border-b border-white/8 pb-4">
                 <div className="flex items-center gap-3">
-                  <PresenceAvatar initials={conversation.initials} status={conversation.status} className="size-10" />
+                  <PresenceAvatar initials={conversationIdentity.initials} status={conversationIdentity.status} className="size-10" />
                   <div className="min-w-0">
-                    <SheetTitle className="truncate">{conversation.name}</SheetTitle>
+                    <SheetTitle className="truncate">{conversationIdentity.name}</SheetTitle>
                     <SheetDescription className="text-zinc-400">
                       {conversation.type === "dm" ? "Conversation individuelle" : "Conversation de groupe"}
                     </SheetDescription>
@@ -504,7 +791,7 @@ export default function ChatPage() {
                 <section className="space-y-2">
                   <h3 className="text-sm font-semibold text-zinc-100">Détails</h3>
                   <div className="rounded-lg border border-white/8 bg-black/10 p-4 text-sm text-zinc-300">
-                    <p>{conversation.subtitle}</p>
+                    <p>{conversationIdentity.subtitle}</p>
                     <p className="mt-2 text-xs text-zinc-500">
                       {conversation.type === "dm"
                         ? "Accès rapide aux appels et aux informations du contact."

@@ -112,6 +112,15 @@ export interface Conversation {
   channelId?: string;
   type: string;
   name?: string;
+  memberIds?: string[];
+  participants?: Array<{
+    userId: string;
+    displayName: string;
+    email: string;
+    role: string;
+    status: string;
+    presenceStatus: string;
+  }>;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -225,6 +234,7 @@ export interface JoinTokenResponse {
 
 export interface TokenResponse {
   accessToken: string;
+  refreshToken?: string;
   tokenType?: string;
   expiresIn?: number;
   user: User;

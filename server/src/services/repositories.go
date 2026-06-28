@@ -60,7 +60,7 @@ func (r *Repositories) ConversationMembers() interfaces.ConversationMemberReposi
 	return &conversationMemberRepository{db: r.db}
 }
 func (r *Repositories) Projects() interfaces.ProjectRepository { return &projectRepository{db: r.db} }
-func (r *Repositories) Tasks() interfaces.TaskRepository { return &taskRepository{db: r.db} }
+func (r *Repositories) Tasks() interfaces.TaskRepository       { return &taskRepository{db: r.db} }
 func (r *Repositories) Messages() interfaces.MessageRepository { return &messageRepository{db: r.db} }
 func (r *Repositories) Reactions() interfaces.ReactionRepository {
 	return &reactionRepository{db: r.db}
@@ -247,6 +247,12 @@ func (r *authRefreshTokenRepository) Create(ctx context.Context, token *models.A
 func (r *authRefreshTokenRepository) GetByHash(ctx context.Context, tokenHash string) (*models.AuthRefreshToken, error) {
 	var token models.AuthRefreshToken
 	err := r.db.WithContext(ctx).First(&token, "token_hash = ?", tokenHash).Error
+	return &token, normalizeNotFound(err, utils.NewError(404, "REFRESH_TOKEN_NOT_FOUND", "The requested refresh token was not found.", nil))
+}
+
+func (r *authRefreshTokenRepository) GetByID(ctx context.Context, id string) (*models.AuthRefreshToken, error) {
+	var token models.AuthRefreshToken
+	err := r.db.WithContext(ctx).First(&token, "id = ?", id).Error
 	return &token, normalizeNotFound(err, utils.NewError(404, "REFRESH_TOKEN_NOT_FOUND", "The requested refresh token was not found.", nil))
 }
 
@@ -444,6 +450,9 @@ func (r *conversationMemberRepository) Get(ctx context.Context, conversationID, 
 }
 func (r *conversationMemberRepository) Update(ctx context.Context, member *models.ConversationMember) error {
 	return r.db.WithContext(ctx).Save(member).Error
+}
+func (r *conversationMemberRepository) Delete(ctx context.Context, conversationID, userID string) error {
+	return r.db.WithContext(ctx).Delete(&models.ConversationMember{}, "conversation_id = ? AND user_id = ?", conversationID, userID).Error
 }
 
 type messageRepository struct{ db *gorm.DB }

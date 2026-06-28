@@ -33,9 +33,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { meetings, type Meeting } from "@/lib/platform-data";
+import { usePlatform } from "@/context/PlatformContext";
+import { listMeetings } from "@/lib/api/meetings";
+import type { Meeting as ApiMeeting } from "@/lib/api/types";
 
-interface CalendarEvent extends Meeting {
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  day: string;
+  participants: string[];
+  status: "live" | "upcoming" | "done";
+  location?: string;
   date: number;
   tone: "primary" | "cyan" | "emerald";
 }
@@ -64,18 +74,54 @@ const monthNames = [
   "Décembre",
 ];
 const monthStartOffset = 0;
-const monthEventsById: Record<string, Pick<CalendarEvent, "date" | "tone">> = {
-  daily: { date: 25, tone: "primary" },
-  design: { date: 25, tone: "emerald" },
-  security: { date: 26, tone: "cyan" },
-  roadmap: { date: 30, tone: "cyan" },
-};
 const eventTones = {
   primary: "border-violet-400/35 bg-violet-500/16 text-violet-100",
   cyan: "border-cyan-400/35 bg-cyan-500/14 text-cyan-100",
   emerald: "border-emerald-400/35 bg-emerald-500/14 text-emerald-100",
 };
-const today = { year: 2026, month: 5, day: 25 };
+
+function getToday() {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth(), day: now.getDate() };
+}
+
+function formatHour(isoString: string | undefined): string {
+  if (!isoString) return "--:--";
+  const date = new Date(isoString);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function toCalendarDate(isoString: string): number {
+  return new Date(isoString).getDate();
+}
+
+function mapStatus(status: string): CalendarEvent["status"] {
+  if (status === "started" || status === "active") return "live";
+  if (status === "scheduled" || status === "pending") return "upcoming";
+  return "done";
+}
+
+function pickTone(index: number): CalendarEvent["tone"] {
+  const tones: CalendarEvent["tone"][] = ["primary", "cyan", "emerald"];
+  return tones[index % tones.length];
+}
+
+function toCalendarEvent(meeting: ApiMeeting, index: number): CalendarEvent {
+  const startDate = meeting.startedAt ?? meeting.createdAt;
+  const endDate = meeting.endedAt ?? startDate;
+  return {
+    id: meeting.id,
+    title: meeting.title,
+    start: formatHour(meeting.startedAt),
+    end: formatHour(meeting.endedAt),
+    day: String(toCalendarDate(startDate)),
+    participants: [],
+    status: mapStatus(meeting.status),
+    location: meeting.conversationId ? `Salon ${meeting.conversationId}` : undefined,
+    date: toCalendarDate(startDate),
+    tone: pickTone(index),
+  };
+}
 
 function buildMonthDays(
   year: number,
@@ -126,6 +172,8 @@ function buildMonthDays(
 
 export default function CalendarPage() {
   const router = useRouter();
+  const { activeWorkspaceId } = usePlatform();
+  const today = React.useMemo(() => getToday(), []);
   const [displayedMonth, setDisplayedMonth] = React.useState(today.month);
   const [displayedYear, setDisplayedYear] = React.useState(today.year);
   const [selectedDate, setSelectedDate] = React.useState(today.day);
@@ -134,21 +182,44 @@ export default function CalendarPage() {
   const [createOpen, setCreateOpen] = React.useState(false);
   const [draftTitle, setDraftTitle] = React.useState("");
   const [draftTime, setDraftTime] = React.useState("11:00");
+  const [apiEvents, setApiEvents] = React.useState<CalendarEvent[]>([]);
   const [customEvents, setCustomEvents] = React.useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const seededEvents = React.useMemo<CalendarEvent[]>(
-    () =>
-      meetings.map((meeting) => ({
-        ...meeting,
-        ...monthEventsById[meeting.id],
-      })),
-    []
-  );
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      setApiEvents([]);
+      setLoading(false);
+      return;
+    }
+    const workspaceId: string = activeWorkspaceId;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const meetings = await listMeetings(workspaceId);
+        if (cancelled) return;
+        setApiEvents(meetings.map(toCalendarEvent));
+      } catch {
+        if (!cancelled) {
+          setError("Impossible de charger les réunions.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
 
   const monthEvents = React.useMemo(
     () =>
-      [...seededEvents, ...customEvents].sort((left, right) => left.start.localeCompare(right.start)),
-    [customEvents, seededEvents]
+      [...apiEvents, ...customEvents].sort((left, right) => left.start.localeCompare(right.start)),
+    [apiEvents, customEvents]
   );
 
   const visibleEvents = React.useMemo(() => {
@@ -323,6 +394,15 @@ export default function CalendarPage() {
               ))}
             </div>
 
+            {loading ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-zinc-400">
+                Chargement du calendrier…
+              </div>
+            ) : error ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-rose-200">
+                {error}
+              </div>
+            ) : (
             <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-5 overflow-hidden">
               {monthDays.map((date, index) => (
                 <section
@@ -391,6 +471,7 @@ export default function CalendarPage() {
                 </section>
               ))}
             </div>
+            )}
           </div>
 
           <aside className="flex min-h-0 flex-col overflow-hidden bg-[#252628]">

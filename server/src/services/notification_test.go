@@ -24,6 +24,18 @@ func (s *notificationRepoStub) GetByIdempotencyKey(_ context.Context, key string
 	}
 	return nil, utils.NewError(404, "NOTIFICATION_NOT_FOUND", "not found", nil)
 }
+func (s *notificationRepoStub) ListByUser(context.Context, string, *time.Time, string, int) ([]models.Notification, error) {
+	return nil, nil
+}
+func (s *notificationRepoStub) CountUnreadByUser(context.Context, string) (int64, error) {
+	return 0, nil
+}
+func (s *notificationRepoStub) MarkRead(context.Context, string, string, time.Time) (bool, error) {
+	return false, nil
+}
+func (s *notificationRepoStub) MarkAllRead(context.Context, string, time.Time) (bool, error) {
+	return false, nil
+}
 func (s *notificationRepoStub) ListBefore(context.Context, time.Time, int) ([]models.Notification, error) {
 	return nil, nil
 }

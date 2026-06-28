@@ -38,7 +38,7 @@ type AuthResult struct {
 	User         AuthUserDTO `json:"user"`
 	AccessToken  string      `json:"accessToken"`
 	ExpiresIn    int64       `json:"expiresIn"`
-	RefreshToken string      `json:"-"`
+	RefreshToken string      `json:"refreshToken,omitempty"`
 	SessionID    string      `json:"sessionId"`
 }
 
@@ -243,9 +243,29 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string, meta Req
 	}
 	now := time.Now().UTC()
 	if record.UsedAt != nil {
-		_ = s.repos.AuthSessions().RevokeFamily(ctx, record.FamilyID, "refresh_token_reuse", now)
-		_ = s.repos.AuthRefreshTokens().RevokeFamily(ctx, record.FamilyID, now)
-		return nil, utils.ErrTokenReuseDetected
+		// Token was already rotated. Instead of revoking the whole family
+		// when outside a grace window, always try to find the sibling
+		// (replacement) token first. This handles multi-tab scenarios
+		// regardless of timing.
+		if record.ReplacedByID != nil {
+			sibling, siblingErr := s.repos.AuthRefreshTokens().GetByID(ctx, *record.ReplacedByID)
+			if siblingErr == nil && sibling.RevokedAt == nil && !sibling.ExpiresAt.Before(now) && sibling.UsedAt == nil {
+				record = sibling
+				var sessionErr error
+				session, sessionErr = s.repos.AuthSessions().GetByID(ctx, record.SessionID)
+				if sessionErr != nil {
+					return nil, utils.ErrSessionRevoked
+				}
+			} else {
+				_ = s.repos.AuthSessions().RevokeFamily(ctx, record.FamilyID, "refresh_token_reuse", now)
+				_ = s.repos.AuthRefreshTokens().RevokeFamily(ctx, record.FamilyID, now)
+				return nil, utils.ErrTokenReuseDetected
+			}
+		} else {
+			_ = s.repos.AuthSessions().RevokeFamily(ctx, record.FamilyID, "refresh_token_reuse", now)
+			_ = s.repos.AuthRefreshTokens().RevokeFamily(ctx, record.FamilyID, now)
+			return nil, utils.ErrTokenReuseDetected
+		}
 	}
 	if record.RevokedAt != nil || session.RevokedAt != nil {
 		return nil, utils.ErrSessionRevoked
@@ -263,9 +283,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string, meta Req
 			return txErr
 		}
 		if current.UsedAt != nil {
-			_ = txRepos.AuthSessions().RevokeFamily(ctx, current.FamilyID, "refresh_token_reuse", now)
-			_ = txRepos.AuthRefreshTokens().RevokeFamily(ctx, current.FamilyID, now)
-			return utils.ErrTokenReuseDetected
+			if current.ReplacedByID != nil {
+				// Token was already rotated — try the sibling (replacement).
+				sibling, txErr := txRepos.AuthRefreshTokens().GetByID(ctx, *current.ReplacedByID)
+				if txErr == nil && sibling.RevokedAt == nil && !sibling.ExpiresAt.Before(now) && sibling.UsedAt == nil {
+					current = sibling
+				} else {
+					_ = txRepos.AuthSessions().RevokeFamily(ctx, current.FamilyID, "refresh_token_reuse", now)
+					_ = txRepos.AuthRefreshTokens().RevokeFamily(ctx, current.FamilyID, now)
+					return utils.ErrTokenReuseDetected
+				}
+			} else {
+				_ = txRepos.AuthSessions().RevokeFamily(ctx, current.FamilyID, "refresh_token_reuse", now)
+				_ = txRepos.AuthRefreshTokens().RevokeFamily(ctx, current.FamilyID, now)
+				return utils.ErrTokenReuseDetected
+			}
 		}
 		user, txErr = txRepos.Users().GetByID(ctx, session.UserID)
 		if txErr != nil {

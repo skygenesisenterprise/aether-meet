@@ -167,7 +167,7 @@ func main() {
 	teamService := services.NewTeamService(repos.Teams(), workspaceService)
 	projectService := services.NewProjectService(repos.Projects(), repos.Users(), workspaceService)
 	taskService := services.NewTaskService(repos.Tasks(), repos.Users(), workspaceService)
-	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)
+	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService, eventBus)
 	channelService := services.NewChannelService(db, repos, workspaceService, repos.Conversations())
 	messageService := services.NewMessageService(db, repos, conversationService, workspaceService, eventBus, outboxService)
 	webrtcProvider := services.NewWebRTCProvider(cfg)

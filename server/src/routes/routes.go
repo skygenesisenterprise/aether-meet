@@ -676,7 +676,7 @@ func (h *apiHandler) conversationCollection(c *gin.Context, action string) {
 	workspaceID := c.Param("workspaceId")
 	switch action {
 	case "list":
-		items, err := h.deps.ConversationService.List(c.Request.Context(), principal, workspaceID)
+		items, err := h.deps.ConversationService.ListWithMembers(c.Request.Context(), principal, workspaceID)
 		if err != nil {
 			utils.Error(c, err)
 			return
@@ -692,7 +692,7 @@ func (h *apiHandler) conversationCollection(c *gin.Context, action string) {
 			utils.Error(c, utils.ErrValidationFailed)
 			return
 		}
-		item, err := h.deps.ConversationService.Create(c.Request.Context(), principal, workspaceID, req.Type, req.Name, req.MemberIDs)
+		item, err := h.deps.ConversationService.CreateWithMembers(c.Request.Context(), principal, workspaceID, req.Type, req.Name, req.MemberIDs)
 		if err != nil {
 			utils.Error(c, err)
 			return
@@ -706,7 +706,7 @@ func (h *apiHandler) conversationItem(c *gin.Context, action string) {
 	id := c.Param("conversationId")
 	switch action {
 	case "get":
-		item, err := h.deps.ConversationService.Get(c.Request.Context(), principal, id)
+		item, err := h.deps.ConversationService.GetWithMembers(c.Request.Context(), principal, id)
 		if err != nil {
 			utils.Error(c, err)
 			return
@@ -718,7 +718,7 @@ func (h *apiHandler) conversationItem(c *gin.Context, action string) {
 			utils.Error(c, utils.ErrValidationFailed)
 			return
 		}
-		item, err := h.deps.ConversationService.Update(c.Request.Context(), principal, id, req.Name)
+		item, err := h.deps.ConversationService.UpdateWithMembers(c.Request.Context(), principal, id, req.Name)
 		if err != nil {
 			utils.Error(c, err)
 			return

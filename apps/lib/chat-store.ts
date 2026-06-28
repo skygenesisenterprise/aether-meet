@@ -10,9 +10,10 @@ import {
   type Conversation,
 } from "@/lib/platform-data";
 import { getMockModeEnabled } from "@/lib/api/config";
+import { deleteConversation as apiDeleteConversation } from "@/lib/api/conversations";
 
 const mockMode = getMockModeEnabled();
-import { getConversations, getMessages, sendMessage as apiSendMessage, createConversation as apiCreateConversation, getMembers, type ChatServiceDeps } from "@/lib/api/chat-service";
+import { getConversations, getMessages, sendMessage as apiSendMessage, updateMessage as apiUpdateMessage, createConversation as apiCreateConversation, getMembers, summarizeMessageContent, type ChatServiceDeps } from "@/lib/api/chat-service";
 
 interface CreateConversationInput {
   type: "dm" | "channel";
@@ -29,7 +30,9 @@ interface ChatState {
   isLoading: boolean;
   setActiveConversation: (id: string | null) => void;
   createConversation: (input: CreateConversationInput, deps?: ChatServiceDeps) => Promise<string>;
+  deleteConversation: (conversationId: string, deps?: ChatServiceDeps) => Promise<void>;
   sendMessage: (conversationId: string, content: string, deps?: ChatServiceDeps) => Promise<void>;
+  updateMessage: (conversationId: string, messageId: string, content: string, deps?: ChatServiceDeps) => Promise<void>;
   loadChatData: (deps: ChatServiceDeps) => Promise<void>;
   loadMessages: (conversationId: string, deps: ChatServiceDeps) => Promise<void>;
 }
@@ -81,6 +84,25 @@ export const useChatStore = create<ChatState>()(
 
       setActiveConversation: (id) => set({ activeConversationId: id }),
 
+      deleteConversation: async (conversationId, deps) => {
+        if (!getMockModeEnabled() && deps?.currentUser) {
+          await apiDeleteConversation(conversationId);
+        }
+
+        set((state) => {
+          const { [conversationId]: _removedMessages, ...messages } = state.messages;
+          const { [conversationId]: _removedCustomMessages, ...customMessages } = state.customMessages;
+
+          return {
+            activeConversationId: state.activeConversationId === conversationId ? null : state.activeConversationId,
+            conversations: state.conversations.filter((conversation) => conversation.id !== conversationId),
+            customConversations: state.customConversations.filter((conversation) => conversation.id !== conversationId),
+            messages,
+            customMessages,
+          };
+        });
+      },
+
       loadChatData: async (deps) => {
         if (getMockModeEnabled()) return;
 
@@ -98,13 +120,17 @@ export const useChatStore = create<ChatState>()(
         set({ isLoading: true });
         try {
           const items = await getConversations(deps);
-          set({
-            conversations: items,
-            customConversations: [],
-            customMessages: {},
-            messages: {},
-            activeConversationId: null,
-            isLoading: false,
+          set((state) => {
+            const activeConversationId = items.some((c) => c.id === state.activeConversationId)
+              ? state.activeConversationId
+              : null;
+            return {
+              conversations: items,
+              customConversations: [],
+              customMessages: {},
+              activeConversationId,
+              isLoading: false,
+            };
           });
         } catch {
           set({
@@ -124,12 +150,23 @@ export const useChatStore = create<ChatState>()(
 
         try {
           const items = await getMessages(conversationId, deps);
-          set((state) => ({
-            messages: {
-              ...state.messages,
-              [conversationId]: items,
-            },
-          }));
+          set((state) => {
+            const lastMessage = items[0];
+            const previewContent = lastMessage ? summarizeMessageContent(lastMessage.content) : "";
+            const previewAuthor =
+              lastMessage?.authorId === deps.currentUser?.id ? "Vous" : lastMessage?.author;
+            const preview = previewContent && previewAuthor ? `${previewAuthor} : ${previewContent}` : previewContent;
+            const updateConversation = (conv: Conversation) =>
+              conv.id === conversationId ? { ...conv, preview, time: lastMessage?.time ?? conv.time } : conv;
+            return {
+              messages: {
+                ...state.messages,
+                [conversationId]: items,
+              },
+              conversations: state.conversations.map(updateConversation),
+              customConversations: state.customConversations.map(updateConversation),
+            };
+          });
         } catch {
           // keep existing messages
         }
@@ -211,11 +248,16 @@ export const useChatStore = create<ChatState>()(
             if (sent) {
               set((state) => {
                 const existingMessages = state.messages[conversationId] ?? state.customMessages[conversationId] ?? [];
+                const preview = summarizeMessageContent(sent.content);
+                const updateConversation = (conv: Conversation) =>
+                  conv.id === conversationId ? { ...conv, preview: `Vous : ${preview}`, time: sent.time } : conv;
                 return {
                   messages: {
                     ...state.messages,
-                    [conversationId]: [...existingMessages, sent],
+                    [conversationId]: [sent, ...existingMessages],
                   },
+                  conversations: state.conversations.map(updateConversation),
+                  customConversations: state.customConversations.map(updateConversation),
                 };
               });
               return;
@@ -248,7 +290,7 @@ export const useChatStore = create<ChatState>()(
               const nextConversations = [...state.customConversations];
               nextConversations[conversationIndex] = {
                 ...nextConversations[conversationIndex],
-                preview: `Vous : ${trimmedContent}`,
+                preview: trimmedContent,
                 time: message.time,
               };
               return {
@@ -272,6 +314,51 @@ export const useChatStore = create<ChatState>()(
           });
         }
       },
+
+      updateMessage: async (conversationId, messageId, content, deps) => {
+        const trimmedContent = content.trim();
+        if (!trimmedContent) return;
+
+        if (!getMockModeEnabled() && deps?.currentUser) {
+          try {
+            const updated = await apiUpdateMessage(messageId, trimmedContent, deps);
+            if (updated) {
+              set((state) => {
+                const targetMessages = state.messages[conversationId] ?? state.customMessages[conversationId] ?? [];
+                const updatedMessages = targetMessages.map((msg) =>
+                  msg.id === messageId ? updated : msg
+                );
+                return {
+                  messages: {
+                    ...state.messages,
+                    [conversationId]: updatedMessages,
+                  },
+                };
+              });
+            }
+          } catch {
+            // API call failed
+          }
+          return;
+        }
+
+        if (getMockModeEnabled()) {
+          set((state) => {
+            const targetMessages = state.messages[conversationId] ?? state.customMessages[conversationId] ?? [];
+            const updatedMessages = targetMessages.map((msg) =>
+              msg.id === messageId
+                ? { ...msg, content: trimmedContent, editedAt: new Date().toISOString() }
+                : msg
+            );
+            return {
+              messages: {
+                ...state.messages,
+                [conversationId]: updatedMessages,
+              },
+            };
+          });
+        }
+      },
     }),
     {
       name: "aether-chat-store",
@@ -285,7 +372,6 @@ export const useChatStore = create<ChatState>()(
           useChatStore.setState({
             customConversations: [],
             customMessages: {},
-            activeConversationId: null,
           });
         }
       },

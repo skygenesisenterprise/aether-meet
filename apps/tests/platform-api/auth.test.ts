@@ -8,6 +8,7 @@ import {
   configureAccessTokenProvider,
   getStoredAccessToken,
   getStoredUser,
+  refreshAccessToken,
   setStoredAccessToken,
   storeUser,
 } from "../../lib/api/auth.ts";
@@ -297,7 +298,7 @@ test("concurrent protected requests share one refresh request", async () => {
   assert.equal(protectedCalls, 4);
 });
 
-test("failed refresh clears memory tokens and returns the original 401 flow without loops", async () => {
+test("failed refresh preserves the client session and returns the original 401 flow without loops", async () => {
   let protectedCalls = 0;
   let refreshCalls = 0;
 
@@ -334,7 +335,7 @@ test("failed refresh clears memory tokens and returns the original 401 flow with
       return getStoredAccessToken();
     },
     async refreshAccessToken() {
-      return authApi.bootstrap().then(() => getStoredAccessToken());
+      return refreshAccessToken();
     },
   });
 
@@ -345,6 +346,6 @@ test("failed refresh clears memory tokens and returns the original 401 flow with
 
   assert.equal(refreshCalls, 1);
   assert.equal(protectedCalls, 1);
-  assert.equal(getStoredAccessToken(), null);
-  assert.equal(getStoredUser(), null);
+  assert.equal(getStoredAccessToken(), "stale-access");
+  assert.equal(getStoredUser()?.id, "user-1");
 });

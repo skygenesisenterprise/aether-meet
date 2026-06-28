@@ -13,6 +13,8 @@ export interface RealtimeEvent<T = Record<string, unknown>> {
   type: string;
   workspaceId?: string;
   resourceId?: string;
+  actorId?: string;
+  conversationId?: string;
   occurredAt: string;
   data: T;
 }
@@ -26,6 +28,8 @@ export function normalizeRealtimeEvent<T = Record<string, unknown>>(
     id: event.id,
     type: event.type,
     workspaceId: event.workspaceId,
+    actorId: event.actorId,
+    conversationId: event.conversationId,
     resourceId: payload.resourceId ?? payload.meetingId ?? payload.messageId,
     occurredAt: event.timestamp,
     data: payload,

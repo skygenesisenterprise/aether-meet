@@ -3,7 +3,6 @@
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { clearStoredTokens } from "@/lib/api/auth";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api/errors";
 import { getMe } from "@/lib/api/me";
@@ -80,6 +79,14 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
   const [isRealtimeConnected, setIsRealtimeConnected] = React.useState(false);
   const [lastRealtimeEvent, setLastRealtimeEvent] = React.useState<RealtimeEvent | null>(null);
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const hasLoadedRef = React.useRef(false);
+  const pathnameRef = React.useRef(pathname);
+  const searchParamsRef = React.useRef(searchParams);
+
+  React.useEffect(() => {
+    pathnameRef.current = pathname;
+    searchParamsRef.current = searchParams;
+  }, [pathname, searchParams]);
 
   const setActiveWorkspaceId = React.useCallback(
     (workspaceId: string) => {
@@ -91,16 +98,14 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     [pathname, router, searchParams]
   );
 
-  React.useLayoutEffect(() => {
-    setIsLoading(true);
-    setError(null);
-    setWorkspaces([]);
-    setActiveWorkspaceIdState(null);
-  }, [pathname, workspaceIdFromQuery]);
-
   React.useEffect(() => {
     if (isAuthLoading || !isAuthenticated) {
       if (!isAuthLoading) {
+        hasLoadedRef.current = false;
+        setCurrentUser(null);
+        setWorkspaces([]);
+        setActiveWorkspaceIdState(null);
+        setError(null);
         setIsLoading(false);
       }
       return;
@@ -109,6 +114,11 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function loadPlatformContext() {
+      if (!hasLoadedRef.current) {
+        setIsLoading(true);
+      }
+      setError(null);
+
       try {
         const [user, availableWorkspaces] = await Promise.all([getMe(), listWorkspaces()]);
         if (cancelled) {
@@ -126,11 +136,12 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
         if (resolvedWorkspace?.id) {
           writeStoredWorkspaceId(resolvedWorkspace.id);
           if (requestedWorkspaceId !== resolvedWorkspace.id) {
-            replaceWorkspaceParam(router, pathname, searchParams, resolvedWorkspace.id);
+            replaceWorkspaceParam(router, pathnameRef.current, searchParamsRef.current, resolvedWorkspace.id);
           }
         } else {
           clearStoredWorkspaceId();
         }
+        hasLoadedRef.current = true;
       } catch (cause) {
         if (cancelled) {
           return;
@@ -141,15 +152,12 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
             ? cause
             : new ApiError({ status: 500, message: "Failed to load platform context." });
 
-        if (normalized.status === 401) {
-          clearStoredTokens();
-        }
-
         setError(normalized);
         setCurrentUser(null);
         setWorkspaces([]);
         setActiveWorkspaceIdState(null);
         clearStoredWorkspaceId();
+        hasLoadedRef.current = false;
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -162,7 +170,7 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [pathname, router, searchParams, workspaceIdFromQuery, isAuthLoading, isAuthenticated]);
+  }, [workspaceIdFromQuery, isAuthLoading, isAuthenticated]);
 
   React.useEffect(() => {
     if (!activeWorkspaceId) {

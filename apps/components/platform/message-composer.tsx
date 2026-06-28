@@ -19,6 +19,7 @@ import {
 interface MessageComposerProps {
   placeholder?: string;
   onSend?: (message: string) => void;
+  onTypingChange?: (isTyping: boolean) => void;
 }
 
 export interface MessageComposerHandle {
@@ -38,6 +39,7 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
   {
     placeholder = "Écrire un message",
     onSend,
+    onTypingChange,
   },
   ref
 ) {
@@ -46,6 +48,19 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
+  const typingTimeoutRef = React.useRef<number | null>(null);
+  const isTypingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current);
+      }
+      if (isTypingRef.current) {
+        onTypingChange?.(false);
+      }
+    };
+  }, [onTypingChange]);
 
   function focusTextarea() {
     requestAnimationFrame(() => {
@@ -94,6 +109,25 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
     focusTextarea();
   }
 
+  function handleTyping() {
+    if (!onTypingChange) return;
+
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      onTypingChange(true);
+    }
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      isTypingRef.current = false;
+      onTypingChange(false);
+      typingTimeoutRef.current = null;
+    }, 3000);
+  }
+
   function submitMessage() {
     const hasMessage = Boolean(message.trim());
     const hasAttachments = attachments.length > 0;
@@ -112,6 +146,15 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (imageInputRef.current) imageInputRef.current.value = "";
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      onTypingChange?.(false);
+    }
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -169,7 +212,10 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
         ref={textareaRef}
         id="message"
         value={message}
-        onChange={(event) => setMessage(event.target.value)}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          handleTyping();
+        }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" || event.shiftKey) return;
           event.preventDefault();

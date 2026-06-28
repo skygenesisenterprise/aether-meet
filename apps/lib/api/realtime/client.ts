@@ -128,7 +128,7 @@ export class RealtimeClient {
     }, delay);
   }
 
-  private send(payload: Record<string, unknown>): void {
+  send(payload: Record<string, unknown>): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return;
     }
