@@ -89,7 +89,27 @@ export function getWorkspaceMembership(user: User | null, members: WorkspaceMemb
   if (!user || !workspace) {
     return null;
   }
-  return members.find((member) => member.userId === user.id && member.workspaceId === workspace.id) ?? null;
+  const membership = members.find((member) => member.userId === user.id && member.workspaceId === workspace.id);
+  if (membership) {
+    return membership;
+  }
+  if (workspace.ownerId === user.id) {
+    return {
+      id: `owner:${workspace.id}:${user.id}`,
+      workspaceId: workspace.id,
+      userId: user.id,
+      role: "owner",
+      joinedAt: workspace.createdAt,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+      displayName: user.displayName,
+      email: user.email,
+      avatarUrl: user.avatarUrl,
+      status: user.status,
+      presenceStatus: user.presenceStatus,
+    };
+  }
+  return null;
 }
 
 export function canManageWorkspace(user: User | null, membership: WorkspaceMember | null): boolean {

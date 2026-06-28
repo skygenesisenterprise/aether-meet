@@ -47,7 +47,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
   return (
     <header
       className={cn(
-        "relative flex h-10.5 shrink-0 items-center border-b border-white/5 bg-[#08090a] text-zinc-300",
+        "relative flex h-10.5 shrink-0 items-center border-b border-white/5 bg-[#232426] text-zinc-300",
         className
       )}
     >
@@ -114,7 +114,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
                     {getInitials(resolvedUser?.displayName ?? resolvedUser?.name)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#08090a] bg-emerald-400" />
+                <span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#232426] bg-emerald-400" />
               </span>
               <ChevronDown className="hidden size-3 text-zinc-600 sm:block" />
             </Button>

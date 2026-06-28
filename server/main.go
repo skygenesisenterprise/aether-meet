@@ -165,6 +165,8 @@ func main() {
 	workspaceService := services.NewWorkspaceService(db, cfg.Auth, repos.Users(), repos, repos.AuditLogs(), outboxService)
 	authService := services.NewAuthService(cfg.Auth, db, repos, identityProvider, outboxService, authLimiter, workspaceService)
 	teamService := services.NewTeamService(repos.Teams(), workspaceService)
+	projectService := services.NewProjectService(repos.Projects(), repos.Users(), workspaceService)
+	taskService := services.NewTaskService(repos.Tasks(), repos.Users(), workspaceService)
 	conversationService := services.NewConversationService(repos.Conversations(), repos.ConversationMembers(), workspaceService)
 	channelService := services.NewChannelService(db, repos, workspaceService, repos.Conversations())
 	messageService := services.NewMessageService(db, repos, conversationService, workspaceService, eventBus, outboxService)
@@ -199,7 +201,7 @@ func main() {
 	}
 	routes.SetupRoutes(router, routes.Dependencies{
 		Config: cfg, Logger: logger, Database: db, Redis: redis, EventBus: eventBus,
-		IdentityProvider: identityProvider, AuthService: authService, Hub: hub, UserService: userService,
+		IdentityProvider: identityProvider, AuthService: authService, Hub: hub, UserService: userService, NotificationService: notificationService, ProjectService: projectService, TaskService: taskService,
 		WorkspaceService: workspaceService, TeamService: teamService, ChannelService: channelService,
 		ConversationService: conversationService, MessageService: messageService,
 		MeetingService: meetingService, WebRTCService: webrtcService, IntegrationService: integrationService, AuditService: auditService, WebRTCMetrics: webrtcMetrics,

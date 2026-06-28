@@ -75,8 +75,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAccessToken(response.accessToken);
       setUser(response.user);
       setStatus("authenticated");
-      router.push("/chat");
-      router.refresh();
+      if (typeof window !== "undefined") {
+        window.location.assign("/chat");
+        return;
+      }
+      router.replace("/chat");
     },
     [router]
   );
@@ -87,8 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAccessToken(response.accessToken);
       setUser(response.user);
       setStatus("authenticated");
-      router.push("/chat");
-      router.refresh();
+      if (typeof window !== "undefined") {
+        window.location.assign("/chat");
+        return;
+      }
+      router.replace("/chat");
     },
     [router]
   );

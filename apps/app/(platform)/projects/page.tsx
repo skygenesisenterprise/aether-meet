@@ -12,6 +12,9 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { listProjects } from "@/lib/api/projects";
+import type { Project } from "@/lib/api/types";
+import { usePlatform } from "@/context/PlatformContext";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -25,45 +28,6 @@ interface ProjectItem {
   cadence: string;
   summary: string;
 }
-
-const projects: ProjectItem[] = [
-  {
-    id: "project-1",
-    name: "Workspace Migration",
-    owner: "Platform Ops",
-    phase: "Actif",
-    progress: 72,
-    cadence: "Revue jeudi · 14:00",
-    summary: "Migration des espaces clients vers le nouveau socle d’administration.",
-  },
-  {
-    id: "project-2",
-    name: "Onboarding Orion",
-    owner: "Customer Team",
-    phase: "Pilotage",
-    progress: 54,
-    cadence: "Atelier vendredi · 10:00",
-    summary: "Preparation de l’ouverture client avec flux d’invitation et support premier mois.",
-  },
-  {
-    id: "project-3",
-    name: "Design Review",
-    owner: "Product Design",
-    phase: "Actif",
-    progress: 86,
-    cadence: "Sync quotidien · 15:30",
-    summary: "Stabilisation des parcours clefs avant diffusion exec et validation produit.",
-  },
-  {
-    id: "project-4",
-    name: "Support Launch",
-    owner: "Enablement",
-    phase: "A risque",
-    progress: 38,
-    cadence: "Escalade aujourd’hui · 17:00",
-    summary: "Mise en place du runbook et de la boucle de support avant lancement multi-zone.",
-  },
-];
 
 const phaseTones: Record<ProjectItem["phase"], string> = {
   Actif: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
@@ -86,14 +50,79 @@ const portfolioMoments = [
   },
 ];
 
+function mapProjectPhase(status?: string): ProjectItem["phase"] {
+  switch ((status ?? "").toLowerCase()) {
+    case "pilotage":
+    case "planning":
+    case "pilot":
+      return "Pilotage";
+    case "at_risk":
+    case "a risque":
+    case "à risque":
+    case "risk":
+      return "A risque";
+    default:
+      return "Actif";
+  }
+}
+
+function toProjectItem(project: Project): ProjectItem {
+  return {
+    id: project.id,
+    name: project.name,
+    owner: project.ownerName || "Owner non assigne",
+    phase: mapProjectPhase(project.status),
+    progress: Math.max(0, Math.min(100, Number(project.progress ?? 0))),
+    cadence: project.cadence || "Cadence non definie",
+    summary: project.summary || "Aucun resume disponible pour ce projet.",
+  };
+}
+
 export default function ProjectsPage() {
+  const { activeWorkspaceId } = usePlatform();
   const [activePhase, setActivePhase] = React.useState<ProjectItem["phase"] | "Tous">("Tous");
+  const [projects, setProjects] = React.useState<ProjectItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await listProjects(activeWorkspaceId);
+        if (cancelled) {
+          return;
+        }
+        setProjects(response.data.map(toProjectItem));
+      } catch {
+        if (!cancelled) {
+          setError("Impossible de charger les projets du workspace.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
+
   const visibleProjects = React.useMemo(() => {
     return activePhase === "Tous"
       ? projects
       : projects.filter((project) => project.phase === activePhase);
-  }, [activePhase]);
-  const featuredProject = visibleProjects[0] ?? projects[0];
+  }, [activePhase, projects]);
+  const featuredProject = visibleProjects[0] ?? projects[0] ?? null;
 
   return (
     <div className="flex h-full min-h-180 flex-col bg-[#232426]">
@@ -146,55 +175,71 @@ export default function ProjectsPage() {
       <ScrollArea className="min-h-0 flex-1 bg-[#232426]">
         <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:p-5">
           <section className="space-y-5">
-            <section className="rounded-2xl border border-white/10 bg-[#292a2c] p-4 lg:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="max-w-2xl">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full border border-primary/30 bg-primary/12 px-2.5 py-1 text-[11px] font-medium text-primary">
-                      Projet en focus
-                    </span>
-                    <span
-                      className={cn(
-                        "rounded-full border px-2.5 py-1 text-[11px] font-medium",
-                        phaseTones[featuredProject.phase]
-                      )}
-                    >
-                      {featuredProject.phase}
-                    </span>
-                  </div>
-                  <h2 className="mt-3 text-xl font-semibold text-zinc-100">{featuredProject.name}</h2>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-                    {featuredProject.summary}
-                  </p>
-                </div>
-                <Button variant="outline" className="rounded-md">
-                  Ouvrir la fiche
-                  <ArrowRight className="size-4" />
-                </Button>
+            {loading ? (
+              <div className="rounded-2xl border border-white/10 bg-[#292a2c] p-4 text-sm text-zinc-400">
+                Chargement des projets…
               </div>
+            ) : error ? (
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+                {error}
+              </div>
+            ) : null}
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Owner</p>
-                  <p className="mt-2 text-sm font-medium text-zinc-100">{featuredProject.owner}</p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Cadence</p>
-                  <p className="mt-2 text-sm font-medium text-zinc-100">{featuredProject.cadence}</p>
-                </div>
-                <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Progression</p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="h-2 flex-1 rounded-full bg-white/8">
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${featuredProject.progress}%` }}
-                      />
+            <section className="rounded-2xl border border-white/10 bg-[#292a2c] p-4 lg:p-5">
+              {featuredProject ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="max-w-2xl">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full border border-primary/30 bg-primary/12 px-2.5 py-1 text-[11px] font-medium text-primary">
+                          Projet en focus
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                            phaseTones[featuredProject.phase]
+                          )}
+                        >
+                          {featuredProject.phase}
+                        </span>
+                      </div>
+                      <h2 className="mt-3 text-xl font-semibold text-zinc-100">{featuredProject.name}</h2>
+                      <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">
+                        {featuredProject.summary}
+                      </p>
                     </div>
-                    <span className="text-sm font-medium text-zinc-100">{featuredProject.progress}%</span>
+                    <Button variant="outline" className="rounded-md">
+                      Ouvrir la fiche
+                      <ArrowRight className="size-4" />
+                    </Button>
                   </div>
-                </div>
-              </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Owner</p>
+                      <p className="mt-2 text-sm font-medium text-zinc-100">{featuredProject.owner}</p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Cadence</p>
+                      <p className="mt-2 text-sm font-medium text-zinc-100">{featuredProject.cadence}</p>
+                    </div>
+                    <div className="rounded-xl border border-white/8 bg-[#232426] p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Progression</p>
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="h-2 flex-1 rounded-full bg-white/8">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${featuredProject.progress}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium text-zinc-100">{featuredProject.progress}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-zinc-400">Aucun projet disponible dans ce workspace.</div>
+              )}
             </section>
 
             <section className="rounded-2xl border border-white/10 bg-[#292a2c]">
@@ -211,59 +256,65 @@ export default function ProjectsPage() {
                 </Button>
               </div>
               <div className="space-y-3 p-4">
-                {visibleProjects.map((project) => (
-                  <article
-                    key={project.id}
-                    className="rounded-xl border border-white/8 bg-[#232426] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="max-w-2xl">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-zinc-100">{project.name}</h3>
-                          <span
-                            className={cn(
-                              "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                              phaseTones[project.phase]
-                            )}
-                          >
-                            {project.phase}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-zinc-400">{project.summary}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/6 hover:text-zinc-200"
-                        aria-label={`Actions pour ${project.name}`}
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </button>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-[1fr_11rem_9rem]">
-                      <div>
-                        <p className="text-xs text-zinc-500">Owner</p>
-                        <p className="mt-1 text-sm text-zinc-200">{project.owner}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500">Cadence</p>
-                        <p className="mt-1 text-sm text-zinc-200">{project.cadence}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-zinc-500">Progression</p>
-                        <div className="mt-1 flex items-center gap-2">
-                          <div className="h-2 flex-1 rounded-full bg-white/8">
-                            <div
-                              className="h-full rounded-full bg-primary"
-                              style={{ width: `${project.progress}%` }}
-                            />
+                {visibleProjects.length > 0 ? (
+                  visibleProjects.map((project) => (
+                    <article
+                      key={project.id}
+                      className="rounded-xl border border-white/8 bg-[#232426] p-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="max-w-2xl">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-zinc-100">{project.name}</h3>
+                            <span
+                              className={cn(
+                                "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                                phaseTones[project.phase]
+                              )}
+                            >
+                              {project.phase}
+                            </span>
                           </div>
-                          <span className="text-xs text-zinc-300">{project.progress}%</span>
+                          <p className="mt-2 text-sm leading-6 text-zinc-400">{project.summary}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/6 hover:text-zinc-200"
+                          aria-label={`Actions pour ${project.name}`}
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_11rem_9rem]">
+                        <div>
+                          <p className="text-xs text-zinc-500">Owner</p>
+                          <p className="mt-1 text-sm text-zinc-200">{project.owner}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500">Cadence</p>
+                          <p className="mt-1 text-sm text-zinc-200">{project.cadence}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500">Progression</p>
+                          <div className="mt-1 flex items-center gap-2">
+                            <div className="h-2 flex-1 rounded-full bg-white/8">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{ width: `${project.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-zinc-300">{project.progress}%</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-white/10 bg-white/2 p-4 text-xs leading-5 text-zinc-500">
+                    Aucun projet pour ce portefeuille.
+                  </div>
+                )}
               </div>
             </section>
 
@@ -291,9 +342,21 @@ export default function ProjectsPage() {
               </div>
               <div className="space-y-3 p-4">
                 {[
-                  { icon: Gauge, label: "Progression moyenne", value: "63%" },
-                  { icon: Sparkles, label: "Sujets a arbitrer", value: "2" },
-                  { icon: UsersRound, label: "Equipes engagees", value: "7" },
+                  {
+                    icon: Gauge,
+                    label: "Progression moyenne",
+                    value: `${projects.length ? Math.round(projects.reduce((sum, project) => sum + project.progress, 0) / projects.length) : 0}%`,
+                  },
+                  {
+                    icon: Sparkles,
+                    label: "Sujets a arbitrer",
+                    value: String(projects.filter((project) => project.phase === "A risque").length),
+                  },
+                  {
+                    icon: UsersRound,
+                    label: "Equipes engagees",
+                    value: String(new Set(projects.map((project) => project.owner)).size),
+                  },
                 ].map((metric) => {
                   const Icon = metric.icon;
 

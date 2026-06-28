@@ -28,6 +28,9 @@ type Dependencies struct {
 	AuthService         *services.AuthService
 	Hub                 *services.Hub
 	UserService         *services.UserService
+	NotificationService *services.NotificationService
+	ProjectService      *services.ProjectService
+	TaskService         *services.TaskService
 	WorkspaceService    *services.WorkspaceService
 	TeamService         *services.TeamService
 	ChannelService      *services.ChannelService
@@ -1059,15 +1062,42 @@ func (h *apiHandler) realtime(c *gin.Context) {
 	h.deps.Hub.Handle(c, principal)
 }
 
-func (h *apiHandler) listNotifications(c *gin.Context) { h.notImplemented(c, "notifications inbox") }
+func (h *apiHandler) listNotifications(c *gin.Context) {
+	principal, _ := h.principal(c)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	items, next, hasMore, err := h.deps.NotificationService.List(c.Request.Context(), principal, c.Query("cursor"), limit)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, next, hasMore)
+}
 func (h *apiHandler) notificationsUnreadCount(c *gin.Context) {
-	h.notImplemented(c, "notifications unread count")
+	principal, _ := h.principal(c)
+	count, err := h.deps.NotificationService.UnreadCount(c.Request.Context(), principal)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"count": count})
 }
 func (h *apiHandler) markNotificationRead(c *gin.Context) {
-	h.notImplemented(c, "notification mark as read")
+	principal, _ := h.principal(c)
+	updated, err := h.deps.NotificationService.MarkRead(c.Request.Context(), principal, c.Param("notificationId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"updated": updated})
 }
 func (h *apiHandler) markAllNotificationsRead(c *gin.Context) {
-	h.notImplemented(c, "notifications mark all as read")
+	principal, _ := h.principal(c)
+	updated, err := h.deps.NotificationService.MarkAllRead(c.Request.Context(), principal)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusOK, gin.H{"updated": updated})
 }
 func (h *apiHandler) getNotificationPreferences(c *gin.Context) {
 	principal, _ := h.principal(c)
@@ -1131,7 +1161,15 @@ func (h *apiHandler) deleteContactGroup(c *gin.Context) {
 	h.notImplemented(c, "contact group deletion")
 }
 
-func (h *apiHandler) listTasks(c *gin.Context)         { h.notImplemented(c, "task listing") }
+func (h *apiHandler) listTasks(c *gin.Context) {
+	principal, _ := h.principal(c)
+	items, err := h.deps.TaskService.List(c.Request.Context(), principal, c.Param("workspaceId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
+}
 func (h *apiHandler) createTask(c *gin.Context)        { h.notImplemented(c, "task creation") }
 func (h *apiHandler) getTask(c *gin.Context)           { h.notImplemented(c, "task retrieval") }
 func (h *apiHandler) updateTask(c *gin.Context)        { h.notImplemented(c, "task update") }
@@ -1140,7 +1178,15 @@ func (h *apiHandler) listTaskComments(c *gin.Context)  { h.notImplemented(c, "ta
 func (h *apiHandler) createTaskComment(c *gin.Context) { h.notImplemented(c, "task comment creation") }
 func (h *apiHandler) updateTaskOrder(c *gin.Context)   { h.notImplemented(c, "task ordering") }
 
-func (h *apiHandler) listProjects(c *gin.Context)  { h.notImplemented(c, "project listing") }
+func (h *apiHandler) listProjects(c *gin.Context) {
+	principal, _ := h.principal(c)
+	items, err := h.deps.ProjectService.List(c.Request.Context(), principal, c.Param("workspaceId"))
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.List(c, items, "", false)
+}
 func (h *apiHandler) createProject(c *gin.Context) { h.notImplemented(c, "project creation") }
 func (h *apiHandler) getProject(c *gin.Context)    { h.notImplemented(c, "project retrieval") }
 func (h *apiHandler) updateProject(c *gin.Context) { h.notImplemented(c, "project update") }

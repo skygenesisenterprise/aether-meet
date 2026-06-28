@@ -133,6 +133,26 @@ func (s *WorkspaceService) ListMembers(ctx context.Context, principal interfaces
 	if err != nil {
 		return nil, err
 	}
+	workspace, err := s.repos.Workspaces().GetByID(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	hasOwner := false
+	for _, item := range items {
+		if item.UserID == workspace.OwnerID {
+			hasOwner = true
+			break
+		}
+	}
+	if !hasOwner {
+		items = append(items, models.WorkspaceMember{
+			Common:      models.Common{CreatedAt: workspace.CreatedAt, UpdatedAt: workspace.UpdatedAt},
+			WorkspaceID: workspace.ID,
+			UserID:      workspace.OwnerID,
+			Role:        "owner",
+			JoinedAt:    workspace.CreatedAt,
+		})
+	}
 	return s.toWorkspaceMemberDTOs(ctx, items)
 }
 
@@ -339,7 +359,23 @@ func (s *WorkspaceService) ProvisionWorkspaceUser(
 func (s *WorkspaceService) AuthorizeWorkspace(ctx context.Context, principal interfaces.Principal, workspaceID string) (*models.WorkspaceMember, error) {
 	member, err := s.repos.WorkspaceMembers().Get(ctx, workspaceID, principal.UserID)
 	if err != nil {
-		return nil, err
+		if utils.AsAppError(err).Code != "MEMBERSHIP_REQUIRED" {
+			return nil, err
+		}
+		workspace, workspaceErr := s.repos.Workspaces().GetByID(ctx, workspaceID)
+		if workspaceErr != nil {
+			return nil, workspaceErr
+		}
+		if workspace.OwnerID != principal.UserID {
+			return nil, err
+		}
+		return &models.WorkspaceMember{
+			Common:      models.Common{CreatedAt: workspace.CreatedAt, UpdatedAt: workspace.UpdatedAt},
+			WorkspaceID: workspace.ID,
+			UserID:      principal.UserID,
+			Role:        "owner",
+			JoinedAt:    workspace.CreatedAt,
+		}, nil
 	}
 	return member, nil
 }
@@ -401,6 +437,9 @@ func (s *WorkspaceService) toWorkspaceMemberDTOs(ctx context.Context, items []mo
 	for _, item := range items {
 		user, err := s.users.GetByID(ctx, item.UserID)
 		if err != nil {
+			if utils.AsAppError(err).Code == "USER_NOT_FOUND" {
+				continue
+			}
 			return nil, err
 		}
 		result = append(result, *toWorkspaceMemberDTO(&item, user))

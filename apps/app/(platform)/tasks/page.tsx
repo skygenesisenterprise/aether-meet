@@ -13,6 +13,9 @@ import {
   TimerReset,
 } from "lucide-react";
 
+import { listTasks } from "@/lib/api/tasks";
+import type { Task } from "@/lib/api/types";
+import { usePlatform } from "@/context/PlatformContext";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -26,63 +29,6 @@ interface TaskItem {
   priority: "Critique" | "Haute" | "Moyenne";
   status: "Inbox" | "En cours" | "En revue" | "Termine";
 }
-
-const tasks: TaskItem[] = [
-  {
-    id: "task-1",
-    title: "Valider le script de demo client pour vendredi",
-    assignee: "CL",
-    due: "Aujourd’hui · 16:00",
-    project: "Onboarding Orion",
-    priority: "Critique",
-    status: "Inbox",
-  },
-  {
-    id: "task-2",
-    title: "Relancer l’equipe infra sur le provisionnement SSO",
-    assignee: "MN",
-    due: "Aujourd’hui · 18:00",
-    project: "Workspace Migration",
-    priority: "Haute",
-    status: "Inbox",
-  },
-  {
-    id: "task-3",
-    title: "Assembler la checklist de runbook avant mise en prod",
-    assignee: "AD",
-    due: "Demain · 10:30",
-    project: "Support Launch",
-    priority: "Haute",
-    status: "En cours",
-  },
-  {
-    id: "task-4",
-    title: "Nettoyer les dependances du flux d’invitation externe",
-    assignee: "RM",
-    due: "Demain · 14:00",
-    project: "Workspace Migration",
-    priority: "Moyenne",
-    status: "En cours",
-  },
-  {
-    id: "task-5",
-    title: "Verifier les captures Figma avant partage exec",
-    assignee: "CL",
-    due: "Jeudi · 09:00",
-    project: "Design Review",
-    priority: "Moyenne",
-    status: "En revue",
-  },
-  {
-    id: "task-6",
-    title: "Publier la note de cadrage post-atelier",
-    assignee: "MN",
-    due: "Clos",
-    project: "Pilot Steering",
-    priority: "Moyenne",
-    status: "Termine",
-  },
-];
 
 const columns = [
   {
@@ -142,13 +88,121 @@ const priorityTone: Record<TaskItem["priority"], string> = {
   Moyenne: "border-white/12 bg-white/6 text-zinc-300",
 };
 
+function mapTaskStatus(status?: string): TaskItem["status"] {
+  switch ((status ?? "").toLowerCase()) {
+    case "in_progress":
+    case "en cours":
+      return "En cours";
+    case "in_review":
+    case "en revue":
+      return "En revue";
+    case "done":
+    case "completed":
+    case "termine":
+    case "terminé":
+      return "Termine";
+    default:
+      return "Inbox";
+  }
+}
+
+function mapTaskPriority(priority?: string): TaskItem["priority"] {
+  switch ((priority ?? "").toLowerCase()) {
+    case "critical":
+    case "critique":
+      return "Critique";
+    case "high":
+    case "haute":
+      return "Haute";
+    default:
+      return "Moyenne";
+  }
+}
+
+function formatDueDate(value?: string, completedAt?: string): string {
+  if (completedAt) {
+    return "Clos";
+  }
+  if (!value) {
+    return "Sans échéance";
+  }
+  return new Date(value).toLocaleString("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getInitials(name?: string): string {
+  if (!name) {
+    return "--";
+  }
+  return name
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function toTaskItem(task: Task): TaskItem {
+  return {
+    id: task.id,
+    title: task.title,
+    assignee: getInitials(task.assigneeName),
+    due: formatDueDate(task.dueAt, task.completedAt),
+    project: task.project || "Sans projet",
+    priority: mapTaskPriority(task.priority),
+    status: mapTaskStatus(task.status),
+  };
+}
+
 export default function TasksPage() {
+  const { activeWorkspaceId } = usePlatform();
   const [activeStatus, setActiveStatus] = React.useState<TaskItem["status"] | "Tout">("Tout");
+  const [tasks, setTasks] = React.useState<TaskItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await listTasks(activeWorkspaceId);
+        if (cancelled) {
+          return;
+        }
+        setTasks(response.data.map(toTaskItem));
+      } catch {
+        if (!cancelled) {
+          setError("Impossible de charger les tâches du workspace.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
+
   const visibleTasks = React.useMemo(() => {
     return activeStatus === "Tout"
       ? tasks
       : tasks.filter((task) => task.status === activeStatus);
-  }, [activeStatus]);
+  }, [activeStatus, tasks]);
 
   return (
     <div className="flex h-full min-h-180 flex-col bg-[#232426]">
@@ -201,6 +255,15 @@ export default function TasksPage() {
       <ScrollArea className="min-h-0 flex-1 bg-[#232426]">
         <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:p-5">
           <section className="space-y-5">
+            {loading ? (
+              <div className="rounded-2xl border border-white/10 bg-[#292a2c] p-4 text-sm text-zinc-400">
+                Chargement des tâches…
+              </div>
+            ) : error ? (
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+                {error}
+              </div>
+            ) : null}
             <div className="grid gap-4 xl:grid-cols-4">
               {columns.map((column) => {
                 const columnTasks = visibleTasks.filter((task) => task.status === column.key);
@@ -307,9 +370,21 @@ export default function TasksPage() {
               </div>
               <div className="space-y-3 p-4">
                 {[
-                  { label: "Prioritaires", value: "4", hint: "a traiter aujourd’hui" },
-                  { label: "En revue", value: "1", hint: "validation design attendue" },
-                  { label: "Bloquantes", value: "2", hint: "dependances externes" },
+                  {
+                    label: "Prioritaires",
+                    value: String(tasks.filter((task) => task.priority === "Critique" || task.priority === "Haute").length),
+                    hint: "niveau critique ou haute priorité",
+                  },
+                  {
+                    label: "En revue",
+                    value: String(tasks.filter((task) => task.status === "En revue").length),
+                    hint: "validation ou arbitrage attendus",
+                  },
+                  {
+                    label: "Bloquantes",
+                    value: String(tasks.filter((task) => task.status === "Inbox").length),
+                    hint: "éléments encore en attente de tri",
+                  },
                 ].map((metric) => (
                   <div key={metric.label} className="rounded-xl border border-white/8 bg-[#232426] p-3">
                     <div className="flex items-baseline justify-between gap-3">

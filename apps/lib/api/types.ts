@@ -342,9 +342,19 @@ export interface ContactGroup {
 
 export interface Task {
   id: string;
-  workspaceId?: string;
-  title?: string;
-  status?: string;
+  workspaceId: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority?: string;
+  project?: string;
+  assigneeUserId?: string;
+  assigneeName?: string;
+  createdBy?: string;
+  dueAt?: string;
+  completedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: unknown;
 }
 
@@ -357,9 +367,15 @@ export interface TaskComment {
 
 export interface Project {
   id: string;
-  workspaceId?: string;
-  name?: string;
-  status?: string;
+  workspaceId: string;
+  name: string;
+  summary?: string;
+  status: string;
+  progress?: number;
+  cadence?: string;
+  ownerUserId?: string;
+  ownerName?: string;
+  createdBy?: string;
   [key: string]: unknown;
 }
 

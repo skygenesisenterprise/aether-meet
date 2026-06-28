@@ -59,6 +59,8 @@ func (r *Repositories) Conversations() interfaces.ConversationRepository {
 func (r *Repositories) ConversationMembers() interfaces.ConversationMemberRepository {
 	return &conversationMemberRepository{db: r.db}
 }
+func (r *Repositories) Projects() interfaces.ProjectRepository { return &projectRepository{db: r.db} }
+func (r *Repositories) Tasks() interfaces.TaskRepository { return &taskRepository{db: r.db} }
 func (r *Repositories) Messages() interfaces.MessageRepository { return &messageRepository{db: r.db} }
 func (r *Repositories) Reactions() interfaces.ReactionRepository {
 	return &reactionRepository{db: r.db}
@@ -318,8 +320,9 @@ func (r *workspaceRepository) ListByUser(ctx context.Context, userID string) ([]
 	var items []models.Workspace
 	err := r.db.WithContext(ctx).
 		Table("workspaces").
-		Joins("join workspace_members on workspace_members.workspace_id = workspaces.id").
-		Where("workspace_members.user_id = ? AND workspaces.archived_at IS NULL", userID).
+		Joins("left join workspace_members on workspace_members.workspace_id = workspaces.id").
+		Where("(workspace_members.user_id = ? OR workspaces.owner_id = ?) AND workspaces.archived_at IS NULL", userID, userID).
+		Distinct("workspaces.id, workspaces.created_at, workspaces.updated_at, workspaces.name, workspaces.slug, workspaces.description, workspaces.visibility, workspaces.owner_id, workspaces.archived_at").
 		Order("workspaces.created_at asc").
 		Scan(&items).Error
 	return items, err
@@ -444,6 +447,55 @@ func (r *conversationMemberRepository) Update(ctx context.Context, member *model
 }
 
 type messageRepository struct{ db *gorm.DB }
+
+type projectRepository struct{ db *gorm.DB }
+type taskRepository struct{ db *gorm.DB }
+
+func (r *projectRepository) Create(ctx context.Context, project *models.Project) error {
+	return r.db.WithContext(ctx).Create(project).Error
+}
+func (r *projectRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Project, error) {
+	var items []models.Project
+	err := r.db.WithContext(ctx).
+		Where("workspace_id = ? AND archived_at IS NULL", workspaceID).
+		Order("created_at desc").
+		Find(&items).Error
+	return items, err
+}
+func (r *projectRepository) GetByID(ctx context.Context, id string) (*models.Project, error) {
+	var item models.Project
+	err := r.db.WithContext(ctx).First(&item, "id = ? AND archived_at IS NULL", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "PROJECT_NOT_FOUND", "The requested project was not found.", nil))
+}
+func (r *projectRepository) Update(ctx context.Context, project *models.Project) error {
+	return r.db.WithContext(ctx).Save(project).Error
+}
+func (r *projectRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Project{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
+
+func (r *taskRepository) Create(ctx context.Context, task *models.Task) error {
+	return r.db.WithContext(ctx).Create(task).Error
+}
+func (r *taskRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Task, error) {
+	var items []models.Task
+	err := r.db.WithContext(ctx).
+		Where("workspace_id = ? AND archived_at IS NULL", workspaceID).
+		Order("completed_at asc nulls first, due_at asc nulls last, created_at desc").
+		Find(&items).Error
+	return items, err
+}
+func (r *taskRepository) GetByID(ctx context.Context, id string) (*models.Task, error) {
+	var item models.Task
+	err := r.db.WithContext(ctx).First(&item, "id = ? AND archived_at IS NULL", id).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "TASK_NOT_FOUND", "The requested task was not found.", nil))
+}
+func (r *taskRepository) Update(ctx context.Context, task *models.Task) error {
+	return r.db.WithContext(ctx).Save(task).Error
+}
+func (r *taskRepository) Archive(ctx context.Context, id string, archivedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&models.Task{}).Where("id = ?", id).Update("archived_at", archivedAt).Error
+}
 
 func (r *messageRepository) Create(ctx context.Context, message *models.Message) error {
 	return r.db.WithContext(ctx).Create(message).Error
@@ -726,6 +778,39 @@ func (r *notificationRepository) GetByIdempotencyKey(ctx context.Context, key st
 	var item models.Notification
 	err := r.db.WithContext(ctx).First(&item, "idempotency_key = ?", key).Error
 	return &item, normalizeNotFound(err, utils.NewError(404, "NOTIFICATION_NOT_FOUND", "The requested notification was not found.", nil))
+}
+func (r *notificationRepository) ListByUser(ctx context.Context, userID string, before *time.Time, beforeID string, limit int) ([]models.Notification, error) {
+	var items []models.Notification
+	query := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("created_at desc, id desc")
+	if before != nil {
+		query = query.Where("(created_at < ?) OR (created_at = ? AND id < ?)", before.UTC(), before.UTC(), beforeID)
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&items).Error
+	return items, err
+}
+func (r *notificationRepository) CountUnreadByUser(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&models.Notification{}).Where("user_id = ? AND read_at IS NULL", userID).Count(&count).Error
+	return count, err
+}
+func (r *notificationRepository) MarkRead(ctx context.Context, userID, notificationID string, readAt time.Time) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Notification{}).
+		Where("id = ? AND user_id = ? AND read_at IS NULL", notificationID, userID).
+		Updates(map[string]any{"read_at": readAt, "updated_at": readAt})
+	return result.RowsAffected > 0, result.Error
+}
+func (r *notificationRepository) MarkAllRead(ctx context.Context, userID string, readAt time.Time) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Notification{}).
+		Where("user_id = ? AND read_at IS NULL", userID).
+		Updates(map[string]any{"read_at": readAt, "updated_at": readAt})
+	return result.RowsAffected > 0, result.Error
 }
 func (r *notificationRepository) ListBefore(ctx context.Context, before time.Time, limit int) ([]models.Notification, error) {
 	var items []models.Notification

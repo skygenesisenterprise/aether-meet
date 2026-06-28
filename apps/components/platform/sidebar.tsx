@@ -86,7 +86,7 @@ export function AdminSidebar() {
 
   return (
     <TooltipProvider delayDuration={150}>
-      <aside className="hidden h-full w-17 shrink-0 flex-col border-r border-white/6 bg-[#0d0e10] text-zinc-300 md:flex">
+      <aside className="hidden h-full w-17 shrink-0 flex-col border-r border-white/6 bg-[#232426] text-zinc-300 md:flex">
         <nav className="flex flex-1 flex-col items-stretch overflow-y-auto pt-1" aria-label="Applications">
           {mainItems.map((item) => (
             <DesktopNavLink key={item.href} {...item} pathname={pathname} />
@@ -118,7 +118,7 @@ export function AdminSidebar() {
       </aside>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-6 border-t border-white/10 bg-[#0d0e10]/98 px-1 backdrop-blur-xl md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-6 border-t border-white/10 bg-[#232426]/98 px-1 backdrop-blur-xl md:hidden"
         aria-label="Navigation mobile"
       >
         {mobileItems.map((item) => {

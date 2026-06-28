@@ -116,6 +116,22 @@ type ConversationMemberRepository interface {
 	Update(ctx context.Context, member *models.ConversationMember) error
 }
 
+type TaskRepository interface {
+	Create(ctx context.Context, task *models.Task) error
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Task, error)
+	GetByID(ctx context.Context, id string) (*models.Task, error)
+	Update(ctx context.Context, task *models.Task) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
+type ProjectRepository interface {
+	Create(ctx context.Context, project *models.Project) error
+	ListByWorkspace(ctx context.Context, workspaceID string) ([]models.Project, error)
+	GetByID(ctx context.Context, id string) (*models.Project, error)
+	Update(ctx context.Context, project *models.Project) error
+	Archive(ctx context.Context, id string, archivedAt time.Time) error
+}
+
 type MessageRepository interface {
 	Create(ctx context.Context, message *models.Message) error
 	GetByID(ctx context.Context, id string) (*models.Message, error)
@@ -198,6 +214,10 @@ type AuditLogRepository interface {
 type NotificationRepository interface {
 	Create(ctx context.Context, notification *models.Notification) error
 	GetByIdempotencyKey(ctx context.Context, key string) (*models.Notification, error)
+	ListByUser(ctx context.Context, userID string, before *time.Time, beforeID string, limit int) ([]models.Notification, error)
+	CountUnreadByUser(ctx context.Context, userID string) (int64, error)
+	MarkRead(ctx context.Context, userID, notificationID string, readAt time.Time) (bool, error)
+	MarkAllRead(ctx context.Context, userID string, readAt time.Time) (bool, error)
 	ListBefore(ctx context.Context, before time.Time, limit int) ([]models.Notification, error)
 	DeleteByIDs(ctx context.Context, ids []string) error
 }

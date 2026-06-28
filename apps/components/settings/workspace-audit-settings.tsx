@@ -12,9 +12,10 @@ interface WorkspaceAuditSettingsProps {
   workspace: Workspace | null;
   canRead: boolean;
   members: WorkspaceMember[];
+  errorMessage?: string | null;
 }
 
-export function WorkspaceAuditSettings({ workspace, canRead, members }: WorkspaceAuditSettingsProps) {
+export function WorkspaceAuditSettings({ workspace, canRead, members, errorMessage }: WorkspaceAuditSettingsProps) {
   const [items, setItems] = React.useState<AuditLog[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -43,7 +44,11 @@ export function WorkspaceAuditSettings({ workspace, canRead, members }: Workspac
   const actorMap = React.useMemo(() => new Map(members.map((member) => [member.userId, member.displayName ?? member.email ?? member.userId])), [members]);
 
   if (!canRead) {
-    return <div className="rounded-md border border-white/10 bg-black/10 p-4 text-sm text-zinc-400">Accès réservé aux owners et admins du workspace.</div>;
+    return (
+      <div className="rounded-md border border-white/10 bg-black/10 p-4 text-sm text-zinc-400">
+        {errorMessage ?? "Accès réservé aux owners et admins du workspace."}
+      </div>
+    );
   }
 
   return (

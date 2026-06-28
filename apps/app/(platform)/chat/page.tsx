@@ -360,14 +360,6 @@ export default function ChatPage() {
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="flex min-h-15.5 items-center justify-between border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
-              <div className="min-w-0">
-                <h1 className="truncate text-sm font-semibold">Nouvelle conversation</h1>
-                <p className="truncate text-xs text-zinc-400">
-                  Démarrez un échange privé ou un groupe depuis le panneau de gauche.
-                </p>
-              </div>
-            </header>
             <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-8 lg:px-8">
               <div className="w-full max-w-4xl">
                 <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(139,92,246,0.22),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] shadow-[0_24px_80px_rgba(0,0,0,0.28)]">

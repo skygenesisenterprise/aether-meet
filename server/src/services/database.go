@@ -65,6 +65,8 @@ func (s *DatabaseService) AutoMigrate() error {
 		&models.Channel{},
 		&models.Conversation{},
 		&models.ConversationMember{},
+		&models.Project{},
+		&models.Task{},
 		&models.Message{},
 		&models.Reaction{},
 		&models.ReadReceipt{},

@@ -16,7 +16,12 @@ export function PlatformShell({ children }: PlatformShellProps) {
   const pathname = usePathname();
   const { activeWorkspace, error, isLoading } = usePlatform();
   const isImmersiveRoute = pathname.startsWith("/calls/room");
-  const showContextPanel = !pathname.startsWith("/notifications");
+  const showContextPanel =
+    pathname.startsWith("/chat") ||
+    pathname.startsWith("/teams") ||
+    pathname.startsWith("/calendar") ||
+    pathname.startsWith("/calls") ||
+    pathname.startsWith("/drive");
 
   if (isImmersiveRoute) {
     return (

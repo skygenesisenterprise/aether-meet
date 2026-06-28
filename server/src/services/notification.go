@@ -17,6 +17,22 @@ type NotificationService struct {
 	bus  interfaces.EventBus
 }
 
+type NotificationDTO struct {
+	ID             string         `json:"id"`
+	WorkspaceID    string         `json:"workspaceId"`
+	UserID         string         `json:"userId"`
+	Type           string         `json:"type"`
+	Title          string         `json:"title"`
+	Body           string         `json:"body"`
+	ResourceType   string         `json:"resourceType,omitempty"`
+	ResourceID     string         `json:"resourceId,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	ReadAt         *time.Time     `json:"readAt,omitempty"`
+	IdempotencyKey string         `json:"idempotencyKey,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	UpdatedAt      time.Time      `json:"updatedAt"`
+}
+
 func NewNotificationService(repo interfaces.NotificationRepository, bus interfaces.EventBus) *NotificationService {
 	return &NotificationService{repo: repo, bus: bus}
 }
@@ -48,6 +64,55 @@ func (s *NotificationService) Create(ctx context.Context, notification *models.N
 			"resourceId":     notification.ResourceID,
 		},
 	})
+}
+
+func (s *NotificationService) List(ctx context.Context, principal interfaces.Principal, cursor string, limit int) ([]NotificationDTO, string, bool, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var before *time.Time
+	var beforeID string
+	if strings.TrimSpace(cursor) != "" {
+		createdAt, id, err := utils.DecodeCursor(cursor)
+		if err != nil {
+			return nil, "", false, utils.ErrValidationFailed
+		}
+		before = &createdAt
+		beforeID = id
+	}
+	items, err := s.repo.ListByUser(ctx, principal.UserID, before, beforeID, limit+1)
+	if err != nil {
+		return nil, "", false, err
+	}
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	result := make([]NotificationDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, toNotificationDTO(item))
+	}
+	nextCursor := ""
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		nextCursor = utils.EncodeCursor(last.CreatedAt, last.ID)
+	}
+	return result, nextCursor, hasMore, nil
+}
+
+func (s *NotificationService) UnreadCount(ctx context.Context, principal interfaces.Principal) (int64, error) {
+	return s.repo.CountUnreadByUser(ctx, principal.UserID)
+}
+
+func (s *NotificationService) MarkRead(ctx context.Context, principal interfaces.Principal, notificationID string) (bool, error) {
+	return s.repo.MarkRead(ctx, principal.UserID, notificationID, time.Now().UTC())
+}
+
+func (s *NotificationService) MarkAllRead(ctx context.Context, principal interfaces.Principal) (bool, error) {
+	return s.repo.MarkAllRead(ctx, principal.UserID, time.Now().UTC())
 }
 
 type messageNotificationPayload struct {
@@ -146,6 +211,28 @@ func buildMessageNotification(message *models.Message, userID string) *models.No
 		ResourceID:     message.ID,
 		Metadata:       metadata,
 		IdempotencyKey: "message:" + message.ID + ":user:" + userID,
+	}
+}
+
+func toNotificationDTO(item models.Notification) NotificationDTO {
+	var metadata map[string]any
+	if len(item.Metadata) > 0 {
+		_ = json.Unmarshal(item.Metadata, &metadata)
+	}
+	return NotificationDTO{
+		ID:             item.ID,
+		WorkspaceID:    item.WorkspaceID,
+		UserID:         item.UserID,
+		Type:           item.Type,
+		Title:          item.Title,
+		Body:           item.Body,
+		ResourceType:   item.ResourceType,
+		ResourceID:     item.ResourceID,
+		Metadata:       metadata,
+		ReadAt:         item.ReadAt,
+		IdempotencyKey: item.IdempotencyKey,
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
 	}
 }
 
