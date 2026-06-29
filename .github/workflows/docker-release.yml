@@ -1,0 +1,104 @@
+name: Docker release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/docker-release.yml"
+      - "Dockerfile.cloud"
+      - "entrypoint-cloud.sh"
+      - "apps/**"
+      - "server/**"
+      - "go.mod"
+      - "go.sum"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: skygenesisenterprise/aether-meet
+  BUILD_DATABASE_URL: postgresql://aether:aether@localhost:5432/aether_meet?schema=public
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: platform
+            suffix: ""
+            public_site: "false"
+          - edition: cloud
+            suffix: "-cloud"
+            public_site: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        shell: bash
+        run: |
+          suffix="${{ matrix.suffix }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+            {
+              echo "value<<EOF"
+              echo "${IMAGE_NAME}:${version}${suffix}"
+              echo "${IMAGE_NAME}:latest${suffix}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "value=${IMAGE_NAME}:latest${suffix}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${IMAGE_NAME}:pr-${{ github.event.pull_request.number }}${suffix}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.cloud
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.tags.outputs.value }}
+          build-args: |
+            DATABASE_URL=${{ env.BUILD_DATABASE_URL }}
+            AETHER_MEET_EDITION=${{ matrix.edition }}
+            NEXT_PUBLIC_AETHER_MEET_EDITION=${{ matrix.edition }}
+            NEXT_PUBLIC_PUBLIC_SITE_ENABLED=${{ matrix.public_site }}
+          cache-from: type=gha,scope=${{ matrix.edition }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.edition }}
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.title=Aether Meet
+            org.opencontainers.image.description=Aether Meet ${{ matrix.edition }} edition
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Write summary
+        run: |
+          echo "### ${{ matrix.edition }} image" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.tags.outputs.value }}' >> "$GITHUB_STEP_SUMMARY"
