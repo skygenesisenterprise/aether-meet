@@ -1173,7 +1173,37 @@ func (h *apiHandler) listTasks(c *gin.Context) {
 	}
 	utils.List(c, items, "", false)
 }
-func (h *apiHandler) createTask(c *gin.Context)        { h.notImplemented(c, "task creation") }
+func (h *apiHandler) createTask(c *gin.Context) {
+	var req struct {
+		Title       string     `json:"title"`
+		Description string     `json:"description"`
+		Status      string     `json:"status"`
+		Priority    string     `json:"priority"`
+		Project     string     `json:"project"`
+		DueAt       *time.Time `json:"dueAt"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		utils.Error(c, utils.ErrValidationFailed)
+		return
+	}
+	principal, _ := h.principal(c)
+	item, err := h.deps.TaskService.Create(
+		c.Request.Context(),
+		principal,
+		c.Param("workspaceId"),
+		req.Title,
+		req.Description,
+		req.Status,
+		req.Priority,
+		req.Project,
+		req.DueAt,
+	)
+	if err != nil {
+		utils.Error(c, err)
+		return
+	}
+	utils.Success(c, http.StatusCreated, item)
+}
 func (h *apiHandler) getTask(c *gin.Context)           { h.notImplemented(c, "task retrieval") }
 func (h *apiHandler) updateTask(c *gin.Context)        { h.notImplemented(c, "task update") }
 func (h *apiHandler) deleteTask(c *gin.Context)        { h.notImplemented(c, "task deletion") }

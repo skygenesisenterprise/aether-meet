@@ -13,11 +13,28 @@ import {
   TimerReset,
 } from "lucide-react";
 
-import { listTasks } from "@/lib/api/tasks";
+import { createTask, listTasks } from "@/lib/api/tasks";
 import type { Task } from "@/lib/api/types";
 import { usePlatform } from "@/context/PlatformContext";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface TaskItem {
@@ -28,6 +45,15 @@ interface TaskItem {
   project: string;
   priority: "Critique" | "Haute" | "Moyenne";
   status: "Inbox" | "En cours" | "En revue" | "Termine";
+}
+
+interface TaskCreateFormState {
+  title: string;
+  description: string;
+  project: string;
+  priority: "Moyenne" | "Haute" | "Critique";
+  status: TaskItem["status"];
+  dueAt: string;
 }
 
 const columns = [
@@ -86,6 +112,28 @@ const priorityTone: Record<TaskItem["priority"], string> = {
   Critique: "border-rose-400/30 bg-rose-400/10 text-rose-200",
   Haute: "border-amber-400/30 bg-amber-400/10 text-amber-200",
   Moyenne: "border-white/12 bg-white/6 text-zinc-300",
+};
+
+const taskStatusOptions: Array<{ value: TaskItem["status"]; label: string }> = [
+  { value: "Inbox", label: "Inbox" },
+  { value: "En cours", label: "En cours" },
+  { value: "En revue", label: "En revue" },
+  { value: "Termine", label: "Termine" },
+];
+
+const taskPriorityOptions: Array<{ value: TaskItem["priority"]; label: string }> = [
+  { value: "Moyenne", label: "Moyenne" },
+  { value: "Haute", label: "Haute" },
+  { value: "Critique", label: "Critique" },
+];
+
+const initialTaskFormState: TaskCreateFormState = {
+  title: "",
+  description: "",
+  project: "",
+  priority: "Moyenne",
+  status: "Inbox",
+  dueAt: "",
 };
 
 function mapTaskStatus(status?: string): TaskItem["status"] {
@@ -159,12 +207,40 @@ function toTaskItem(task: Task): TaskItem {
   };
 }
 
+function toTaskPayloadStatus(status: TaskItem["status"]): string {
+  switch (status) {
+    case "En cours":
+      return "in_progress";
+    case "En revue":
+      return "in_review";
+    case "Termine":
+      return "done";
+    default:
+      return "inbox";
+  }
+}
+
+function toTaskPayloadPriority(priority: TaskItem["priority"]): string {
+  switch (priority) {
+    case "Critique":
+      return "critical";
+    case "Haute":
+      return "high";
+    default:
+      return "medium";
+  }
+}
+
 export default function TasksPage() {
   const { activeWorkspaceId } = usePlatform();
   const [activeStatus, setActiveStatus] = React.useState<TaskItem["status"] | "Tout">("Tout");
   const [tasks, setTasks] = React.useState<TaskItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [isCreatePanelOpen, setIsCreatePanelOpen] = React.useState(false);
+  const [createForm, setCreateForm] = React.useState<TaskCreateFormState>(initialTaskFormState);
+  const [createError, setCreateError] = React.useState<string | null>(null);
+  const [isCreating, setIsCreating] = React.useState(false);
 
   React.useEffect(() => {
     if (!activeWorkspaceId) {
@@ -172,12 +248,13 @@ export default function TasksPage() {
       setLoading(false);
       return;
     }
+    const workspaceId = activeWorkspaceId;
     let cancelled = false;
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const response = await listTasks(activeWorkspaceId);
+        const response = await listTasks(workspaceId);
         if (cancelled) {
           return;
         }
@@ -204,9 +281,54 @@ export default function TasksPage() {
       : tasks.filter((task) => task.status === activeStatus);
   }, [activeStatus, tasks]);
 
+  function updateCreateForm<K extends keyof TaskCreateFormState>(
+    key: K,
+    value: TaskCreateFormState[K]
+  ) {
+    setCreateForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleCreateTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activeWorkspaceId) {
+      setCreateError("Selectionnez un workspace avant de creer une tache.");
+      return;
+    }
+
+    const trimmedTitle = createForm.title.trim();
+    if (!trimmedTitle) {
+      setCreateError("Le titre est obligatoire.");
+      return;
+    }
+
+    setIsCreating(true);
+    setCreateError(null);
+
+    try {
+      const createdTask = await createTask(activeWorkspaceId, {
+        title: trimmedTitle,
+        description: createForm.description.trim() || undefined,
+        project: createForm.project.trim() || undefined,
+        priority: toTaskPayloadPriority(createForm.priority),
+        status: toTaskPayloadStatus(createForm.status),
+        dueAt: createForm.dueAt ? new Date(createForm.dueAt).toISOString() : undefined,
+      });
+
+      setTasks((current) => [toTaskItem(createdTask), ...current]);
+      setCreateForm(initialTaskFormState);
+      setIsCreatePanelOpen(false);
+    } catch {
+      setCreateError("La creation de tache a echoue. Verifiez que l'API de creation est disponible.");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
   return (
-    <div className="flex h-full min-h-180 flex-col bg-[#232426]">
-      <header className="flex min-h-15.5 flex-wrap items-center justify-between gap-2 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
+    <Sheet open={isCreatePanelOpen} onOpenChange={setIsCreatePanelOpen}>
+      <div className="flex h-full min-h-180 flex-col bg-[#232426]">
+        <header className="flex min-h-15.5 flex-wrap items-center justify-between gap-2 border-b border-white/12 bg-[#292a2c] px-3 py-2 lg:px-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/12 text-primary">
             <ListTodo className="size-4" />
@@ -225,14 +347,22 @@ export default function TasksPage() {
           <Button variant="ghost" size="icon-sm" className="rounded-md" aria-label="Autres actions">
             <MoreHorizontal className="size-4" />
           </Button>
-          <Button size="sm" className="rounded-md">
+          <Button
+            size="sm"
+            className="rounded-md"
+            onClick={() => {
+              setCreateError(null);
+              setIsCreatePanelOpen(true);
+            }}
+            disabled={!activeWorkspaceId}
+          >
             Nouvelle tache
             <Plus className="size-4" />
           </Button>
         </div>
-      </header>
+        </header>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-violet-400/70 bg-[#252628] px-4 py-2 text-sm text-zinc-300">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-violet-400/70 bg-[#252628] px-4 py-2 text-sm text-zinc-300">
         <span className="text-zinc-400">Vue :</span>
         {(["Tout", ...columns.map((column) => column.key)] as const).map((status) => (
           <button
@@ -250,10 +380,10 @@ export default function TasksPage() {
           </button>
         ))}
         <span className="ml-auto text-xs text-zinc-500">{visibleTasks.length} actions visibles</span>
-      </div>
+        </div>
 
-      <ScrollArea className="min-h-0 flex-1 bg-[#232426]">
-        <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:p-5">
+        <ScrollArea className="min-h-0 flex-1 bg-[#232426]">
+          <div className="grid gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:p-5">
           <section className="space-y-5">
             {loading ? (
               <div className="rounded-2xl border border-white/10 bg-[#292a2c] p-4 text-sm text-zinc-400">
@@ -421,8 +551,139 @@ export default function TasksPage() {
               </div>
             </section>
           </aside>
-        </div>
-      </ScrollArea>
-    </div>
+          </div>
+        </ScrollArea>
+      </div>
+
+      <SheetContent
+        side="right"
+        className="w-full border-l border-white/10 bg-[#1f2022] p-0 text-zinc-100 sm:max-w-xl"
+      >
+        <form className="flex h-full flex-col" onSubmit={handleCreateTask}>
+          <SheetHeader className="border-b border-white/8 px-5 py-4">
+            <SheetTitle className="text-base text-zinc-100">Nouvelle tache</SheetTitle>
+            <SheetDescription className="text-sm text-zinc-400">
+              Creez une tache et injectez-la directement dans le flux de pilotage.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+            <div className="space-y-2">
+              <label htmlFor="task-title" className="text-sm font-medium text-zinc-200">
+                Titre
+              </label>
+              <Input
+                id="task-title"
+                value={createForm.title}
+                onChange={(event) => updateCreateForm("title", event.target.value)}
+                placeholder="Ex. Finaliser le cadrage du pilote"
+                className="border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="task-description" className="text-sm font-medium text-zinc-200">
+                Description
+              </label>
+              <Textarea
+                id="task-description"
+                value={createForm.description}
+                onChange={(event) => updateCreateForm("description", event.target.value)}
+                placeholder="Contexte, dependances, points d'attention..."
+                className="min-h-32 border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-200">Statut initial</label>
+                <Select
+                  value={createForm.status}
+                  onValueChange={(value) => updateCreateForm("status", value as TaskItem["status"])}
+                >
+                  <SelectTrigger className="w-full border-white/10 bg-white/5 text-zinc-100">
+                    <SelectValue placeholder="Choisir un statut" />
+                  </SelectTrigger>
+                  <SelectContent className="border-white/10 bg-[#26272a] text-zinc-100">
+                    {taskStatusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-zinc-200">Priorite</label>
+                <Select
+                  value={createForm.priority}
+                  onValueChange={(value) => updateCreateForm("priority", value as TaskItem["priority"])}
+                >
+                  <SelectTrigger className="w-full border-white/10 bg-white/5 text-zinc-100">
+                    <SelectValue placeholder="Choisir une priorite" />
+                  </SelectTrigger>
+                  <SelectContent className="border-white/10 bg-[#26272a] text-zinc-100">
+                    {taskPriorityOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label htmlFor="task-project" className="text-sm font-medium text-zinc-200">
+                  Projet
+                </label>
+                <Input
+                  id="task-project"
+                  value={createForm.project}
+                  onChange={(event) => updateCreateForm("project", event.target.value)}
+                  placeholder="Sans projet"
+                  className="border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="task-due-at" className="text-sm font-medium text-zinc-200">
+                  Echeance
+                </label>
+                <Input
+                  id="task-due-at"
+                  type="datetime-local"
+                  value={createForm.dueAt}
+                  onChange={(event) => updateCreateForm("dueAt", event.target.value)}
+                  className="border-white/10 bg-white/5 text-zinc-100"
+                />
+              </div>
+            </div>
+
+            {createError ? (
+              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+                {createError}
+              </div>
+            ) : null}
+          </div>
+
+          <SheetFooter className="border-t border-white/8 px-5 py-4 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+              onClick={() => setIsCreatePanelOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button type="submit" className="rounded-md" disabled={isCreating || !activeWorkspaceId}>
+              {isCreating ? "Creation..." : "Creer la tache"}
+            </Button>
+          </SheetFooter>
+        </form>
+      </SheetContent>
+    </Sheet>
   );
 }

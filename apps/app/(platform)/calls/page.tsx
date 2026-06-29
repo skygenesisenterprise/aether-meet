@@ -19,9 +19,12 @@ import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { cn } from "@/lib/utils";
 import { usePlatform } from "@/context/PlatformContext";
 import { listCallHistory } from "@/lib/api/calls";
+import { listConversations } from "@/lib/api/conversations";
 import { listContacts } from "@/lib/api/contacts";
 import { ApiError } from "@/lib/api/errors";
-import type { CallHistoryItem, Contact } from "@/lib/api/types";
+import { listMeetings } from "@/lib/api/meetings";
+import { listWorkspaceMembers } from "@/lib/api/members";
+import type { CallHistoryItem, Contact, Conversation, Meeting, User, WorkspaceMember } from "@/lib/api/types";
 
 interface CallLogItem {
   id: string;
@@ -32,6 +35,7 @@ interface CallLogItem {
   duration: string;
   missed: boolean;
   video: boolean;
+  timestamp: number;
 }
 
 const filters = ["Tout", "Manqué(s)", "Entrant", "Sortant", "Messagerie vocale"];
@@ -64,12 +68,121 @@ function formatDuration(seconds: number | undefined): string {
   return `${min} min`;
 }
 
-function toCallLogItem(item: CallHistoryItem): CallLogItem {
-  const name = (item.callerName as string) ?? (item.name as string) ?? "Inconnu";
-  const direction = item.direction as string | undefined;
-  const missed = (item.missed as boolean) ?? false;
-  const isVideo = (item.video as boolean) ?? false;
-  const durationSec = item.durationSeconds as number | undefined;
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function getBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseTimestamp(value: unknown): number | undefined {
+  const raw = getString(value);
+  if (!raw) return undefined;
+  const parsed = new Date(raw).getTime();
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function looksLikeOpaqueIdentifier(value: string | undefined): boolean {
+  if (!value) return false;
+
+  const normalized = value.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized);
+}
+
+function resolveContactName(source: string | undefined, contacts: Contact[]): string | undefined {
+  if (!source) return undefined;
+
+  const normalized = source.trim().toLowerCase();
+
+  return contacts.find((contact) => {
+    const name = contact.name.trim().toLowerCase();
+    const email = contact.email?.trim().toLowerCase();
+    const phone = contact.phone?.trim().toLowerCase();
+
+    return name === normalized || email === normalized || phone === normalized;
+  })?.name;
+}
+
+function getMemberDisplayName(member: WorkspaceMember | undefined): string | undefined {
+  const displayName = member?.displayName?.trim();
+  if (displayName && !looksLikeOpaqueIdentifier(displayName)) {
+    return displayName;
+  }
+
+  const email = member?.email?.trim();
+  if (email) {
+    return email.split("@")[0] || email;
+  }
+
+  return undefined;
+}
+
+function resolveConversationCallName(
+  conversationId: string | undefined,
+  conversationsById: Map<string, Conversation>,
+  membersById: Map<string, WorkspaceMember>,
+  currentUser: User | null
+): string | undefined {
+  if (!conversationId) return undefined;
+
+  const conversation = conversationsById.get(conversationId);
+  if (!conversation) return undefined;
+
+  if (conversation.type === "dm") {
+    const otherParticipant = conversation.participants?.find((participant) => participant.userId !== currentUser?.id);
+    if (otherParticipant) {
+      return otherParticipant.displayName?.trim() || otherParticipant.email?.split("@")[0] || "Contact";
+    }
+
+    const otherMemberId = conversation.memberIds?.find((memberId) => memberId !== currentUser?.id);
+    if (otherMemberId) {
+      return getMemberDisplayName(membersById.get(otherMemberId)) ?? "Contact";
+    }
+  }
+
+  const name = conversation.name?.trim();
+  if (name && !looksLikeOpaqueIdentifier(name)) {
+    return name;
+  }
+
+  return undefined;
+}
+
+function resolveCallName(item: CallHistoryItem, contacts: Contact[], currentUser: User | null): string {
+  const rawCandidates = [
+    item.callerName,
+    item.calleeName,
+    item.contactName,
+    item.participantName,
+    item.name,
+    item.title,
+    item.phoneNumber,
+    item.callerId,
+  ];
+
+  for (const candidate of rawCandidates) {
+    const resolved = resolveContactName(getString(candidate), contacts) ?? getString(candidate);
+    if (resolved && resolved !== currentUser?.displayName && resolved !== currentUser?.email) {
+      return resolved;
+    }
+  }
+
+  return "Inconnu";
+}
+
+function toCallLogItem(item: CallHistoryItem, contacts: Contact[], currentUser: User | null): CallLogItem {
+  const name = resolveCallName(item, contacts, currentUser);
+  const direction = getString(item.direction);
+  const missed = getBoolean(item.missed) ?? false;
+  const isVideo = getBoolean(item.video) ?? false;
+  const durationSec = getNumber(item.durationSeconds);
+  const startedAt = getString(item.startedAt) ?? getString(item.createdAt);
+  const timestamp = parseTimestamp(startedAt) ?? 0;
 
   let type: CallLogItem["type"] = "Entrant";
   if (direction === "outbound" || direction === "outgoing") type = "Sortant";
@@ -80,15 +193,105 @@ function toCallLogItem(item: CallHistoryItem): CallLogItem {
     name,
     initials: initialsFromName(name),
     type,
-    time: formatCallTime(item.startedAt as string | undefined),
+    time: formatCallTime(startedAt),
     duration: formatDuration(durationSec),
     missed,
     video: isVideo,
+    timestamp,
   };
 }
 
+function inferMeetingCallType(meeting: Meeting, currentUser: User | null): CallLogItem["type"] {
+  if (meeting.status === "cancelled" || meeting.status === "expired") {
+    return "Manqué";
+  }
+
+  if (currentUser?.id && meeting.createdBy === currentUser.id) {
+    return "Sortant";
+  }
+
+  return "Entrant";
+}
+
+function toMeetingCallLogItemWithContext(
+  meeting: Meeting,
+  contacts: Contact[],
+  conversationsById: Map<string, Conversation>,
+  membersById: Map<string, WorkspaceMember>,
+  currentUser: User | null
+): CallLogItem {
+  const conversationName = resolveConversationCallName(meeting.conversationId, conversationsById, membersById, currentUser);
+  const titleName = getString(meeting.title)?.replace(/^Appel (vidéo|audio)\s*-\s*/i, "");
+  const name =
+    conversationName ??
+    resolveContactName(titleName, contacts) ??
+    (titleName && !looksLikeOpaqueIdentifier(titleName) ? titleName : undefined) ??
+    "Appel";
+
+  const startedAt = meeting.startedAt ?? meeting.createdAt;
+  const startedTimestamp = parseTimestamp(startedAt) ?? 0;
+  const endedTimestamp = parseTimestamp(meeting.endedAt);
+  const durationSeconds =
+    endedTimestamp && endedTimestamp > startedTimestamp
+      ? Math.round((endedTimestamp - startedTimestamp) / 1000)
+      : undefined;
+  const type = inferMeetingCallType(meeting, currentUser);
+
+  return {
+    id: meeting.id,
+    name,
+    initials: initialsFromName(name),
+    type,
+    time: formatCallTime(startedAt),
+    duration: formatDuration(durationSeconds),
+    missed: type === "Manqué",
+    video: /vid[eé]o/i.test(meeting.title),
+    timestamp: startedTimestamp,
+  };
+}
+
+function shouldFallbackToMeetings(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || error.status === 501 || error.code === "NOT_IMPLEMENTED");
+}
+
+async function loadContactsSafely(workspaceId: string): Promise<Contact[]> {
+  try {
+    return await listContacts(workspaceId);
+  } catch (error) {
+    if (shouldFallbackToMeetings(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function loadConversationsSafely(workspaceId: string): Promise<Conversation[]> {
+  try {
+    return await listConversations(workspaceId);
+  } catch (error) {
+    if (shouldFallbackToMeetings(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function loadWorkspaceMembersSafely(workspaceId: string): Promise<WorkspaceMember[]> {
+  try {
+    return await listWorkspaceMembers(workspaceId);
+  } catch (error) {
+    if (shouldFallbackToMeetings(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
 export default function CallsPage() {
-  const { activeWorkspaceId } = usePlatform();
+  const { activeWorkspaceId, currentUser } = usePlatform();
   const [calls, setCalls] = React.useState<CallLogItem[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [activeFilter, setActiveFilter] = React.useState(0);
@@ -108,20 +311,48 @@ export default function CallsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [callHistory, contactList] = await Promise.all([
-          listCallHistory(workspaceId),
-          listContacts(workspaceId),
-        ]);
+        const contactList = await loadContactsSafely(workspaceId);
         if (cancelled) return;
-        setCalls(callHistory.map(toCallLogItem));
         setContacts(contactList);
+
+        try {
+          const callHistory = await listCallHistory(workspaceId);
+          if (cancelled) return;
+          setCalls(
+            callHistory
+              .map((item) => toCallLogItem(item, contactList, currentUser))
+              .sort((left, right) => right.timestamp - left.timestamp)
+          );
+        } catch (historyError) {
+          if (!shouldFallbackToMeetings(historyError)) {
+            throw historyError;
+          }
+
+          const [meetings, conversations, members] = await Promise.all([
+            listMeetings(workspaceId),
+            loadConversationsSafely(workspaceId),
+            loadWorkspaceMembersSafely(workspaceId),
+          ]);
+          if (cancelled) return;
+          const conversationsById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+          const membersById = new Map(members.map((member) => [member.userId, member]));
+          setCalls(
+            meetings
+              .map((meeting) =>
+                toMeetingCallLogItemWithContext(
+                  meeting,
+                  contactList,
+                  conversationsById,
+                  membersById,
+                  currentUser
+                )
+              )
+              .sort((left, right) => right.timestamp - left.timestamp)
+          );
+        }
       } catch (err) {
         if (!cancelled) {
-          if (err instanceof ApiError && err.status === 501) {
-            setError("L'historique des appels n'est pas encore disponible.");
-          } else {
-            setError("Impossible de charger l'historique des appels.");
-          }
+          setError("Impossible de charger l'historique des appels.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -131,7 +362,7 @@ export default function CallsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, currentUser]);
 
   const filteredCalls = React.useMemo(() => {
     if (activeFilter === 0) return calls;

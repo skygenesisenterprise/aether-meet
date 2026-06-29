@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/skygenesisenterprise/aether-meet/server/src/interfaces"
 	"github.com/skygenesisenterprise/aether-meet/server/src/models"
+	"github.com/skygenesisenterprise/aether-meet/server/src/utils"
 )
 
 type TaskDTO struct {
@@ -50,6 +52,49 @@ func (s *TaskService) List(ctx context.Context, principal interfaces.Principal, 
 	return result, nil
 }
 
+func (s *TaskService) Create(
+	ctx context.Context,
+	principal interfaces.Principal,
+	workspaceID, title, description, status, priority, project string,
+	dueAt *time.Time,
+) (*TaskDTO, error) {
+	if _, err := s.workspaces.AuthorizeWorkspace(ctx, principal, workspaceID); err != nil {
+		return nil, err
+	}
+
+	trimmedTitle := strings.TrimSpace(title)
+	if trimmedTitle == "" {
+		return nil, utils.ErrValidationFailed
+	}
+
+	normalizedStatus := normalizeTaskStatus(status)
+	normalizedPriority := normalizeTaskPriority(priority)
+	now := time.Now().UTC()
+
+	item := &models.Task{
+		Common:      models.Common{ID: utils.NewID(), CreatedAt: now, UpdatedAt: now},
+		WorkspaceID: workspaceID,
+		Title:       trimmedTitle,
+		Description: strings.TrimSpace(description),
+		Status:      normalizedStatus,
+		Priority:    normalizedPriority,
+		Project:     strings.TrimSpace(project),
+		CreatedBy:   principal.UserID,
+		DueAt:       dueAt,
+	}
+
+	if normalizedStatus == "done" {
+		item.CompletedAt = &now
+	}
+
+	if err := s.tasks.Create(ctx, item); err != nil {
+		return nil, err
+	}
+
+	dto := s.toTaskDTO(ctx, *item)
+	return &dto, nil
+}
+
 func (s *TaskService) toTaskDTO(ctx context.Context, item models.Task) TaskDTO {
 	assigneeName := ""
 	if item.AssigneeUserID != nil && *item.AssigneeUserID != "" {
@@ -76,3 +121,26 @@ func (s *TaskService) toTaskDTO(ctx context.Context, item models.Task) TaskDTO {
 	}
 }
 
+func normalizeTaskStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "in_progress", "en cours":
+		return "in_progress"
+	case "in_review", "en revue":
+		return "in_review"
+	case "done", "completed", "termine", "terminé":
+		return "done"
+	default:
+		return "inbox"
+	}
+}
+
+func normalizeTaskPriority(priority string) string {
+	switch strings.ToLower(strings.TrimSpace(priority)) {
+	case "critical", "critique":
+		return "critical"
+	case "high", "haute":
+		return "high"
+	default:
+		return "medium"
+	}
+}
