@@ -108,12 +108,12 @@ export default function CallsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [historyResponse, contactList] = await Promise.all([
+        const [callHistory, contactList] = await Promise.all([
           listCallHistory(workspaceId),
           listContacts(workspaceId),
         ]);
         if (cancelled) return;
-        setCalls(historyResponse.data.map(toCallLogItem));
+        setCalls(callHistory.map(toCallLogItem));
         setContacts(contactList);
       } catch (err) {
         if (!cancelled) {

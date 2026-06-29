@@ -1,7 +1,7 @@
-import { apiRequest } from "./client";
+import { apiListRequest as apiClientListRequest, apiRequest } from "./client";
 import { createMeeting, startMeeting, createMeetingJoinToken as getMeetingJoinToken } from "./meetings";
 import { createIdempotencyKey } from "./idempotency";
-import type { Meeting, MeetingJoinCredentials } from "./types";
+import type { CallHistoryItem } from "./types";
 
 /**
  * Call invitation sent to another user
@@ -177,6 +177,14 @@ export async function createMeetingAndInvite(
       },
     };
   }
+}
+
+/**
+ * List call history for a workspace
+ */
+export async function listCallHistory(workspaceId: string): Promise<CallHistoryItem[]> {
+  const response = await apiClientListRequest<CallHistoryItem>(`/workspaces/${workspaceId}/calls/history`);
+  return response.data;
 }
 
 // Helper function for list requests
