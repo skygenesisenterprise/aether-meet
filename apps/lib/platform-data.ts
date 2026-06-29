@@ -41,6 +41,7 @@ export interface ChatMessage {
 }
 
 export interface Conversation {
+  participants: any;
   id: string;
   name: string;
   initials: string;

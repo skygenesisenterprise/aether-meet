@@ -19,13 +19,35 @@ export interface MeetingStartPayload {
 }
 
 function normalizeJoinCredentials(payload: JoinTokenResponse): MeetingJoinCredentials {
+  // Try to assert public URL, but fallback to the original if it fails (for development)
+  let signalingUrl = payload.signalingUrl;
+  try {
+    signalingUrl = assertPublicLiveKitUrl(payload.signalingUrl);
+  } catch (error) {
+    console.warn("LiveKit URL validation failed, using original URL:", error);
+    // In development, allow private URLs
+    if (process.env.NODE_ENV !== "production") {
+      signalingUrl = payload.signalingUrl;
+    } else {
+      throw error; // Re-throw in production
+    }
+  }
+  
+  // Fix for LiveKit server version compatibility
+  // Older versions (1.8.3) use /rtc instead of /rtc/v1
+  // Remove /v1 from the path if present to ensure compatibility
+  if (signalingUrl.includes('/rtc/v1')) {
+    signalingUrl = signalingUrl.replace('/rtc/v1', '/rtc');
+    console.log("Adjusted signaling URL for LiveKit compatibility:", signalingUrl);
+  }
+  
   return {
     meetingId: payload.meetingId,
     sessionId: payload.sessionId,
     roomName: payload.roomName,
     participantIdentity: payload.participantIdentity,
     token: payload.token,
-    signalingUrl: assertPublicLiveKitUrl(payload.signalingUrl),
+    signalingUrl,
     expiresAt: payload.expiresAt,
     iceServers: payload.iceServers,
   };

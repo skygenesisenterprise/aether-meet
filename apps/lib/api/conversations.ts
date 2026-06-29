@@ -35,3 +35,8 @@ export function deleteConversation(conversationId: string): Promise<{ deleted: b
     method: "DELETE",
   });
 }
+
+export async function listConversationMembers(conversationId: string): Promise<any[]> {
+  const response = await apiRequest<any>(`/conversations/${conversationId}/members`);
+  return response.data || [];
+}

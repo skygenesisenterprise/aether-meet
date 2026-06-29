@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
-  ChevronDown,
   FileText,
   Image,
   Info,
@@ -39,7 +38,12 @@ import {
 } from "@/components/ui/sheet";
 import { MessageComposer, type MessageComposerHandle } from "@/components/platform/message-composer";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
+import { IncomingCallNotifications } from "@/components/platform/incoming-call-notification";
+import { ConversationCallIndicator, ConversationCallActions } from "@/components/platform/conversation-call-indicator";
+import { useCallSSE } from "@/hooks/use-call-sse";
 import { useChatStore } from "@/lib/chat-store";
+import { useCallStore } from "@/lib/call-store";
+import { createMeetingAndInvite, sendCallInvitation } from "@/lib/api/calls";
 import {
   currentUser as mockCurrentUser,
   people,
@@ -49,6 +53,13 @@ import {
 import { usePlatform } from "@/context/PlatformContext";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { cn } from "@/lib/utils";
+import {
+  createOrGetMeetingJoinCredentials,
+  generateParticipantIdentity,
+  generateParticipantName,
+} from "@/lib/api/meetings-utils";
+import { createMeetingJoinToken } from "@/lib/api/meetings";
+
 
 interface ContentSegment {
   type: "text" | "image" | "file";
@@ -131,19 +142,132 @@ export default function ChatPage() {
     }),
     [conversation, otherMembers]
   );
+  const [isCreatingMeeting, setIsCreatingMeeting] = React.useState(false);
+  const [meetingError, setMeetingError] = React.useState<string | null>(null);
+
+  // Initialiser la connexion SSE pour les appels
+  useCallSSE();
+
   const openCall = (mode: "audio" | "video") => {
     if (!conversation) return;
     setInfoOpen(false);
     setCallMode(mode);
   };
-  const launchCall = () => {
-    if (!callMode || !conversation) return;
-    const params = new URLSearchParams({
-      conversationId: conversation.id,
-      mode: callMode,
-    });
-    setCallMode(null);
-    router.push(`/calls/room?${params.toString()}`);
+
+  const { addOutgoingCall, removeOutgoingCall } = useCallStore();
+  
+  const launchCall = async () => {
+    if (!callMode || !conversation || !activeWorkspaceId || !apiUser) return;
+    
+    setIsCreatingMeeting(true);
+    setMeetingError(null);
+    
+    try {
+      const otherParticipants = conversation.memberIds?.filter((id) => id !== apiUser.id) || [];
+      
+      if (otherParticipants.length === 0) {
+        throw new Error("No other participants in this conversation");
+      }
+      
+      const calleeId = otherParticipants[0];
+      
+      addOutgoingCall(conversation.id, calleeId, callMode);
+      
+      // 1. Create meeting and send invitation via the orchestrated API
+      const result = await createMeetingAndInvite(
+        activeWorkspaceId,
+        conversation.id,
+        apiUser.id,
+        generateParticipantName(apiUser),
+        calleeId,
+        callMode
+      );
+      
+      // 2. If the invitation is a local fallback, retry with sendCallInvitation
+      if (result.invitation.id.startsWith("local-")) {
+        const calleeToken = await createMeetingJoinToken(result.meetingId);
+        await sendCallInvitation({
+          toUserId: calleeId,
+          fromUserId: apiUser.id,
+          fromUserName: generateParticipantName(apiUser),
+          conversationId: conversation.id,
+          mode: callMode,
+          meetingId: result.meetingId,
+          token: calleeToken.token,
+          signalingUrl: calleeToken.signalingUrl,
+        });
+      }
+      
+      // 3. Generate participant identity for the room
+      const participantIdentity = generateParticipantIdentity(apiUser.id);
+      
+      // 4. Broadcast notification for the callee via realtime WebSocket
+      getSharedRealtimeClient().send({
+        type: "call_invitation",
+        conversationId: conversation.id,
+        data: {
+          id: result.invitation.id,
+          fromUserId: apiUser.id,
+          fromUserName: generateParticipantName(apiUser),
+          toUserId: calleeId,
+          conversationId: conversation.id,
+          mode: callMode,
+          meetingId: result.meetingId,
+          token: result.token,
+          signalingUrl: result.signalingUrl,
+          createdAt: new Date().toISOString(),
+          status: "pending",
+        },
+      });
+      
+      const params = new URLSearchParams({
+        conversationId: conversation.id,
+        mode: callMode,
+        meetingId: result.meetingId,
+        token: result.token,
+        signalingUrl: result.signalingUrl,
+        participantIdentity,
+      });
+      
+      setCallMode(null);
+      setIsCreatingMeeting(false);
+      router.push(`/calls/room?${params.toString()}`);
+      
+    } catch (error) {
+      console.error("Failed to create meeting and send invitation:", error);
+      setMeetingError("Impossible de créer la réunion. Veuillez réessayer.");
+      setIsCreatingMeeting(false);
+      removeOutgoingCall(conversation.id);
+      
+      // 5. Fallback: create meeting directly with meeting-utils
+      try {
+        const fallbackCredentials = await createOrGetMeetingJoinCredentials(
+          activeWorkspaceId!,
+          conversation.id,
+          apiUser!.id,
+          generateParticipantName(apiUser!),
+          callMode!
+        );
+        
+        const params = new URLSearchParams({
+          conversationId: conversation.id,
+          mode: callMode!,
+          meetingId: fallbackCredentials.meetingId,
+          token: fallbackCredentials.token,
+          signalingUrl: fallbackCredentials.signalingUrl,
+          participantIdentity: generateParticipantIdentity(apiUser!.id),
+        });
+        setCallMode(null);
+        router.push(`/calls/room?${params.toString()}`);
+      } catch {
+        const params = new URLSearchParams({
+          conversationId: conversation.id,
+          mode: callMode!,
+        });
+        setCallMode(null);
+        router.push(`/calls/room?${params.toString()}`);
+      }
+    }
   };
   const callTargets =
     conversation?.type === "dm"
@@ -338,6 +462,9 @@ export default function ChatPage() {
 
   return (
     <>
+      {/* Incoming call notifications - rendered at top level for z-index */}
+      <IncomingCallNotifications />
+      
       <div className="flex h-full min-h-180 flex-col bg-[#232426]">
         {isRestoringConversation ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-zinc-400">
@@ -359,25 +486,17 @@ export default function ChatPage() {
                   <p className="truncate text-xs text-zinc-400">{conversationIdentity.subtitle}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-md"
-                  aria-label="Démarrer un appel audio"
-                  onClick={() => openCall("audio")}
-                >
-                  <Phone className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="rounded-md"
-                  aria-label="Démarrer un appel vidéo"
-                  onClick={() => openCall("video")}
-                >
-                  <Video className="size-4" />
-                </Button>
+              <div className="flex items-center gap-2">
+                {/* Call status indicator */}
+                <ConversationCallIndicator conversationId={conversation.id} conversationName={conversation.name} />
+                
+                {/* Call action buttons */}
+                <ConversationCallActions
+                  conversationId={conversation.id}
+                  conversationName={conversation.name}
+                  onAudioCall={() => openCall("audio")}
+                  onVideoCall={() => openCall("video")}
+                />
                 {conversation.type === "channel" && (
                   <Button
                     variant="ghost"

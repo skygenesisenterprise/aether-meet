@@ -169,6 +169,9 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 		protected.POST("/tasks/:taskId/comments", handler.createTaskComment)
 		protected.PATCH("/tasks/:taskId/order", handler.updateTaskOrder)
 
+		// Routes pour les appels en temps réel
+		SetupCallRoutes(router)
+
 		protected.GET("/workspaces/:workspaceId/projects", handler.listProjects)
 		protected.POST("/workspaces/:workspaceId/projects", handler.createProject)
 		protected.GET("/projects/:projectId", handler.getProject)

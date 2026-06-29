@@ -150,9 +150,10 @@ type client struct {
 }
 
 type RealtimeCommand struct {
-	Type           string `json:"type"`
-	WorkspaceID    string `json:"workspaceId,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
+	Type           string         `json:"type"`
+	WorkspaceID    string         `json:"workspaceId,omitempty"`
+	ConversationID string         `json:"conversationId,omitempty"`
+	Data           map[string]any `json:"data,omitempty"`
 }
 
 func NewEventBus(cfg config.Config, redis *redisclient.Client) interfaces.EventBus {
@@ -267,6 +268,20 @@ func (h *Hub) readLoop(ctx context.Context, cl *client) {
 				ConversationID: cmd.ConversationID,
 				ActorID:        cl.principal.UserID,
 				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			})
+		case "call_invitation":
+			if cmd.ConversationID == "" || cl.principal.WorkspaceID == "" {
+				continue
+			}
+			_ = h.bus.Publish(ctx, interfaces.Event{
+				ID:             utils.NewID(),
+				Topic:          "workspace." + cl.principal.WorkspaceID,
+				Type:           cmd.Type,
+				WorkspaceID:    cl.principal.WorkspaceID,
+				ConversationID: cmd.ConversationID,
+				ActorID:        cl.principal.UserID,
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				Payload:        cmd.Data,
 			})
 		}
 	}
