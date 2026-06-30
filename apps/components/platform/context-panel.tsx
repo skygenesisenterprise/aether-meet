@@ -50,9 +50,10 @@ import { notifications } from "@/lib/platform-notifications";
 import { useChatStore } from "@/lib/chat-store";
 import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { usePlatform } from "@/context/PlatformContext";
+import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { getMembers } from "@/lib/api/chat-service";
 import type { ChatServiceDeps } from "@/lib/api/chat-service";
-import { resolvePresenceStatus } from "@/lib/presence";
+import { normalizePresenceStatus, resolvePresenceStatus } from "@/lib/presence";
 
 interface PanelTitleProps {
   title: string;
@@ -110,7 +111,7 @@ function formatPresenceLabel(status?: string): string {
 }
 
 function ChatPanel() {
-  const { activeWorkspaceId, currentUser, lastRealtimeEvent } = usePlatform();
+  const { activeWorkspaceId, currentUser, lastRealtimeEvent, isRealtimeConnected } = usePlatform();
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const customConversations = useChatStore((s) => s.customConversations);
   const conversations = useChatStore((s) => s.conversations);
@@ -119,6 +120,7 @@ function ChatPanel() {
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const createConversation = useChatStore((s) => s.createConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const typingByConversation = useChatStore((s) => s.typingByConversation);
   const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
   const [createOpen, setCreateOpen] = React.useState(false);
   const [isSelectionMode, setIsSelectionMode] = React.useState(false);
@@ -132,6 +134,7 @@ function ChatPanel() {
   const [selectedMemberIds, setSelectedMemberIds] = React.useState<string[]>([]);
   const [members, setMembers] = React.useState<Array<{ id: string; displayName: string; initials: string; presenceStatus?: string; status?: string; lastSeenAt?: string }>>([]);
   const [memberSearch, setMemberSearch] = React.useState("");
+  const [realtimePresence, setRealtimePresence] = React.useState<Record<string, string>>({});
 
   const deps: ChatServiceDeps = React.useMemo(
     () => ({ workspaceId: activeWorkspaceId, currentUser: currentUser ?? null }),
@@ -200,6 +203,25 @@ function ChatPanel() {
     void loadMembers();
   }, [activeWorkspaceId, lastRealtimeEvent, loadMembers]);
 
+  React.useEffect(() => {
+    if (!activeWorkspaceId) return;
+
+    const realtime = getSharedRealtimeClient();
+    const subscription = realtime.subscribe((event) => {
+      if (event.type === "presence.updated" && event.actorId) {
+        const state = (event.data as Record<string, unknown>)?.state;
+        if (typeof state === "string") {
+          setRealtimePresence((prev) => ({ ...prev, [event.actorId!]: state }));
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      setRealtimePresence({});
+    };
+  }, [activeWorkspaceId]);
+
   const membersById = React.useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
 
   const getConversationIdentity = React.useCallback(
@@ -210,14 +232,28 @@ function ChatPanel() {
 
       const currentUserId = currentUser?.id ?? "";
       const otherMemberId = conversation.memberIds.find((memberId) => memberId !== currentUserId);
+      const isSelf = !otherMemberId;
       const otherMember = otherMemberId ? membersById.get(otherMemberId) : null;
-      const status = otherMember
-        ? resolvePresenceStatus({
-            presenceStatus: otherMember.presenceStatus,
-            status: otherMember.status,
-            lastSeenAt: otherMember.lastSeenAt,
-          })
-        : undefined;
+
+      let status: string | undefined;
+      if (otherMemberId && realtimePresence[otherMemberId]) {
+        status = normalizePresenceStatus(realtimePresence[otherMemberId]);
+      } else if (isSelf && currentUser) {
+        status = resolvePresenceStatus({
+          presenceStatus: currentUser.presenceStatus,
+          status: currentUser.status,
+          lastSeenAt: currentUser.lastSeenAt,
+          isRealtimeConnected,
+          isCurrentSession: true,
+        });
+      } else if (otherMember) {
+        status = resolvePresenceStatus({
+          presenceStatus: otherMember.presenceStatus,
+          status: otherMember.status,
+          lastSeenAt: otherMember.lastSeenAt,
+          isRealtimeConnected,
+        });
+      }
 
       return {
         label: otherMember?.displayName ?? conversation.name,
@@ -225,7 +261,7 @@ function ChatPanel() {
         status,
       };
     },
-    [currentUser?.id, membersById]
+    [currentUser, membersById, isRealtimeConnected, realtimePresence]
   );
 
   const availableMembers = React.useMemo(() => {
@@ -466,7 +502,7 @@ function ChatPanel() {
                     >
                       <PresenceAvatar
                         initials={conversationIdentity.initials}
-                        status={conversationIdentity.status ?? conversation.status}
+                        status={conversationIdentity.status}
                         className="size-9"
                       />
                       <span className="min-w-0 flex-1">
@@ -475,9 +511,23 @@ function ChatPanel() {
                           <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
                         </span>
                         <span className="mt-0.5 flex items-start gap-2">
-                          <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
-                            {conversation.preview}
-                          </span>
+                          {typingByConversation[conversation.id]?.length > 0 ? (
+                            <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-emerald-400">
+                              {typingByConversation[conversation.id][0].name}
+                              <span className="text-zinc-500">écrit</span>
+                              {[0, 1].map((index) => (
+                                <span
+                                  key={index}
+                                  className="inline-block size-1 rounded-full bg-emerald-400 animate-bounce"
+                                  style={{ animationDelay: `${index * 200}ms`, animationDuration: "1s" }}
+                                />
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                              {conversation.preview}
+                            </span>
+                          )}
                           {conversation.unread ? (
                             <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
                               {conversation.unread}
@@ -599,11 +649,16 @@ function ChatPanel() {
                         />
                         <PresenceAvatar
                           initials={member.initials}
-                          status={resolvePresenceStatus({
-                            presenceStatus: member.presenceStatus,
-                            status: member.status,
-                            lastSeenAt: member.lastSeenAt,
-                          })}
+                          status={
+                            realtimePresence[member.id]
+                              ? normalizePresenceStatus(realtimePresence[member.id])
+                              : resolvePresenceStatus({
+                                  presenceStatus: member.presenceStatus,
+                                  status: member.status,
+                                  lastSeenAt: member.lastSeenAt,
+                                  isRealtimeConnected,
+                                })
+                          }
                           className="size-7"
                         />
                         <span className="min-w-0 flex-1">

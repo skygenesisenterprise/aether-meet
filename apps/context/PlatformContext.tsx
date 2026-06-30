@@ -185,6 +185,9 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
 
     const realtime = getSharedRealtimeClient();
     realtime.setWorkspace(activeWorkspaceId);
+
+    const unsubConnection = realtime.onConnectionChange(setIsRealtimeConnected);
+    setIsRealtimeConnected(realtime.isConnected);
     void realtime.connect().then(
       () => setIsRealtimeConnected(true),
       () => setIsRealtimeConnected(false)
@@ -194,8 +197,15 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
       setLastRealtimeEvent(event);
     });
 
+    const handlePageHide = () => {
+      realtime.disconnect();
+    };
+    window.addEventListener("pagehide", handlePageHide);
+
     return () => {
       subscription.unsubscribe();
+      unsubConnection();
+      window.removeEventListener("pagehide", handlePageHide);
       setIsRealtimeConnected(false);
     };
   }, [activeWorkspaceId]);

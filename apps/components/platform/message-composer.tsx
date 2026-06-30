@@ -114,8 +114,8 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      onTypingChange(true);
     }
+    onTypingChange(true);
 
     if (typingTimeoutRef.current !== null) {
       window.clearTimeout(typingTimeoutRef.current);

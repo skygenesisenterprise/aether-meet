@@ -26,7 +26,7 @@ import { getConversation } from "@/lib/api/conversations";
 import { createMeeting, createMeetingJoinToken, startMeeting } from "@/lib/api/meetings";
 import { createIdempotencyKey } from "@/lib/api/idempotency";
 import { getMe } from "@/lib/api/me";
-import { resolvePresenceStatus } from "@/lib/presence";
+import { resolvePresenceStatus, type PresenceStatus } from "@/lib/presence";
 import type { Conversation, User as ApiUser } from "@/lib/api/types";
 
 // Local user interface for participant display
@@ -72,8 +72,8 @@ function getConversationDisplayInfo(conv: Conversation | null) {
 }
 
 // Helper function to get user display info
-function getUserDisplayInfo(user: ApiUser | null | undefined) {
-  if (!user) return { initials: '?', status: 'offline', name: 'Utilisateur' };
+function getUserDisplayInfo(user: ApiUser | null | undefined): { initials: string; status: PresenceStatus | undefined; name: string } {
+  if (!user) return { initials: '?', status: undefined, name: 'Utilisateur' };
   
   const name = user.displayName || user.name || 'Utilisateur';
   const initials = name.split(' ').map((n: string) => n[0].toUpperCase()).slice(0, 2).join('');
@@ -407,7 +407,7 @@ export default function CallRoomPage() {
                 <div className="flex flex-col items-center gap-2 text-center">
                   <PresenceAvatar
                     initials={getUserDisplayInfo(currentUser).initials}
-                    status={getUserDisplayInfo(currentUser).status as any}
+                    status={getUserDisplayInfo(currentUser).status}
                     className="size-20"
                   />
                   <p className="text-lg font-semibold">{getUserDisplayInfo(currentUser).name}</p>
@@ -470,7 +470,7 @@ export default function CallRoomPage() {
                 <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/3 px-3 py-2.5">
                   <PresenceAvatar
                     initials={getUserDisplayInfo(currentUser).initials}
-                    status={getUserDisplayInfo(currentUser).status as any}
+                    status={getUserDisplayInfo(currentUser).status}
                     className="size-9"
                   />
                   <div className="min-w-0 flex-1">

@@ -51,8 +51,8 @@ export function inferPresenceFromLastSeen(lastSeenAt?: string | null): PresenceS
     return undefined;
   }
 
-  const minutesSinceLastSeen = (Date.now() - timestamp) / 60000;
-  return minutesSinceLastSeen <= 5 ? "online" : "offline";
+  const secondsSinceLastSeen = (Date.now() - timestamp) / 1000;
+  return secondsSinceLastSeen <= 75 ? "online" : "offline";
 }
 
 interface ResolvePresenceInput {
@@ -64,13 +64,13 @@ interface ResolvePresenceInput {
   isCurrentSession?: boolean;
 }
 
-export function resolvePresenceStatus(input: ResolvePresenceInput): PresenceStatus {
-  const explicitStatus =
-    normalizePresenceStatus(input.presenceStatus) ?? normalizePresenceStatus(input.status);
-
+export function resolvePresenceStatus(input: ResolvePresenceInput): PresenceStatus | undefined {
   if (input.isCurrentSession) {
+    const explicitStatus =
+      normalizePresenceStatus(input.presenceStatus) ?? normalizePresenceStatus(input.status);
+
     if (!input.isAuthenticated || !input.isRealtimeConnected) {
-      return "offline";
+      return undefined;
     }
 
     if (explicitStatus === "busy" || explicitStatus === "away" || explicitStatus === "offline") {
@@ -80,13 +80,32 @@ export function resolvePresenceStatus(input: ResolvePresenceInput): PresenceStat
     return "online";
   }
 
-  return explicitStatus ?? inferPresenceFromLastSeen(input.lastSeenAt) ?? "offline";
+  const explicitStatus = normalizePresenceStatus(input.presenceStatus);
+
+  if (input.isRealtimeConnected === false) {
+    return inferPresenceFromLastSeen(input.lastSeenAt);
+  }
+
+  if (explicitStatus) {
+    if (input.lastSeenAt) {
+      const secondsSinceLastSeen = (Date.now() - new Date(input.lastSeenAt).getTime()) / 1000;
+      if (secondsSinceLastSeen > 75) {
+        return "offline";
+      }
+    } else if (explicitStatus === "online") {
+      return "offline";
+    }
+
+    return explicitStatus;
+  }
+
+  return inferPresenceFromLastSeen(input.lastSeenAt);
 }
 
 export function resolveUserPresenceStatus(
   user: Pick<User, "presenceStatus" | "status" | "lastSeenAt">,
   options?: Pick<ResolvePresenceInput, "isAuthenticated" | "isRealtimeConnected" | "isCurrentSession">
-): PresenceStatus {
+): PresenceStatus | undefined {
   return resolvePresenceStatus({
     presenceStatus: user.presenceStatus,
     status: user.status,
@@ -97,7 +116,7 @@ export function resolveUserPresenceStatus(
 
 export function resolveWorkspaceMemberPresenceStatus(
   member: Pick<WorkspaceMember, "presenceStatus" | "status" | "lastSeenAt">
-): PresenceStatus {
+): PresenceStatus | undefined {
   return resolvePresenceStatus({
     presenceStatus: member.presenceStatus,
     status: member.status,

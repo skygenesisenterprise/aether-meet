@@ -13,7 +13,7 @@ interface PresenceAvatarProps {
 
 export function PresenceAvatar({
   initials,
-  status = "offline",
+  status,
   className,
   fallbackClassName,
 }: PresenceAvatarProps) {
@@ -29,13 +29,15 @@ export function PresenceAvatar({
           {initials}
         </AvatarFallback>
       </Avatar>
-      <span
-        className={cn(
-          "absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-background",
-          presenceStatusClasses[status]
-        )}
-        aria-label={`Statut ${status}`}
-      />
+      {status !== undefined ? (
+        <span
+          className={cn(
+            "absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-background",
+            presenceStatusClasses[status]
+          )}
+          aria-label={`Statut ${status}`}
+        />
+      ) : null}
     </span>
   );
 }

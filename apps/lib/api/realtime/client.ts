@@ -6,6 +6,7 @@ import { getReconnectDelay } from "@/lib/api/realtime/reconnect";
 import type { RealtimeSubscription } from "@/lib/api/realtime/subscriptions";
 
 type Listener = (event: RealtimeEvent) => void;
+type ConnectionListener = (connected: boolean) => void;
 
 export interface RealtimeClientOptions {
   url?: string;
@@ -14,12 +15,29 @@ export interface RealtimeClientOptions {
 export class RealtimeClient {
   private socket: WebSocket | null = null;
   private listeners = new Set<Listener>();
+  private connectionListeners = new Set<ConnectionListener>();
+  private _isConnected = false;
   private reconnectAttempt = 0;
   private reconnectTimer: number | null = null;
   private intentionalClose = false;
   private seenEventIds = new Set<string>();
   private activeWorkspaceId: string | null = null;
   private readonly url: string;
+
+  get isConnected(): boolean {
+    return this._isConnected;
+  }
+
+  onConnectionChange(listener: ConnectionListener): () => void {
+    this.connectionListeners.add(listener);
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  private setConnected(connected: boolean): void {
+    if (this._isConnected === connected) return;
+    this._isConnected = connected;
+    this.connectionListeners.forEach((fn) => fn(connected));
+  }
 
   constructor(options: RealtimeClientOptions = {}) {
     this.url = assertPublicRealtimeUrl(options.url ?? getRealtimeUrl());
@@ -50,6 +68,7 @@ export class RealtimeClient {
 
     this.socket.addEventListener("open", () => {
       this.reconnectAttempt = 0;
+      this.setConnected(true);
       if (this.activeWorkspaceId) {
         this.send({
           type: "subscribe",
@@ -84,12 +103,14 @@ export class RealtimeClient {
 
     this.socket.addEventListener("close", () => {
       this.socket = null;
+      this.setConnected(false);
       if (!this.intentionalClose) {
         this.scheduleReconnect();
       }
     });
 
     this.socket.addEventListener("error", () => {
+      this.setConnected(false);
       if (!this.intentionalClose) {
         this.scheduleReconnect();
       }
@@ -104,6 +125,7 @@ export class RealtimeClient {
     }
     this.socket?.close();
     this.socket = null;
+    this.setConnected(false);
   }
 
   setWorkspace(workspaceId: string | null): void {

@@ -52,7 +52,7 @@ import {
 import { usePlatform } from "@/context/PlatformContext";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { listWorkspaceMembers } from "@/lib/api/members";
-import { resolvePresenceStatus, resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
+import { normalizePresenceStatus, resolvePresenceStatus, resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
 import {
   createOrGetMeetingJoinCredentials,
@@ -71,7 +71,7 @@ interface ConversationMemberDetails {
   name: string;
   initials: string;
   role: string;
-  status: PresenceStatus;
+  status: PresenceStatus | undefined;
 }
 
 interface DatedConversationItem {
@@ -85,7 +85,7 @@ interface TypingParticipant {
   id: string;
   name: string;
   initials: string;
-  status: PresenceStatus;
+  status: PresenceStatus | undefined;
 }
 
 interface ChatWorkspaceMember {
@@ -161,7 +161,9 @@ function formatMessageDayLabel(dateKey: string | null): string {
 function resolveTypingParticipant(
   actorId: string,
   workspaceMembersById: Map<string, ChatWorkspaceMember>,
-  peopleById: Map<string, (typeof people)[number]>
+  peopleById: Map<string, (typeof people)[number]>,
+  isRealtimeConnected?: boolean,
+  realtimePresence?: Record<string, string>
 ): TypingParticipant | null {
   const workspaceMember = workspaceMembersById.get(actorId);
   const mockPerson = peopleById.get(actorId);
@@ -178,30 +180,53 @@ function resolveTypingParticipant(
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") || mockPerson?.initials || "??";
 
+  const rt = realtimePresence?.[actorId];
+  const presenceStatus = rt
+    ? normalizePresenceStatus(rt)
+    : workspaceMember
+      ? resolvePresenceStatus({
+          presenceStatus: workspaceMember.presenceStatus,
+          status: workspaceMember.status,
+          lastSeenAt: workspaceMember.lastSeenAt,
+          isRealtimeConnected,
+        })
+      : resolvePresenceStatus({ status: mockPerson?.status, isRealtimeConnected });
+
   return {
     id: actorId,
     name,
     initials,
-    status: workspaceMember
-      ? resolveWorkspaceMemberPresenceStatus(workspaceMember)
-      : resolvePresenceStatus({ status: mockPerson?.status }),
+    status: presenceStatus,
   };
 }
 
 function resolveChatPresenceStatus(
   userId: string,
   workspaceMembersById: Map<string, ChatWorkspaceMember>,
-  peopleById: Map<string, (typeof people)[number]>
-): PresenceStatus {
+  peopleById: Map<string, (typeof people)[number]>,
+  isRealtimeConnected?: boolean,
+  realtimePresence?: Record<string, string>
+): PresenceStatus | undefined {
+  const rt = realtimePresence?.[userId];
+  if (rt) {
+    const normalized = normalizePresenceStatus(rt);
+    if (normalized) return normalized;
+  }
+
   const workspaceMember = workspaceMembersById.get(userId);
   const mockPerson = peopleById.get(userId);
 
   return workspaceMember
-    ? resolveWorkspaceMemberPresenceStatus(workspaceMember)
-    : resolvePresenceStatus({ status: mockPerson?.status });
+    ? resolvePresenceStatus({
+        presenceStatus: workspaceMember.presenceStatus,
+        status: workspaceMember.status,
+        lastSeenAt: workspaceMember.lastSeenAt,
+        isRealtimeConnected,
+      })
+    : resolvePresenceStatus({ status: mockPerson?.status, isRealtimeConnected });
 }
 
-function formatPresenceLabel(status: PresenceStatus): string {
+function formatPresenceLabel(status: PresenceStatus | undefined): string {
   switch (status) {
     case "online":
       return "Connecté";
@@ -216,7 +241,7 @@ function formatPresenceLabel(status: PresenceStatus): string {
 
 export default function ChatPage() {
   const router = useRouter();
-  const { currentUser: apiUser, activeWorkspaceId, lastRealtimeEvent } = usePlatform();
+  const { currentUser: apiUser, activeWorkspaceId, lastRealtimeEvent, isRealtimeConnected } = usePlatform();
   const currentUser = apiUser ?? mockCurrentUser;
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const conversations = useChatStore((s) => s.conversations);
@@ -288,6 +313,7 @@ export default function ChatPage() {
   const loadWorkspaceMembers = React.useCallback(async (workspaceId: string) => {
     return listWorkspaceMembers(workspaceId).catch(() => [] as ChatWorkspaceMember[]);
   }, []);
+  const [realtimePresence, setRealtimePresence] = React.useState<Record<string, string>>({});
   const members = React.useMemo<ConversationMemberDetails[]>(
     () =>
       conversation
@@ -312,11 +338,11 @@ export default function ChatPage() {
               name: displayName,
               initials,
               role: workspaceMember?.role ?? mockPerson?.role ?? "Membre",
-              status: resolveChatPresenceStatus(memberId, workspaceMembersById, peopleById),
+              status: resolveChatPresenceStatus(memberId, workspaceMembersById, peopleById, isRealtimeConnected, realtimePresence),
             };
           })
         : [],
-    [conversation, peopleById, workspaceMembersById]
+    [conversation, peopleById, workspaceMembersById, isRealtimeConnected, realtimePresence]
   );
   const otherMembers = members.filter((member) => member.id !== currentUser.id);
   const conversationIdentity = React.useMemo(
@@ -329,7 +355,7 @@ export default function ChatPage() {
               .filter(Boolean)
               .join(" · ")
           : conversation?.subtitle ?? "",
-      status: conversation?.type === "dm" ? otherMembers[0]?.status ?? conversation.status : conversation?.status ?? "offline",
+      status: conversation?.type === "dm" ? otherMembers[0]?.status : conversation?.status,
     }),
     [conversation, otherMembers]
   );
@@ -533,8 +559,7 @@ export default function ChatPage() {
     const shouldRefreshWorkspaceMembers =
       type.startsWith("member.") ||
       type.startsWith("membership.") ||
-      type.startsWith("user.") ||
-      type.startsWith("presence.");
+      type.startsWith("user.");
 
     if (!shouldRefreshWorkspaceMembers) {
       return;
@@ -544,6 +569,25 @@ export default function ChatPage() {
       setWorkspaceMembers(items);
     });
   }, [activeWorkspaceId, lastRealtimeEvent, loadWorkspaceMembers]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) return;
+
+    const realtime = getSharedRealtimeClient();
+    const subscription = realtime.subscribe((event) => {
+      if (event.type === "presence.updated" && event.actorId) {
+        const state = (event.data as Record<string, unknown>)?.state;
+        if (typeof state === "string") {
+          setRealtimePresence((prev) => ({ ...prev, [event.actorId!]: state }));
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      setRealtimePresence({});
+    };
+  }, [activeWorkspaceId]);
 
   React.useEffect(() => {
     if (!activeWorkspaceId || !apiUser || !conversation?.id) {
@@ -598,50 +642,61 @@ export default function ChatPage() {
   }, [conversation, activeConversationId, conversationMessages.length]);
 
   const typingTimeoutsRef = React.useRef<Map<string, number>>(new Map());
+  const addTypingParticipant = useChatStore((s) => s.addTypingParticipant);
+  const removeTypingParticipant = useChatStore((s) => s.removeTypingParticipant);
 
   React.useEffect(() => {
-    if (!activeConversationId) return;
-
     const realtime = getSharedRealtimeClient();
     const subscription = realtime.subscribe((event) => {
       if (
         (event.type !== "typing.started" && event.type !== "typing.stopped") ||
-        event.conversationId !== activeConversationId ||
-        !event.actorId ||
-        event.actorId === currentUser.id
+        !event.conversationId ||
+        !event.actorId
       ) {
         return;
       }
 
-      const participant = resolveTypingParticipant(event.actorId, workspaceMembersById, peopleById);
+      const participant = resolveTypingParticipant(event.actorId, workspaceMembersById, peopleById, isRealtimeConnected, realtimePresence);
       if (!participant) return;
 
-      if (event.type === "typing.started") {
-        setTypingParticipants((prev) => {
+      if (event.conversationId === activeConversationId) {
+        if (event.type === "typing.started") {
+          setTypingParticipants((prev) => {
+            const existingTimeout = typingTimeoutsRef.current.get(participant.id);
+            if (existingTimeout !== undefined) {
+              window.clearTimeout(existingTimeout);
+            }
+
+            const timeout = window.setTimeout(() => {
+              setTypingParticipants((items) => items.filter((item) => item.id !== participant.id));
+              typingTimeoutsRef.current.delete(participant.id);
+            }, 5000);
+            typingTimeoutsRef.current.set(participant.id, timeout);
+
+            if (prev.some((item) => item.id === participant.id)) {
+              return prev.map((item) => (item.id === participant.id ? participant : item));
+            }
+
+            return [...prev, participant];
+          });
+        } else {
+          setTypingParticipants((prev) => prev.filter((item) => item.id !== participant.id));
           const existingTimeout = typingTimeoutsRef.current.get(participant.id);
           if (existingTimeout !== undefined) {
             window.clearTimeout(existingTimeout);
-          }
-
-          const timeout = window.setTimeout(() => {
-            setTypingParticipants((items) => items.filter((item) => item.id !== participant.id));
             typingTimeoutsRef.current.delete(participant.id);
-          }, 5000);
-          typingTimeoutsRef.current.set(participant.id, timeout);
-
-          if (prev.some((item) => item.id === participant.id)) {
-            return prev.map((item) => (item.id === participant.id ? participant : item));
           }
+        }
+      }
 
-          return [...prev, participant];
+      if (event.type === "typing.started") {
+        addTypingParticipant(event.conversationId, {
+          actorId: participant.id,
+          name: participant.name,
+          initials: participant.initials,
         });
       } else {
-        setTypingParticipants((prev) => prev.filter((item) => item.id !== participant.id));
-        const existingTimeout = typingTimeoutsRef.current.get(participant.id);
-        if (existingTimeout !== undefined) {
-          window.clearTimeout(existingTimeout);
-          typingTimeoutsRef.current.delete(participant.id);
-        }
+        removeTypingParticipant(event.conversationId, participant.id);
       }
     });
 
@@ -651,7 +706,7 @@ export default function ChatPage() {
       typingTimeoutsRef.current.clear();
       setTypingParticipants([]);
     };
-  }, [activeConversationId, currentUser.id, peopleById, workspaceMembersById]);
+  }, [activeConversationId, currentUser.id, peopleById, workspaceMembersById, addTypingParticipant, removeTypingParticipant, isRealtimeConnected, realtimePresence]);
 
   function handleOwnTyping(isTyping: boolean) {
     if (!activeConversationId || !activeWorkspaceId) return;
@@ -807,7 +862,7 @@ export default function ChatPage() {
 
                     const message = item.message!;
                     const isOwnMessage = message.authorId === currentUser.id;
-                    const authorStatus = resolveChatPresenceStatus(message.authorId, workspaceMembersById, peopleById);
+                    const authorStatus = resolveChatPresenceStatus(message.authorId, workspaceMembersById, peopleById, isRealtimeConnected, realtimePresence);
                     const isEditing = editingMessageId === message.id;
                     const isMenuOpen = openMenuMessageId === message.id;
 
@@ -1007,39 +1062,45 @@ export default function ChatPage() {
                       </div>
                     </div>
                   )}
-                  {typingParticipants.length > 0 && (
-                    <article className="flex gap-3">
-                      <PresenceAvatar
-                        initials={typingParticipants[0]?.initials ?? "??"}
-                        status={typingParticipants[0]?.status ?? "offline"}
-                        className="size-9"
-                      />
-                      <div className="min-w-0 max-w-[min(100%,42rem)]">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-sm font-semibold">
-                            {typingParticipants.length === 1
-                              ? typingParticipants[0]?.name
-                              : `${typingParticipants[0]?.name} + ${typingParticipants.length - 1}`}
-                          </h2>
-                          <span className="text-xs text-zinc-400">
-                            {typingParticipants.length > 1 ? "écrivent…" : "est en train d’écrire…"}
-                          </span>
-                        </div>
-                        <div className="mt-1 inline-flex items-center gap-1 rounded-2xl bg-[#2b2d31] px-4 py-3 text-foreground/90">
-                          {[0, 1, 2].map((index) => (
-                            <span
-                              key={index}
-                              className="size-2 rounded-full bg-zinc-400/90 animate-pulse"
-                              style={{ animationDelay: `${index * 180}ms`, animationDuration: "1.1s" }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </article>
-                  )}
                   <div ref={messagesEndRef} aria-hidden="true" />
                 </div>
               </ScrollArea>
+            </div>
+
+            <div
+              className={cn(
+                "grid transition-all duration-300 ease-in-out",
+                typingParticipants.length > 0 ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+              )}
+            >
+              <div className="overflow-hidden">
+                <div className="px-4 pt-1 lg:px-8">
+                  <div className="mx-auto max-w-4xl">
+                    <article className="flex gap-3">
+                      {conversation?.type === "dm" && typingParticipants[0] && (
+                        <PresenceAvatar
+                          initials={typingParticipants[0].initials}
+                          status={typingParticipants[0].status}
+                          className="size-9"
+                        />
+                      )}
+                      <div className="min-w-0 max-w-[min(100%,42rem)]">
+                        <div className="w-fit max-w-full rounded-2xl bg-[#2b2d31] px-4 py-4">
+                          <span className="flex items-center gap-1">
+                            {[0, 1, 2].map((index) => (
+                              <span
+                                key={index}
+                                className="size-2 rounded-full bg-zinc-400/70 animate-bounce"
+                                style={{ animationDelay: `${index * 160}ms`, animationDuration: "1.2s" }}
+                              />
+                            ))}
+                          </span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="shrink-0 bg-[#232426] px-4 pb-5 pt-3 lg:px-8">
@@ -1158,7 +1219,7 @@ export default function ChatPage() {
             </p>
             <p className="mt-1 text-xs text-zinc-400">
               {conversation?.type === "dm"
-                ? `${otherMembers[0]?.role ?? "Contact"} · ${formatPresenceLabel(otherMembers[0]?.status ?? "offline")}`
+                ? `${otherMembers[0]?.role ?? "Contact"} · ${formatPresenceLabel(otherMembers[0]?.status)}`
                 : `${members.length} participants disponibles dans cette conversation`}
             </p>
             {conversation?.type === "channel" && (

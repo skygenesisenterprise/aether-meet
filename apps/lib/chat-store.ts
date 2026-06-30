@@ -21,12 +21,19 @@ interface CreateConversationInput {
   memberIds: string[];
 }
 
+interface TypingInfo {
+  actorId: string;
+  name: string;
+  initials: string;
+}
+
 interface ChatState {
   activeConversationId: string | null;
   conversations: Conversation[];
   messages: Record<string, ChatMessage[]>;
   customConversations: Conversation[];
   customMessages: Record<string, ChatMessage[]>;
+  typingByConversation: Record<string, TypingInfo[]>;
   isLoading: boolean;
   setActiveConversation: (id: string | null) => void;
   createConversation: (input: CreateConversationInput, deps?: ChatServiceDeps) => Promise<string>;
@@ -35,6 +42,8 @@ interface ChatState {
   updateMessage: (conversationId: string, messageId: string, content: string, deps?: ChatServiceDeps) => Promise<void>;
   loadChatData: (deps: ChatServiceDeps) => Promise<void>;
   loadMessages: (conversationId: string, deps: ChatServiceDeps) => Promise<void>;
+  addTypingParticipant: (conversationId: string, info: TypingInfo) => void;
+  removeTypingParticipant: (conversationId: string, actorId: string) => void;
 }
 
 function formatTime() {
@@ -92,9 +101,36 @@ export const useChatStore = create<ChatState>()(
       messages: mockMode ? conversationMessages : {},
       customConversations: [],
       customMessages: {},
+      typingByConversation: {},
       isLoading: false,
 
       setActiveConversation: (id) => set({ activeConversationId: id }),
+
+      addTypingParticipant: (conversationId, info) =>
+        set((state) => {
+          const existing = state.typingByConversation[conversationId] ?? [];
+          if (existing.some((p) => p.actorId === info.actorId)) return state;
+          return {
+            typingByConversation: {
+              ...state.typingByConversation,
+              [conversationId]: [...existing, info],
+            },
+          };
+        }),
+
+      removeTypingParticipant: (conversationId, actorId) =>
+        set((state) => {
+          const existing = state.typingByConversation[conversationId];
+          if (!existing) return state;
+          const filtered = existing.filter((p) => p.actorId !== actorId);
+          if (filtered.length === existing.length) return state;
+          return {
+            typingByConversation: {
+              ...state.typingByConversation,
+              [conversationId]: filtered,
+            },
+          };
+        }),
 
       deleteConversation: async (conversationId, deps) => {
         if (!getMockModeEnabled() && deps?.currentUser) {

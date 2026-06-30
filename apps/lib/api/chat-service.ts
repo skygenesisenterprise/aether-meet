@@ -96,7 +96,7 @@ function resolveConversationStatus(
   if (conv.type === "dm") {
     const otherMemberId = conversationMemberIds.find((memberId) => memberId !== currentUser.id);
     const otherMember = otherMemberId ? memberById.get(otherMemberId) : undefined;
-    return otherMember ? resolveWorkspaceMemberPresenceStatus(otherMember) : "offline";
+    return otherMember ? (resolveWorkspaceMemberPresenceStatus(otherMember) ?? "offline") : "offline";
   }
 
   const participantStatuses = conversationMemberIds
