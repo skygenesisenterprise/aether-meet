@@ -50,7 +50,7 @@ function getWorkspaceSectionErrorMessage(section: SettingsSection): string {
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { currentUser, activeWorkspace, isLoading, error } = usePlatform();
+  const { currentUser, activeWorkspace, isLoading, error, setCurrentUser } = usePlatform();
   const { logout } = useAuth();
   const section = parseSettingsSection(searchParams.get("section"));
   const activeWorkspaceId = activeWorkspace?.id ?? null;
@@ -145,6 +145,14 @@ export default function SettingsPage() {
     router.replace(buildSettingsHref(nextSection, searchParams));
   }
 
+  const handleUserChange = React.useCallback(
+    (user: User) => {
+      setUserState(user);
+      setCurrentUser(user);
+    },
+    [setCurrentUser]
+  );
+
   if (isLoading) {
     return <GlobalState message="Chargement de la console de paramètres…" />;
   }
@@ -163,7 +171,7 @@ export default function SettingsPage() {
 
   return (
     <SettingsShell section={section} onSectionChange={handleSectionChange} workspace={workspaceState ?? activeWorkspace}>
-      {section === "profile" ? <ProfileSettings user={userState} onUserChange={setUserState} /> : null}
+      {section === "profile" ? <ProfileSettings user={userState} onUserChange={handleUserChange} /> : null}
       {section === "appearance" ? <AppearanceSettings /> : null}
       {section === "notifications" ? <NotificationSettings /> : null}
       {section === "media" ? <MediaSettings /> : null}

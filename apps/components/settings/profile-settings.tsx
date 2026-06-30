@@ -12,15 +12,24 @@ import { SettingsSectionHeader } from "@/components/settings/settings-section-he
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getMe, updateMe } from "@/lib/api/me";
+import { normalizePresenceStatus, resolveUserPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import type { User } from "@/lib/api/types";
 import { getInitials } from "@/components/settings/settings-utils";
+
+const PRESENCE_OPTIONS: Array<{ value: PresenceStatus; label: string }> = [
+  { value: "online", label: "Connecté" },
+  { value: "busy", label: "Occupé" },
+  { value: "away", label: "Absent" },
+  { value: "offline", label: "Hors ligne" },
+];
 
 const profileSchema = z.object({
   displayName: z.string().trim().min(2, "Nom trop court"),
   avatarUrl: z.string().trim().url("URL invalide").or(z.literal("")),
-  status: z.string().trim().max(40, "Statut trop long"),
+  status: z.enum(["online", "busy", "away", "offline"]),
   statusMessage: z.string().trim().max(180, "Message trop long"),
 });
 
@@ -38,7 +47,7 @@ export function ProfileSettings({ user, onUserChange }: ProfileSettingsProps) {
     defaultValues: {
       displayName: user?.displayName ?? "",
       avatarUrl: user?.avatarUrl ?? "",
-      status: user?.presenceStatus ?? user?.status ?? "",
+      status: normalizePresenceStatus(user?.presenceStatus ?? user?.status) ?? "online",
       statusMessage: "",
     },
   });
@@ -47,7 +56,7 @@ export function ProfileSettings({ user, onUserChange }: ProfileSettingsProps) {
     form.reset({
       displayName: user?.displayName ?? "",
       avatarUrl: user?.avatarUrl ?? "",
-      status: user?.presenceStatus ?? user?.status ?? "",
+      status: normalizePresenceStatus(user?.presenceStatus ?? user?.status) ?? "online",
       statusMessage: "",
     });
   }, [form, user]);
@@ -100,7 +109,7 @@ export function ProfileSettings({ user, onUserChange }: ProfileSettingsProps) {
       <div className="flex flex-col gap-4 rounded-md border border-white/10 bg-black/10 p-4 sm:flex-row sm:items-center">
         <PresenceAvatar
           initials={getInitials(user?.displayName, user?.email)}
-          status={(user?.presenceStatus as "online" | "busy" | "away" | "offline" | undefined) ?? "offline"}
+          status={user ? resolveUserPresenceStatus(user, { isAuthenticated: true, isRealtimeConnected: true, isCurrentSession: true }) : "offline"}
           className="size-16"
           fallbackClassName="text-lg"
         />
@@ -147,9 +156,20 @@ export function ProfileSettings({ user, onUserChange }: ProfileSettingsProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Statut de présence</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="online, away, busy…" className="border-white/10 bg-[#232426]" />
-                </FormControl>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="border-white/10 bg-[#232426]">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {PRESENCE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}

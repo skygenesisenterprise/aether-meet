@@ -14,6 +14,7 @@ type UserService struct {
 	users                   interfaces.UserRepository
 	settings                interfaces.UserSettingsRepository
 	notificationPreferences interfaces.NotificationPreferenceRepository
+	presence                *PresenceService
 }
 
 type UserPreferencesDTO struct {
@@ -43,11 +44,13 @@ func NewUserService(
 	users interfaces.UserRepository,
 	settings interfaces.UserSettingsRepository,
 	notificationPreferences interfaces.NotificationPreferenceRepository,
+	presence *PresenceService,
 ) *UserService {
 	return &UserService{
 		users:                   users,
 		settings:                settings,
 		notificationPreferences: notificationPreferences,
+		presence:                presence,
 	}
 }
 
@@ -88,11 +91,20 @@ func (s *UserService) UpdateMe(ctx context.Context, principal interfaces.Princip
 		user.AvatarURL = nil
 	}
 	if status != "" {
-		user.PresenceStatus = status
+		normalizedStatus := normalizePresenceState(status)
+		if normalizedStatus == "" {
+			return nil, utils.ErrValidationFailed
+		}
+		user.PresenceStatus = normalizedStatus
 	}
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	if s.presence != nil {
+		if err := s.presence.RefreshUserState(ctx, user.ID); err != nil {
+			return nil, err
+		}
 	}
 	return user, nil
 }

@@ -44,6 +44,18 @@ function formatTime() {
   }).format(new Date());
 }
 
+function moveConversationToTop(conversations: Conversation[], conversationId: string, updates: Partial<Conversation>) {
+  const target = conversations.find((conversation) => conversation.id === conversationId);
+  if (!target) {
+    return conversations;
+  }
+
+  return [
+    { ...target, ...updates },
+    ...conversations.filter((conversation) => conversation.id !== conversationId),
+  ];
+}
+
 function buildConversationInitials(name: string) {
   return name
     .split(" ")
@@ -157,7 +169,14 @@ export const useChatStore = create<ChatState>()(
               lastMessage?.authorId === deps.currentUser?.id ? "Vous" : lastMessage?.author;
             const preview = previewContent && previewAuthor ? `${previewAuthor} : ${previewContent}` : previewContent;
             const updateConversation = (conv: Conversation) =>
-              conv.id === conversationId ? { ...conv, preview, time: lastMessage?.time ?? conv.time } : conv;
+              conv.id === conversationId
+                ? {
+                    ...conv,
+                    preview,
+                    time: lastMessage?.time ?? conv.time,
+                    lastActivityAt: lastMessage?.createdAt ?? conv.lastActivityAt,
+                  }
+                : conv;
             return {
               messages: {
                 ...state.messages,
@@ -220,6 +239,7 @@ export const useChatStore = create<ChatState>()(
             subtitle: buildConversationSubtitle(type, uniqueMemberIds),
             preview: type === "dm" ? "Conversation privée créée." : "Groupe créé.",
             time: formatTime(),
+            lastActivityAt: new Date().toISOString(),
             status: buildConversationStatus(uniqueMemberIds),
           };
 
@@ -249,15 +269,18 @@ export const useChatStore = create<ChatState>()(
               set((state) => {
                 const existingMessages = state.messages[conversationId] ?? state.customMessages[conversationId] ?? [];
                 const preview = summarizeMessageContent(sent.content);
-                const updateConversation = (conv: Conversation) =>
-                  conv.id === conversationId ? { ...conv, preview: `Vous : ${preview}`, time: sent.time } : conv;
+                const updates: Partial<Conversation> = {
+                  preview: `Vous : ${preview}`,
+                  time: sent.time,
+                  lastActivityAt: sent.createdAt ?? new Date().toISOString(),
+                };
                 return {
                   messages: {
                     ...state.messages,
                     [conversationId]: [sent, ...existingMessages],
                   },
-                  conversations: state.conversations.map(updateConversation),
-                  customConversations: state.customConversations.map(updateConversation),
+                  conversations: moveConversationToTop(state.conversations, conversationId, updates),
+                  customConversations: moveConversationToTop(state.customConversations, conversationId, updates),
                 };
               });
               return;
@@ -269,6 +292,7 @@ export const useChatStore = create<ChatState>()(
         }
 
         if (getMockModeEnabled()) {
+          const sentAt = new Date().toISOString();
           const message: ChatMessage = {
             id: `msg-${Date.now()}`,
             authorId: mockCurrentUser.id,
@@ -276,6 +300,7 @@ export const useChatStore = create<ChatState>()(
             initials: mockCurrentUser.initials,
             time: formatTime(),
             content: trimmedContent,
+            createdAt: sentAt,
           };
 
           set((state) => {
@@ -287,12 +312,11 @@ export const useChatStore = create<ChatState>()(
 
             const conversationIndex = state.customConversations.findIndex((item) => item.id === conversationId);
             if (conversationIndex >= 0) {
-              const nextConversations = [...state.customConversations];
-              nextConversations[conversationIndex] = {
-                ...nextConversations[conversationIndex],
-                preview: trimmedContent,
+              const nextConversations = moveConversationToTop(state.customConversations, conversationId, {
+                preview: `Vous : ${trimmedContent}`,
                 time: message.time,
-              };
+                lastActivityAt: sentAt,
+              });
               return {
                 customConversations: nextConversations,
                 messages: updatedMessages,
@@ -306,7 +330,12 @@ export const useChatStore = create<ChatState>()(
 
             return {
               customConversations: [
-                { ...base, preview: `Vous : ${trimmedContent}`, time: message.time },
+                {
+                  ...base,
+                  preview: `Vous : ${trimmedContent}`,
+                  time: message.time,
+                  lastActivityAt: sentAt,
+                },
                 ...state.customConversations.filter((item) => item.id !== conversationId),
               ],
               messages: updatedMessages,

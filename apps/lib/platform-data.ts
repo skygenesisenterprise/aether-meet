@@ -37,11 +37,12 @@ export interface ChatMessage {
   initials: string;
   time: string;
   content: string;
+  createdAt?: string;
   editedAt?: string;
 }
 
 export interface Conversation {
-  participants: any;
+  participants?: any;
   id: string;
   name: string;
   initials: string;
@@ -50,6 +51,7 @@ export interface Conversation {
   subtitle: string;
   preview: string;
   time: string;
+  lastActivityAt?: string;
   unread?: number;
   active?: boolean;
   status: Person["status"];

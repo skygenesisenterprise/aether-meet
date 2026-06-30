@@ -26,6 +26,7 @@ import { getConversation } from "@/lib/api/conversations";
 import { createMeeting, createMeetingJoinToken, startMeeting } from "@/lib/api/meetings";
 import { createIdempotencyKey } from "@/lib/api/idempotency";
 import { getMe } from "@/lib/api/me";
+import { resolvePresenceStatus } from "@/lib/presence";
 import type { Conversation, User as ApiUser } from "@/lib/api/types";
 
 // Local user interface for participant display
@@ -76,7 +77,11 @@ function getUserDisplayInfo(user: ApiUser | null | undefined) {
   
   const name = user.displayName || user.name || 'Utilisateur';
   const initials = name.split(' ').map((n: string) => n[0].toUpperCase()).slice(0, 2).join('');
-  const status = user.presenceStatus || user.status || 'online';
+  const status = resolvePresenceStatus({
+    presenceStatus: user.presenceStatus,
+    status: user.status,
+    lastSeenAt: user.lastSeenAt,
+  });
   
   return { initials, status, name };
 }
@@ -173,7 +178,6 @@ export default function CallRoomPage() {
 
   // Auto-connect to room on mount
   const {
-    room,
     isConnecting,
     isConnected,
     isDisconnected,

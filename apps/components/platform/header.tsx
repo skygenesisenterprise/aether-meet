@@ -9,6 +9,7 @@ import {
   Settings,
   UserRound,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { useAuth } from "@/context/AuthContext";
 import { usePlatform } from "@/context/PlatformContext";
@@ -19,14 +20,28 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { updateMe } from "@/lib/api/me";
+import { normalizePresenceStatus, presenceStatusClasses, resolveUserPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
 
 interface AdminHeaderProps {
   className?: string;
 }
+
+const PRESENCE_OPTIONS: Array<{ value: PresenceStatus; label: string }> = [
+  { value: "online", label: "Connecté" },
+  { value: "busy", label: "Occupé" },
+  { value: "away", label: "Absent" },
+  { value: "offline", label: "Hors ligne" },
+];
 
 function getInitials(name?: string) {
   if (!name) return "AM";
@@ -40,9 +55,41 @@ function getInitials(name?: string) {
 }
 
 export function AdminHeader({ className }: AdminHeaderProps) {
-  const { user, logout } = useAuth();
-  const { activeWorkspace, activeWorkspaceId, currentUser, setActiveWorkspaceId, workspaces } = usePlatform();
+  const { user, logout, hasActiveSession, isAuthenticated } = useAuth();
+  const { activeWorkspace, activeWorkspaceId, currentUser, setActiveWorkspaceId, setCurrentUser, workspaces } = usePlatform();
+  const [isUpdatingStatus, setIsUpdatingStatus] = React.useState(false);
   const resolvedUser = currentUser ?? user;
+  const presenceStatus = resolvedUser
+    ? currentUser?.presenceStatus ??
+      resolveUserPresenceStatus(resolvedUser, {
+        isAuthenticated: hasActiveSession && isAuthenticated,
+        isCurrentSession: true,
+      })
+    : "offline";
+  const manualPresenceStatus = normalizePresenceStatus(resolvedUser?.status ?? resolvedUser?.presenceStatus) ?? "offline";
+  const currentPresenceLabel = PRESENCE_OPTIONS.find((option) => option.value === manualPresenceStatus)?.label ?? "Inconnu";
+
+  async function handlePresenceChange(nextStatus: string) {
+    if (!resolvedUser) {
+      return;
+    }
+
+    const normalizedStatus = PRESENCE_OPTIONS.find((option) => option.value === nextStatus)?.value;
+    if (!normalizedStatus || normalizedStatus === manualPresenceStatus || isUpdatingStatus) {
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    try {
+      const nextUser = await updateMe({ status: normalizedStatus });
+      setCurrentUser(nextUser);
+      toast.success(`Statut changé: ${PRESENCE_OPTIONS.find((option) => option.value === normalizedStatus)?.label ?? normalizedStatus}`);
+    } catch {
+      toast.error("Impossible de mettre à jour le statut.");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }
 
   return (
     <header
@@ -114,7 +161,9 @@ export function AdminHeader({ className }: AdminHeaderProps) {
                     {getInitials(resolvedUser?.displayName ?? resolvedUser?.name)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#232426] bg-emerald-400" />
+                <span
+                  className={cn("absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[#232426]", presenceStatusClasses[presenceStatus])}
+                />
               </span>
               <ChevronDown className="hidden size-3 text-zinc-600 sm:block" />
             </Button>
@@ -127,6 +176,33 @@ export function AdminHeader({ className }: AdminHeaderProps) {
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={!resolvedUser || isUpdatingStatus}>
+                <span
+                  className={cn("size-2 rounded-full", presenceStatusClasses[presenceStatus])}
+                  aria-hidden="true"
+                />
+                Statut
+                <span className="ml-auto text-xs text-muted-foreground">{isUpdatingStatus ? "Mise à jour..." : currentPresenceLabel}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Choisir un statut
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={manualPresenceStatus} onValueChange={(value) => void handlePresenceChange(value)}>
+                  {PRESENCE_OPTIONS.map((option) => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value} disabled={isUpdatingStatus}>
+                      <span
+                        className={cn("size-2 rounded-full", presenceStatusClasses[option.value])}
+                        aria-hidden="true"
+                      />
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem>
               <UserRound className="size-4" />
               Profil

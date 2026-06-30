@@ -1,18 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { Providers } from "@/context/Providers";
 import "@/styles/globals.css";
-
-const fontSans = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-});
-
-const fontMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-});
 
 export const metadata: Metadata = {
   title: {
@@ -46,11 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      data-scroll-behavior="smooth"
-      suppressHydrationWarning
-      className={`${fontSans.variable} ${fontMono.variable}`}
-    >
+    <html data-scroll-behavior="smooth" suppressHydrationWarning>
       <body suppressHydrationWarning className="antialiased">
         <Providers>{children}</Providers>
         <Analytics />

@@ -18,6 +18,7 @@ import {
   Inbox,
   MessageSquareText,
   MoreHorizontal,
+  Pencil,
   PhoneIncoming,
   PhoneOff,
   Plus,
@@ -51,21 +52,41 @@ import { PresenceAvatar } from "@/components/platform/presence-avatar";
 import { usePlatform } from "@/context/PlatformContext";
 import { getMembers } from "@/lib/api/chat-service";
 import type { ChatServiceDeps } from "@/lib/api/chat-service";
+import { resolvePresenceStatus } from "@/lib/presence";
 
 interface PanelTitleProps {
   title: string;
   onCreate?: () => void;
+  onEdit?: () => void;
+  editActive?: boolean;
+  editLabel?: string;
 }
 
-function PanelTitle({ title, onCreate }: PanelTitleProps) {
+function PanelTitle({ title, onCreate, onEdit, editActive = false, editLabel }: PanelTitleProps) {
   return (
     <div className="flex h-15.5 items-center justify-between border-b border-white/7 px-5">
       <h2 className="text-base font-semibold tracking-tight text-zinc-100">{title}</h2>
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon-sm" className="rounded-lg">
-          <MoreHorizontal className="size-4" />
-          <span className="sr-only">Plus d’options</span>
-        </Button>
+        {onEdit ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={cn(
+              "rounded-lg text-zinc-500 hover:text-white",
+              editActive && "bg-violet-500/15 text-violet-200 hover:text-violet-100"
+            )}
+            onClick={onEdit}
+            aria-label={editLabel ?? "Sélectionner des conversations"}
+          >
+            <Pencil className="size-4" />
+            <span className="sr-only">{editLabel ?? "Sélectionner des conversations"}</span>
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon-sm" className="rounded-lg">
+            <MoreHorizontal className="size-4" />
+            <span className="sr-only">Plus d’options</span>
+          </Button>
+        )}
         <Button variant="ghost" size="icon-sm" className="rounded-lg" onClick={onCreate}>
           <Plus className="size-4" />
           <span className="sr-only">Créer</span>
@@ -75,24 +96,41 @@ function PanelTitle({ title, onCreate }: PanelTitleProps) {
   );
 }
 
+function formatPresenceLabel(status?: string): string {
+  switch (status) {
+    case "online":
+      return "Connecté";
+    case "busy":
+      return "Occupé";
+    case "away":
+      return "Absent";
+    default:
+      return "Hors ligne";
+  }
+}
+
 function ChatPanel() {
-  const { activeWorkspaceId, currentUser } = usePlatform();
+  const { activeWorkspaceId, currentUser, lastRealtimeEvent } = usePlatform();
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const customConversations = useChatStore((s) => s.customConversations);
   const conversations = useChatStore((s) => s.conversations);
+  const messages = useChatStore((s) => s.messages);
+  const customMessages = useChatStore((s) => s.customMessages);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const createConversation = useChatStore((s) => s.createConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
   const [createOpen, setCreateOpen] = React.useState(false);
-  const [pendingDeleteConversation, setPendingDeleteConversation] = React.useState<null | {
+  const [isSelectionMode, setIsSelectionMode] = React.useState(false);
+  const [selectedConversationIds, setSelectedConversationIds] = React.useState<string[]>([]);
+  const [pendingDeleteConversations, setPendingDeleteConversations] = React.useState<Array<{
     id: string;
     name: string;
-  }>(null);
+  }> | null>(null);
   const [conversationType, setConversationType] = React.useState<"dm" | "channel">("dm");
   const [groupName, setGroupName] = React.useState("");
   const [selectedMemberIds, setSelectedMemberIds] = React.useState<string[]>([]);
-  const [members, setMembers] = React.useState<Array<{ id: string; displayName: string; initials: string }>>([]);
+  const [members, setMembers] = React.useState<Array<{ id: string; displayName: string; initials: string; presenceStatus?: string; status?: string; lastSeenAt?: string }>>([]);
   const [memberSearch, setMemberSearch] = React.useState("");
 
   const deps: ChatServiceDeps = React.useMemo(
@@ -100,37 +138,91 @@ function ChatPanel() {
     [activeWorkspaceId, currentUser]
   );
 
-  React.useEffect(() => {
-    getMembers(deps).then((items) =>
-      setMembers(
-        items.map((m) => ({
-          ...m,
-          initials: m.displayName
-            .split(" ")
-            .map((p) => p[0] ?? "")
-            .join("")
-            .toUpperCase()
-            .slice(0, 2),
-        }))
-      )
+  const loadMembers = React.useCallback(async () => {
+    const items = await getMembers(deps).catch(() => []);
+    setMembers(
+      items.map((m) => ({
+        ...m,
+        initials: m.displayName
+          .split(" ")
+          .map((p) => p[0] ?? "")
+          .join("")
+          .toUpperCase()
+          .slice(0, 2),
+      }))
     );
   }, [deps]);
+
+  React.useEffect(() => {
+    void loadMembers();
+  }, [loadMembers]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    const refreshMembers = () => {
+      void loadMembers();
+    };
+
+    const interval = window.setInterval(refreshMembers, 15000);
+    const handleFocus = () => refreshMembers();
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [activeWorkspaceId, loadMembers]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId || !lastRealtimeEvent?.workspaceId) {
+      return;
+    }
+
+    if (lastRealtimeEvent.workspaceId !== activeWorkspaceId) {
+      return;
+    }
+
+    const type = lastRealtimeEvent.type.toLowerCase();
+    const shouldRefreshMembers =
+      type.startsWith("presence.") ||
+      type.startsWith("user.") ||
+      type.startsWith("member.") ||
+      type.startsWith("membership.");
+
+    if (!shouldRefreshMembers) {
+      return;
+    }
+
+    void loadMembers();
+  }, [activeWorkspaceId, lastRealtimeEvent, loadMembers]);
 
   const membersById = React.useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
 
   const getConversationIdentity = React.useCallback(
     (conversation: { type: "dm" | "channel"; name: string; initials: string; memberIds: string[] }) => {
       if (conversation.type !== "dm") {
-        return { label: conversation.name, initials: conversation.initials };
+        return { label: conversation.name, initials: conversation.initials, status: undefined as string | undefined };
       }
 
       const currentUserId = currentUser?.id ?? "";
       const otherMemberId = conversation.memberIds.find((memberId) => memberId !== currentUserId);
       const otherMember = otherMemberId ? membersById.get(otherMemberId) : null;
+      const status = otherMember
+        ? resolvePresenceStatus({
+            presenceStatus: otherMember.presenceStatus,
+            status: otherMember.status,
+            lastSeenAt: otherMember.lastSeenAt,
+          })
+        : undefined;
 
       return {
         label: otherMember?.displayName ?? conversation.name,
         initials: otherMember?.initials ?? conversation.initials,
+        status,
       };
     },
     [currentUser?.id, membersById]
@@ -147,11 +239,32 @@ function ChatPanel() {
 
   const conversationList = React.useMemo(() => {
     const customConversationIds = new Set(customConversations.map((conversation) => conversation.id));
-    return [
+    const mergedConversations = [
       ...customConversations,
       ...conversations.filter((conversation) => !customConversationIds.has(conversation.id)),
     ];
-  }, [conversations, customConversations]);
+
+    const getLatestActivity = (conversationId: string, fallback?: string) => {
+      const conversationMessages = customMessages[conversationId] ?? messages[conversationId] ?? [];
+      const datedMessages = conversationMessages.filter((message) => Boolean(message.createdAt));
+
+      if (datedMessages.length > 0) {
+        const latestTimestamp = Math.max(
+          ...datedMessages.map((message) =>
+            new Date(message.editedAt ?? message.createdAt ?? 0).getTime()
+          )
+        );
+        return latestTimestamp;
+      }
+
+      return fallback ? new Date(fallback).getTime() : 0;
+    };
+
+    return [...mergedConversations].sort(
+      (left, right) =>
+        getLatestActivity(right.id, right.lastActivityAt) - getLatestActivity(left.id, left.lastActivityAt)
+    );
+  }, [conversations, customConversations, messages, customMessages]);
   const filteredConversations = React.useMemo(() => {
     if (activeFilter === "unread") {
       return conversationList.filter((conversation) => (conversation.unread ?? 0) > 0);
@@ -163,10 +276,17 @@ function ChatPanel() {
 
     return conversationList.filter((conversation) => conversation.type === "dm");
   }, [activeFilter, conversationList]);
-
   function toggleMember(memberId: string) {
     setSelectedMemberIds((current) =>
       current.includes(memberId) ? current.filter((item) => item !== memberId) : [...current, memberId]
+    );
+  }
+
+  function toggleConversationSelection(conversationId: string) {
+    setSelectedConversationIds((current) =>
+      current.includes(conversationId)
+        ? current.filter((item) => item !== conversationId)
+        : [...current, conversationId]
     );
   }
 
@@ -190,20 +310,38 @@ function ChatPanel() {
     resetDraft();
   }
 
-  async function handleDeleteConversation() {
-    if (!pendingDeleteConversation) return;
+  function exitSelectionMode() {
+    setIsSelectionMode(false);
+    setSelectedConversationIds([]);
+  }
 
-    await deleteConversation(pendingDeleteConversation.id, {
-      workspaceId: activeWorkspaceId,
-      currentUser: currentUser ?? null,
-    });
-    setPendingDeleteConversation(null);
+  async function handleDeleteConversation() {
+    if (!pendingDeleteConversations || pendingDeleteConversations.length === 0) return;
+
+    for (const conversation of pendingDeleteConversations) {
+      await deleteConversation(conversation.id, {
+        workspaceId: activeWorkspaceId,
+        currentUser: currentUser ?? null,
+      });
+    }
+
+    setPendingDeleteConversations(null);
+    exitSelectionMode();
   }
 
   return (
     <>
       <PanelTitle
         title="Conversations"
+        onEdit={() => {
+          if (isSelectionMode) {
+            exitSelectionMode();
+            return;
+          }
+          setIsSelectionMode(true);
+        }}
+        editActive={isSelectionMode}
+        editLabel={isSelectionMode ? "Quitter la sélection" : "Sélectionner des conversations"}
         onCreate={() => {
           resetDraft();
           setCreateOpen(true);
@@ -236,6 +374,45 @@ function ChatPanel() {
             </button>
           ))}
         </div>
+        {isSelectionMode ? (
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-violet-500/20 bg-violet-500/8 px-3 py-2">
+            <p className="text-[11px] text-zinc-300">
+              {selectedConversationIds.length > 0
+                ? `${selectedConversationIds.length} conversation${selectedConversationIds.length > 1 ? "s" : ""} sélectionnée${selectedConversationIds.length > 1 ? "s" : ""}`
+                : "Sélectionnez les conversations à supprimer"}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 rounded-md px-2 text-[11px] text-zinc-300"
+                onClick={exitSelectionMode}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="h-7 rounded-md px-2 text-[11px]"
+                disabled={selectedConversationIds.length === 0}
+                onClick={() =>
+                  setPendingDeleteConversations(
+                    filteredConversations
+                      .filter((conversation) => selectedConversationIds.includes(conversation.id))
+                      .map((conversation) => ({
+                        id: conversation.id,
+                        name: getConversationIdentity(conversation).label,
+                      }))
+                  )
+                }
+              >
+                Supprimer
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
       <Separator className="bg-white/7" />
       <ScrollArea className="min-h-0 flex-1">
@@ -251,27 +428,45 @@ function ChatPanel() {
             {filteredConversations.length > 0 ? (
               filteredConversations.map((conversation) => {
                 const conversationIdentity = getConversationIdentity(conversation);
+                const isSelected = selectedConversationIds.includes(conversation.id);
 
                 return (
                   <div
                     key={conversation.id}
                     className={cn(
-                      "group flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
-                      activeConversationId === conversation.id && "bg-violet-500/10"
+                      "flex w-full items-center rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
+                      !isSelectionMode && activeConversationId === conversation.id && "bg-violet-500/10",
+                      isSelectionMode && isSelected && "bg-violet-500/10"
                     )}
                   >
+                    {isSelectionMode ? (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleConversationSelection(conversation.id)}
+                        className={cn(
+                          "mr-3 shrink-0 border-white/20 data-[state=checked]:border-violet-400 data-[state=checked]:bg-violet-500/20",
+                          isSelected && "border-violet-400"
+                        )}
+                        aria-label={`Sélectionner ${conversationIdentity.label}`}
+                      />
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        if (isSelectionMode) {
+                          toggleConversationSelection(conversation.id);
+                          return;
+                        }
+
                         setActiveConversation(
                           activeConversationId === conversation.id ? null : conversation.id
-                        )
-                      }
+                        );
+                      }}
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
                       <PresenceAvatar
                         initials={conversationIdentity.initials}
-                        status={conversation.status}
+                        status={conversationIdentity.status ?? conversation.status}
                         className="size-9"
                       />
                       <span className="min-w-0 flex-1">
@@ -291,21 +486,6 @@ function ChatPanel() {
                         </span>
                       </span>
                     </button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="shrink-0 rounded-md text-zinc-500 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-                      aria-label={`Supprimer ${conversationIdentity.label}`}
-                      onClick={() =>
-                        setPendingDeleteConversation({
-                          id: conversation.id,
-                          name: conversationIdentity.label,
-                        })
-                      }
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
                   </div>
                 );
               })
@@ -417,7 +597,15 @@ function ChatPanel() {
                             toggleMember(member.id);
                           }}
                         />
-                        <PresenceAvatar initials={member.initials} status="online" className="size-7" />
+                        <PresenceAvatar
+                          initials={member.initials}
+                          status={resolvePresenceStatus({
+                            presenceStatus: member.presenceStatus,
+                            status: member.status,
+                            lastSeenAt: member.lastSeenAt,
+                          })}
+                          className="size-7"
+                        />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-zinc-200">
                             {member.displayName}
@@ -458,21 +646,29 @@ function ChatPanel() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pendingDeleteConversation !== null} onOpenChange={(open) => !open && setPendingDeleteConversation(null)}>
+      <Dialog open={pendingDeleteConversations !== null} onOpenChange={(open) => !open && setPendingDeleteConversations(null)}>
         <DialogContent className="border-white/10 bg-[#1f2123] text-zinc-100 sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold">Supprimer la conversation</DialogTitle>
+            <DialogTitle className="text-base font-semibold">
+              {pendingDeleteConversations && pendingDeleteConversations.length > 1
+                ? "Supprimer les conversations"
+                : "Supprimer la conversation"}
+            </DialogTitle>
             <DialogDescription className="text-zinc-500 text-xs">
-              Cette conversation disparaîtra de votre liste. Les autres participants peuvent encore y accéder si la conversation existe pour eux.
+              {pendingDeleteConversations && pendingDeleteConversations.length > 1
+                ? "Ces conversations disparaîtront de votre liste. Les autres participants peuvent encore y accéder si elles existent pour eux."
+                : "Cette conversation disparaîtra de votre liste. Les autres participants peuvent encore y accéder si elle existe pour eux."}
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-white/8 bg-black/15 px-3 py-2 text-sm text-zinc-300">
-            {pendingDeleteConversation?.name}
+            {pendingDeleteConversations?.map((conversation) => (
+              <div key={conversation.id}>{conversation.name}</div>
+            ))}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setPendingDeleteConversation(null)}
+              onClick={() => setPendingDeleteConversations(null)}
               className="rounded-lg border-white/10 text-xs"
             >
               Annuler

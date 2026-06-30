@@ -31,6 +31,7 @@ import { listConversations } from "@/lib/api/conversations";
 import { listMessages } from "@/lib/api/messages";
 import { listWorkspaceMembers } from "@/lib/api/members";
 import { createTeam, listTeams } from "@/lib/api/teams";
+import { resolveWorkspaceMemberPresenceStatus } from "@/lib/presence";
 import type { Channel, Conversation, Team, WorkspaceMember } from "@/lib/api/types";
 import { usePlatform } from "@/context/PlatformContext";
 import { useChatStore } from "@/lib/chat-store";
@@ -598,7 +599,7 @@ export default function TeamsPage() {
                       <div className="flex items-center gap-3">
                         <PresenceAvatar
                           initials={getInitials(member.displayName ?? member.email ?? member.userId)}
-                          status={(member.presenceStatus as "online" | "busy" | "away" | "offline" | undefined) ?? "offline"}
+                          status={resolveWorkspaceMemberPresenceStatus(member)}
                           className="size-10"
                         />
                         <div className="min-w-0 flex-1">

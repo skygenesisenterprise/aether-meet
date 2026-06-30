@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,21 @@ type PresenceService struct {
 	stop    chan struct{}
 }
 
+func normalizePresenceState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "busy":
+		return "busy"
+	case "away":
+		return "away"
+	case "offline":
+		return "offline"
+	case "online":
+		return "online"
+	default:
+		return ""
+	}
+}
+
 func NewPresenceService(logger *slog.Logger, redis *redisclient.Client, bus interfaces.EventBus, users interfaces.UserRepository, ttl time.Duration) *PresenceService {
 	svc := &PresenceService{
 		logger: logger, redis: redis, bus: bus, users: users, ttl: ttl,
@@ -47,6 +63,10 @@ func (s *PresenceService) Close() error {
 }
 
 func (s *PresenceService) Set(ctx context.Context, workspaceID, userID, state string, deviceCount int) error {
+	state = normalizePresenceState(state)
+	if state == "" {
+		state = "offline"
+	}
 	record := PresenceRecord{
 		UserID: userID, WorkspaceID: workspaceID, State: state, LastSeenAt: time.Now().UTC(), DeviceCount: deviceCount,
 	}
@@ -70,6 +90,46 @@ func (s *PresenceService) Set(ctx context.Context, workspaceID, userID, state st
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Payload:     map[string]any{"state": state, "deviceCount": deviceCount},
 	})
+}
+
+func (s *PresenceService) SetSessionState(ctx context.Context, workspaceID, userID string, connected bool, deviceCount int) error {
+	if !connected {
+		return s.Set(ctx, workspaceID, userID, "offline", 0)
+	}
+
+	state := "online"
+	if s.users != nil {
+		user, err := s.users.GetByID(ctx, userID)
+		if err == nil {
+			if preferred := normalizePresenceState(user.PresenceStatus); preferred != "" {
+				state = preferred
+			}
+		}
+	}
+
+	return s.Set(ctx, workspaceID, userID, state, deviceCount)
+}
+
+func (s *PresenceService) RefreshUserState(ctx context.Context, userID string) error {
+	records, err := s.listRecords(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range records {
+		if record.UserID != userID {
+			continue
+		}
+		deviceCount := record.DeviceCount
+		if deviceCount < 1 {
+			deviceCount = 1
+		}
+		if err := s.SetSessionState(ctx, record.WorkspaceID, userID, true, deviceCount); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *PresenceService) Get(ctx context.Context, workspaceID, userID string) (PresenceRecord, bool) {

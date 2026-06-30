@@ -21,6 +21,7 @@ type WorkspaceService struct {
 	repos  *Repositories
 	audits interfaces.AuditLogRepository
 	outbox *OutboxService
+	presence *PresenceService
 }
 
 type WorkspaceMemberDTO struct {
@@ -53,8 +54,9 @@ func NewWorkspaceService(
 	repos *Repositories,
 	audits interfaces.AuditLogRepository,
 	outbox *OutboxService,
+	presence *PresenceService,
 ) *WorkspaceService {
-	return &WorkspaceService{db: db, auth: auth, users: users, repos: repos, audits: audits, outbox: outbox}
+	return &WorkspaceService{db: db, auth: auth, users: users, repos: repos, audits: audits, outbox: outbox, presence: presence}
 }
 
 func (s *WorkspaceService) List(ctx context.Context, principal interfaces.Principal) ([]models.Workspace, error) {
@@ -442,19 +444,31 @@ func (s *WorkspaceService) toWorkspaceMemberDTOs(ctx context.Context, items []mo
 			}
 			return nil, err
 		}
-		result = append(result, *toWorkspaceMemberDTO(&item, user))
+		dto := toWorkspaceMemberDTO(&item, user)
+		if s.presence != nil {
+			if record, ok := s.presence.Get(ctx, item.WorkspaceID, item.UserID); ok {
+				dto.PresenceStatus = record.State
+				dto.LastSeenAt = &record.LastSeenAt
+			}
+		}
+		result = append(result, *dto)
 	}
 	return result, nil
 }
 
 func toWorkspaceMemberDTO(item *models.WorkspaceMember, user *models.User) *WorkspaceMemberDTO {
+	lastSeenAt := item.LastSeenAt
+	if user.LastSeenAt != nil {
+		lastSeenAt = user.LastSeenAt
+	}
+
 	return &WorkspaceMemberDTO{
 		ID:             item.ID,
 		WorkspaceID:    item.WorkspaceID,
 		UserID:         item.UserID,
 		Role:           item.Role,
 		JoinedAt:       item.JoinedAt,
-		LastSeenAt:     item.LastSeenAt,
+		LastSeenAt:     lastSeenAt,
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
 		DisplayName:    user.DisplayName,

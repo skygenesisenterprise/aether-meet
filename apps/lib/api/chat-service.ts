@@ -10,6 +10,7 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/platform-data";
+import { resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import type { User } from "@/lib/api/types";
 
 export interface ChatServiceDeps {
@@ -72,6 +73,43 @@ function getMemberDisplayName(member: { displayName?: string; email?: string; us
   return null;
 }
 
+function resolveConversationStatus(
+  conv: {
+    type: string;
+    memberIds?: string[];
+    participants?: Array<{ userId: string }>;
+  },
+  currentUser: User,
+  members: Array<{
+    userId: string;
+    displayName?: string;
+    email?: string;
+    role?: string;
+    status?: string;
+    presenceStatus?: string;
+    lastSeenAt?: string;
+  }>
+): PresenceStatus {
+  const memberById = new Map(members.map((member) => [member.userId, member]));
+  const conversationMemberIds = getConversationMemberIds(conv);
+
+  if (conv.type === "dm") {
+    const otherMemberId = conversationMemberIds.find((memberId) => memberId !== currentUser.id);
+    const otherMember = otherMemberId ? memberById.get(otherMemberId) : undefined;
+    return otherMember ? resolveWorkspaceMemberPresenceStatus(otherMember) : "offline";
+  }
+
+  const participantStatuses = conversationMemberIds
+    .map((memberId) => memberById.get(memberId))
+    .filter((member): member is NonNullable<typeof member> => Boolean(member))
+    .map((member) => resolveWorkspaceMemberPresenceStatus(member));
+
+  if (participantStatuses.some((status) => status === "busy")) return "busy";
+  if (participantStatuses.some((status) => status === "online")) return "online";
+  if (participantStatuses.some((status) => status === "away")) return "away";
+  return "offline";
+}
+
 function resolveConversationName(
   conv: {
     type: string;
@@ -120,6 +158,7 @@ function toUIMessage(
     initials: buildInitials(author?.displayName ?? "?"),
     time: new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(time),
     content: msg.content,
+    createdAt: msg.createdAt,
     editedAt: msg.editedAt,
   };
 }
@@ -224,12 +263,14 @@ export async function getConversations(deps: ChatServiceDeps): Promise<Conversat
     return [];
   }
 
+  const currentUser = deps.currentUser;
+
   const [apiConversations, members] = await Promise.all([
     listConversations(deps.workspaceId),
     listWorkspaceMembers(deps.workspaceId).catch(() => [] as Array<{ userId: string; displayName?: string; email?: string; role?: string }>),
   ]);
 
-  const visibleConversations = apiConversations.filter((conv) => isConversationForCurrentUser(conv, deps.currentUser));
+  const visibleConversations = apiConversations.filter((conv) => isConversationForCurrentUser(conv, currentUser));
   const latestMessages = await Promise.all(
     visibleConversations.map((conv) =>
       listMessages(conv.id, { limit: 1 })
@@ -239,7 +280,7 @@ export async function getConversations(deps: ChatServiceDeps): Promise<Conversat
   );
 
   return visibleConversations.map((conv, index) => {
-    const name = resolveConversationName(conv, deps.currentUser, members);
+    const name = resolveConversationName(conv, currentUser, members);
     const initials = buildInitials(name);
     const memberIds = getConversationMemberIds(conv);
     const latestMessage = latestMessages[index];
@@ -251,9 +292,10 @@ export async function getConversations(deps: ChatServiceDeps): Promise<Conversat
       type: conv.type === "dm" ? "dm" : "channel",
       memberIds,
       subtitle: conv.type === "dm" ? "Conversation privée" : "Canal",
-      preview: formatConversationPreview(latestMessage, deps.currentUser, members),
+      preview: formatConversationPreview(latestMessage, currentUser, members),
       time: latestMessage ? formatMessageTime(latestMessage.createdAt) : formatMessageTime(conv.createdAt),
-      status: "online" as const,
+      lastActivityAt: latestMessage?.createdAt ?? conv.createdAt,
+      status: resolveConversationStatus(conv, currentUser, members),
     };
   });
 }
@@ -272,7 +314,10 @@ export async function getMessages(conversationId: string, deps: ChatServiceDeps)
     listWorkspaceMembers(deps.workspaceId).catch(() => [] as Array<{ userId: string; displayName: string }>),
   ]);
 
-  const users = members.map((member) => ({ id: member.userId, displayName: member.displayName }));
+  const users = members.map((member) => ({
+    id: member.userId,
+    displayName: member.displayName || member.userId,
+  }));
   return apiMessages.data.map((msg) => toUIMessage(msg, users));
 }
 
@@ -304,6 +349,7 @@ export async function createConversation(
   } as User);
   const name = resolveConversationName(created, fallbackCurrentUser, members);
   const initials = buildInitials(name);
+  const status = resolveConversationStatus(created, fallbackCurrentUser, members);
 
   return {
     id: created.id,
@@ -314,7 +360,8 @@ export async function createConversation(
     subtitle: created.type === "dm" ? "Conversation privée" : "Canal",
     preview: "Conversation créée.",
     time: new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(new Date()),
-    status: "online" as const,
+    lastActivityAt: created.createdAt,
+    status,
   };
 }
 
@@ -331,9 +378,10 @@ export async function sendMessage(
     return null;
   }
 
+  const currentUser = deps.currentUser;
   const created = await apiCreateMessage(conversationId, { type: "text", content });
 
-  return toUIMessage(created, [{ id: deps.currentUser.id, displayName: deps.currentUser.displayName }]);
+  return toUIMessage(created, [{ id: currentUser.id, displayName: currentUser.displayName || currentUser.email || currentUser.id }]);
 }
 
 export async function updateMessage(
@@ -349,14 +397,15 @@ export async function updateMessage(
     return null;
   }
 
+  const currentUser = deps.currentUser;
   const updated = await apiUpdateMessage(messageId, { content });
 
-  return toUIMessage(updated, [{ id: deps.currentUser.id, displayName: deps.currentUser.displayName }]);
+  return toUIMessage(updated, [{ id: currentUser.id, displayName: currentUser.displayName || currentUser.email || currentUser.id }]);
 }
 
-export async function getMembers(deps: ChatServiceDeps): Promise<Array<{ id: string; displayName: string }>> {
+export async function getMembers(deps: ChatServiceDeps): Promise<Array<{ id: string; displayName: string; presenceStatus?: string; status?: string; lastSeenAt?: string }>> {
   if (getMockModeEnabled()) {
-    return people.map((p) => ({ id: p.id, displayName: p.name }));
+    return people.map((p) => ({ id: p.id, displayName: p.name, presenceStatus: p.status, status: p.status }));
   }
 
   if (!deps.workspaceId) {
@@ -367,5 +416,8 @@ export async function getMembers(deps: ChatServiceDeps): Promise<Array<{ id: str
   return members.map((member) => ({
     id: member.userId,
     displayName: member.displayName || member.email || member.userId,
+    presenceStatus: member.presenceStatus,
+    status: member.status,
+    lastSeenAt: member.lastSeenAt,
   }));
 }

@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { deleteWorkspaceMember, provisionWorkspaceUser, updateWorkspaceMember } from "@/lib/api/members";
+import { resolveWorkspaceMemberPresenceStatus } from "@/lib/presence";
 import type { User, Workspace, WorkspaceMember, WorkspaceMemberRole } from "@/lib/api/types";
 
 const memberSchema = z.object({
@@ -242,7 +243,7 @@ export function WorkspaceMembersSettings({
               <TableRow key={member.userId} className="border-white/10">
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <PresenceAvatar initials={getInitials(member.displayName, member.email)} status={(member.presenceStatus as "online" | "busy" | "away" | "offline" | undefined) ?? "offline"} />
+                    <PresenceAvatar initials={getInitials(member.displayName, member.email)} status={resolveWorkspaceMemberPresenceStatus(member)} />
                     <div>
                       <p className="text-sm font-medium text-white">{member.displayName ?? member.userId}</p>
                       <p className="text-xs text-zinc-500">{member.email ?? "Email non disponible"}</p>

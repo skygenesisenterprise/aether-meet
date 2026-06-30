@@ -48,10 +48,11 @@ import {
   currentUser as mockCurrentUser,
   people,
   type ChatMessage,
-  type Person,
 } from "@/lib/platform-data";
 import { usePlatform } from "@/context/PlatformContext";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
+import { listWorkspaceMembers } from "@/lib/api/members";
+import { resolvePresenceStatus, resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
 import {
   createOrGetMeetingJoinCredentials,
@@ -60,10 +61,41 @@ import {
 } from "@/lib/api/meetings-utils";
 import { createMeetingJoinToken } from "@/lib/api/meetings";
 
-
 interface ContentSegment {
   type: "text" | "image" | "file";
   value: string;
+}
+
+interface ConversationMemberDetails {
+  id: string;
+  name: string;
+  initials: string;
+  role: string;
+  status: PresenceStatus;
+}
+
+interface DatedConversationItem {
+  type: "separator" | "message";
+  key: string;
+  label?: string;
+  message?: ChatMessage;
+}
+
+interface TypingParticipant {
+  id: string;
+  name: string;
+  initials: string;
+  status: PresenceStatus;
+}
+
+interface ChatWorkspaceMember {
+  userId: string;
+  displayName?: string;
+  email?: string;
+  role?: string;
+  status?: string;
+  presenceStatus?: string;
+  lastSeenAt?: string;
 }
 
 function parseContent(content: string): ContentSegment[] {
@@ -84,6 +116,102 @@ function parseContent(content: string): ContentSegment[] {
     segments.push({ type: "text", value: content.slice(lastIndex) });
   }
   return segments;
+}
+
+function getMessageDateKey(message: ChatMessage): string | null {
+  if (!message.createdAt) {
+    return null;
+  }
+
+  const date = new Date(message.createdAt);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function formatMessageDayLabel(dateKey: string | null): string {
+  if (!dateKey) {
+    return "Messages récents";
+  }
+
+  const date = new Date(`${dateKey}T00:00:00`);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const formatKey = (value: Date) => value.toISOString().slice(0, 10);
+
+  if (dateKey === formatKey(today)) {
+    return "Aujourd’hui";
+  }
+
+  if (dateKey === formatKey(yesterday)) {
+    return "Hier";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
+function resolveTypingParticipant(
+  actorId: string,
+  workspaceMembersById: Map<string, ChatWorkspaceMember>,
+  peopleById: Map<string, (typeof people)[number]>
+): TypingParticipant | null {
+  const workspaceMember = workspaceMembersById.get(actorId);
+  const mockPerson = peopleById.get(actorId);
+  const name =
+    workspaceMember?.displayName?.trim() ||
+    workspaceMember?.email?.split("@")[0] ||
+    mockPerson?.name ||
+    actorId;
+  const initials =
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || mockPerson?.initials || "??";
+
+  return {
+    id: actorId,
+    name,
+    initials,
+    status: workspaceMember
+      ? resolveWorkspaceMemberPresenceStatus(workspaceMember)
+      : resolvePresenceStatus({ status: mockPerson?.status }),
+  };
+}
+
+function resolveChatPresenceStatus(
+  userId: string,
+  workspaceMembersById: Map<string, ChatWorkspaceMember>,
+  peopleById: Map<string, (typeof people)[number]>
+): PresenceStatus {
+  const workspaceMember = workspaceMembersById.get(userId);
+  const mockPerson = peopleById.get(userId);
+
+  return workspaceMember
+    ? resolveWorkspaceMemberPresenceStatus(workspaceMember)
+    : resolvePresenceStatus({ status: mockPerson?.status });
+}
+
+function formatPresenceLabel(status: PresenceStatus): string {
+  switch (status) {
+    case "online":
+      return "Connecté";
+    case "busy":
+      return "Occupé";
+    case "away":
+      return "Absent";
+    default:
+      return "Hors ligne";
+  }
 }
 
 export default function ChatPage() {
@@ -118,26 +246,89 @@ export default function ChatPage() {
       ? [...(customMessages[activeConversationId] ?? messages[activeConversationId] ?? [])]
       : [];
   const conversationMessages = apiUser ? rawConversationMessages.reverse() : rawConversationMessages;
+  const datedConversationItems = React.useMemo<DatedConversationItem[]>(() => {
+    const items: DatedConversationItem[] = [];
+    let previousDateKey: string | null | undefined;
+
+    conversationMessages.forEach((message) => {
+      const dateKey = getMessageDateKey(message);
+
+      if (dateKey !== previousDateKey) {
+        items.push({
+          type: "separator",
+          key: `separator-${dateKey ?? "unknown"}-${message.id}`,
+          label: formatMessageDayLabel(dateKey),
+        });
+        previousDateKey = dateKey;
+      }
+
+      items.push({
+        type: "message",
+        key: message.id,
+        message,
+      });
+    });
+
+    return items;
+  }, [conversationMessages]);
   const [callMode, setCallMode] = React.useState<"audio" | "video" | null>(null);
   const [infoOpen, setInfoOpen] = React.useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = React.useState(false);
-  const [typingUsers, setTypingUsers] = React.useState<string[]>([]);
+  const [typingParticipants, setTypingParticipants] = React.useState<TypingParticipant[]>([]);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
   const [editingText, setEditingText] = React.useState("");
   const [openMenuMessageId, setOpenMenuMessageId] = React.useState<string | null>(null);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const peopleById = React.useMemo(() => new Map(people.map((person) => [person.id, person])), []);
-  const members = conversation
-    ? conversation.memberIds
-        .map((memberId) => peopleById.get(memberId))
-        .filter((member): member is Person => Boolean(member))
-    : [];
+  const [workspaceMembers, setWorkspaceMembers] = React.useState<ChatWorkspaceMember[]>([]);
+  const workspaceMembersById = React.useMemo(
+    () => new Map(workspaceMembers.map((member) => [member.userId, member])),
+    [workspaceMembers]
+  );
+  const loadWorkspaceMembers = React.useCallback(async (workspaceId: string) => {
+    return listWorkspaceMembers(workspaceId).catch(() => [] as ChatWorkspaceMember[]);
+  }, []);
+  const members = React.useMemo<ConversationMemberDetails[]>(
+    () =>
+      conversation
+        ? conversation.memberIds.map((memberId) => {
+            const workspaceMember = workspaceMembersById.get(memberId);
+            const mockPerson = peopleById.get(memberId);
+            const displayName =
+              workspaceMember?.displayName?.trim() ||
+              workspaceMember?.email?.split("@")[0] ||
+              mockPerson?.name ||
+              memberId;
+            const initials =
+              displayName
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((part) => part[0]?.toUpperCase() ?? "")
+                .join("") || mockPerson?.initials || "??";
+
+            return {
+              id: memberId,
+              name: displayName,
+              initials,
+              role: workspaceMember?.role ?? mockPerson?.role ?? "Membre",
+              status: resolveChatPresenceStatus(memberId, workspaceMembersById, peopleById),
+            };
+          })
+        : [],
+    [conversation, peopleById, workspaceMembersById]
+  );
   const otherMembers = members.filter((member) => member.id !== currentUser.id);
   const conversationIdentity = React.useMemo(
     () => ({
       name: conversation?.type === "dm" ? otherMembers[0]?.name ?? conversation.name : conversation?.name ?? "",
       initials: conversation?.type === "dm" ? otherMembers[0]?.initials ?? conversation.initials : conversation?.initials ?? "",
-      subtitle: conversation?.type === "dm" ? otherMembers[0]?.role ?? conversation.subtitle : conversation?.subtitle ?? "",
+      subtitle:
+        conversation?.type === "dm"
+          ? [otherMembers[0]?.role ?? conversation.subtitle, otherMembers[0]?.status ? formatPresenceLabel(otherMembers[0].status) : null]
+              .filter(Boolean)
+              .join(" · ")
+          : conversation?.subtitle ?? "",
       status: conversation?.type === "dm" ? otherMembers[0]?.status ?? conversation.status : conversation?.status ?? "offline",
     }),
     [conversation, otherMembers]
@@ -204,6 +395,7 @@ export default function ChatPage() {
       // 4. Broadcast notification for the callee via realtime WebSocket
       getSharedRealtimeClient().send({
         type: "call_invitation",
+        workspaceId: activeWorkspaceId,
         conversationId: conversation.id,
         data: {
           id: result.invitation.id,
@@ -287,6 +479,73 @@ export default function ChatPage() {
   }, [activeWorkspaceId, apiUser, loadChatData]);
 
   React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      setWorkspaceMembers([]);
+      return;
+    }
+
+    const workspaceId = activeWorkspaceId;
+    let cancelled = false;
+
+    void loadWorkspaceMembers(workspaceId).then((items) => {
+      if (!cancelled) {
+        setWorkspaceMembers(items);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, loadWorkspaceMembers]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    const refreshMembers = () => {
+      void loadWorkspaceMembers(activeWorkspaceId).then((items) => {
+        setWorkspaceMembers(items);
+      });
+    };
+
+    const interval = window.setInterval(refreshMembers, 15000);
+    const handleFocus = () => refreshMembers();
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [activeWorkspaceId, loadWorkspaceMembers]);
+
+  React.useEffect(() => {
+    if (!activeWorkspaceId || !lastRealtimeEvent?.workspaceId) {
+      return;
+    }
+
+    if (lastRealtimeEvent.workspaceId !== activeWorkspaceId) {
+      return;
+    }
+
+    const type = lastRealtimeEvent.type.toLowerCase();
+    const shouldRefreshWorkspaceMembers =
+      type.startsWith("member.") ||
+      type.startsWith("membership.") ||
+      type.startsWith("user.") ||
+      type.startsWith("presence.");
+
+    if (!shouldRefreshWorkspaceMembers) {
+      return;
+    }
+
+    void loadWorkspaceMembers(activeWorkspaceId).then((items) => {
+      setWorkspaceMembers(items);
+    });
+  }, [activeWorkspaceId, lastRealtimeEvent, loadWorkspaceMembers]);
+
+  React.useEffect(() => {
     if (!activeWorkspaceId || !apiUser || !conversation?.id) {
       return;
     }
@@ -354,33 +613,34 @@ export default function ChatPage() {
         return;
       }
 
-      const person = peopleById.get(event.actorId);
-      if (!person) return;
+      const participant = resolveTypingParticipant(event.actorId, workspaceMembersById, peopleById);
+      if (!participant) return;
 
       if (event.type === "typing.started") {
-        setTypingUsers((prev) => {
-          if (prev.includes(person.name)) return prev;
-          const next = [...prev, person.name];
-
-          const existingTimeout = typingTimeoutsRef.current.get(person.name);
+        setTypingParticipants((prev) => {
+          const existingTimeout = typingTimeoutsRef.current.get(participant.id);
           if (existingTimeout !== undefined) {
             window.clearTimeout(existingTimeout);
           }
 
           const timeout = window.setTimeout(() => {
-            setTypingUsers((p) => p.filter((n) => n !== person.name));
-            typingTimeoutsRef.current.delete(person.name);
+            setTypingParticipants((items) => items.filter((item) => item.id !== participant.id));
+            typingTimeoutsRef.current.delete(participant.id);
           }, 5000);
-          typingTimeoutsRef.current.set(person.name, timeout);
+          typingTimeoutsRef.current.set(participant.id, timeout);
 
-          return next;
+          if (prev.some((item) => item.id === participant.id)) {
+            return prev.map((item) => (item.id === participant.id ? participant : item));
+          }
+
+          return [...prev, participant];
         });
       } else {
-        setTypingUsers((prev) => prev.filter((n) => n !== person.name));
-        const existingTimeout = typingTimeoutsRef.current.get(person.name);
+        setTypingParticipants((prev) => prev.filter((item) => item.id !== participant.id));
+        const existingTimeout = typingTimeoutsRef.current.get(participant.id);
         if (existingTimeout !== undefined) {
           window.clearTimeout(existingTimeout);
-          typingTimeoutsRef.current.delete(person.name);
+          typingTimeoutsRef.current.delete(participant.id);
         }
       }
     });
@@ -389,15 +649,16 @@ export default function ChatPage() {
       subscription.unsubscribe();
       typingTimeoutsRef.current.forEach((t) => window.clearTimeout(t));
       typingTimeoutsRef.current.clear();
-      setTypingUsers([]);
+      setTypingParticipants([]);
     };
-  }, [activeConversationId, currentUser.id, peopleById]);
+  }, [activeConversationId, currentUser.id, peopleById, workspaceMembersById]);
 
   function handleOwnTyping(isTyping: boolean) {
-    if (!activeConversationId) return;
+    if (!activeConversationId || !activeWorkspaceId) return;
     const realtime = getSharedRealtimeClient();
     realtime.send({
       type: isTyping ? "typing.started" : "typing.stopped",
+      workspaceId: activeWorkspaceId,
       conversationId: activeConversationId,
     });
   }
@@ -533,14 +794,20 @@ export default function ChatPage() {
             <div ref={scrollAreaRef} className="min-h-0 flex-1">
               <ScrollArea key={activeConversationId} className="h-full bg-[#232426]">
                 <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="h-px flex-1 bg-white/10" />
-                    {conversationMessages.length > 0 ? "Aujourd’hui" : "Aucun message"}
-                    <span className="h-px flex-1 bg-white/10" />
-                  </div>
-                  {conversationMessages.map((message) => {
+                  {datedConversationItems.length > 0 ? datedConversationItems.map((item) => {
+                    if (item.type === "separator") {
+                      return (
+                        <div key={item.key} className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span className="h-px flex-1 bg-white/10" />
+                          {item.label}
+                          <span className="h-px flex-1 bg-white/10" />
+                        </div>
+                      );
+                    }
+
+                    const message = item.message!;
                     const isOwnMessage = message.authorId === currentUser.id;
-                    const author = peopleById.get(message.authorId);
+                    const authorStatus = resolveChatPresenceStatus(message.authorId, workspaceMembersById, peopleById);
                     const isEditing = editingMessageId === message.id;
                     const isMenuOpen = openMenuMessageId === message.id;
 
@@ -552,7 +819,7 @@ export default function ChatPage() {
                         {!isOwnMessage && (
                           <PresenceAvatar
                             initials={message.initials}
-                            status={author?.status ?? "offline"}
+                            status={authorStatus}
                             className="size-9"
                           />
                         )}
@@ -654,7 +921,7 @@ export default function ChatPage() {
                           ) : (
                             <div
                               className={cn(
-                                "mt-1 rounded-2xl px-4 py-3",
+                                "mt-1 w-fit max-w-full rounded-2xl px-4 py-3 wrap-break-words",
                                 isOwnMessage
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-[#2b2d31] text-foreground/90"
@@ -713,7 +980,13 @@ export default function ChatPage() {
                         </div>
                       </article>
                     );
-                  })}
+                  }) : (
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="h-px flex-1 bg-white/10" />
+                      Aucun message
+                      <span className="h-px flex-1 bg-white/10" />
+                    </div>
+                  )}
                   {activeConversationId === "product" && (
                     <div className="rounded-md border border-primary/20 bg-primary/8 p-4">
                       <div className="flex items-center gap-3">
@@ -734,6 +1007,36 @@ export default function ChatPage() {
                       </div>
                     </div>
                   )}
+                  {typingParticipants.length > 0 && (
+                    <article className="flex gap-3">
+                      <PresenceAvatar
+                        initials={typingParticipants[0]?.initials ?? "??"}
+                        status={typingParticipants[0]?.status ?? "offline"}
+                        className="size-9"
+                      />
+                      <div className="min-w-0 max-w-[min(100%,42rem)]">
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm font-semibold">
+                            {typingParticipants.length === 1
+                              ? typingParticipants[0]?.name
+                              : `${typingParticipants[0]?.name} + ${typingParticipants.length - 1}`}
+                          </h2>
+                          <span className="text-xs text-zinc-400">
+                            {typingParticipants.length > 1 ? "écrivent…" : "est en train d’écrire…"}
+                          </span>
+                        </div>
+                        <div className="mt-1 inline-flex items-center gap-1 rounded-2xl bg-[#2b2d31] px-4 py-3 text-foreground/90">
+                          {[0, 1, 2].map((index) => (
+                            <span
+                              key={index}
+                              className="size-2 rounded-full bg-zinc-400/90 animate-pulse"
+                              style={{ animationDelay: `${index * 180}ms`, animationDuration: "1.1s" }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  )}
                   <div ref={messagesEndRef} aria-hidden="true" />
                 </div>
               </ScrollArea>
@@ -741,12 +1044,6 @@ export default function ChatPage() {
 
             <div className="shrink-0 bg-[#232426] px-4 pb-5 pt-3 lg:px-8">
               <div className="mx-auto max-w-4xl">
-                {typingUsers.length > 0 && (
-                  <p className="mb-1.5 text-xs text-zinc-400">
-                    {typingUsers.join(" et ")}{" "}
-                    {typingUsers.length > 1 ? "écrivent" : "est en train d'écrire"}…
-                  </p>
-                )}
                 <MessageComposer
                   ref={composerRef}
                   placeholder={`Écrire un message à ${conversationIdentity.name}`}
@@ -861,7 +1158,7 @@ export default function ChatPage() {
             </p>
             <p className="mt-1 text-xs text-zinc-400">
               {conversation?.type === "dm"
-                ? `${otherMembers[0]?.role ?? "Contact"} · ${otherMembers[0]?.status ?? "offline"}`
+                ? `${otherMembers[0]?.role ?? "Contact"} · ${formatPresenceLabel(otherMembers[0]?.status ?? "offline")}`
                 : `${members.length} participants disponibles dans cette conversation`}
             </p>
             {conversation?.type === "channel" && (
@@ -939,7 +1236,7 @@ export default function ChatPage() {
                           </p>
                           <p className="truncate text-xs text-zinc-400">{member.role}</p>
                         </div>
-                        <span className="text-xs capitalize text-zinc-500">{member.status}</span>
+                        <span className="text-xs text-zinc-500">{formatPresenceLabel(member.status)}</span>
                       </div>
                     ))}
                   </div>

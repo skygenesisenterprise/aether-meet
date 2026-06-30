@@ -1,22 +1,15 @@
 import * as React from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { presenceStatusClasses, type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
-import type { Person } from "@/lib/platform-data";
 
 interface PresenceAvatarProps {
   initials: string;
-  status?: Person["status"];
+  status?: PresenceStatus;
   className?: string;
   fallbackClassName?: string;
 }
-
-const statusClasses: Record<NonNullable<PresenceAvatarProps["status"]>, string> = {
-  online: "bg-emerald-400",
-  busy: "bg-rose-500",
-  away: "bg-amber-400",
-  offline: "bg-muted-foreground",
-};
 
 export function PresenceAvatar({
   initials,
@@ -39,7 +32,7 @@ export function PresenceAvatar({
       <span
         className={cn(
           "absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-background",
-          statusClasses[status]
+          presenceStatusClasses[status]
         )}
         aria-label={`Statut ${status}`}
       />

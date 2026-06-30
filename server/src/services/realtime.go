@@ -216,10 +216,6 @@ func (h *Hub) Handle(c *gin.Context, principal interfaces.Principal) {
 		workspaces:    map[string]struct{}{},
 		conversations: map[string]struct{}{},
 	}
-	if principal.WorkspaceID != "" {
-		cl.workspaces[principal.WorkspaceID] = struct{}{}
-		_ = h.presence.Set(c.Request.Context(), principal.WorkspaceID, principal.UserID, "online", 1)
-	}
 	h.mu.Lock()
 	h.clients[cl] = struct{}{}
 	h.mu.Unlock()
@@ -231,8 +227,8 @@ func (h *Hub) Handle(c *gin.Context, principal interfaces.Principal) {
 func (h *Hub) readLoop(ctx context.Context, cl *client) {
 	defer func() {
 		h.removeClient(cl)
-		if cl.principal.WorkspaceID != "" {
-			_ = h.presence.Set(ctx, cl.principal.WorkspaceID, cl.principal.UserID, "offline", 0)
+		for workspaceID := range cl.workspaces {
+			_ = h.presence.SetSessionState(ctx, workspaceID, cl.principal.UserID, false, 0)
 		}
 	}()
 	_ = cl.conn.SetReadDeadline(time.Now().Add(h.timeout))
@@ -249,6 +245,7 @@ func (h *Hub) readLoop(ctx context.Context, cl *client) {
 			if cmd.WorkspaceID != "" {
 				if _, err := h.workspaceService.AuthorizeWorkspace(ctx, cl.principal, cmd.WorkspaceID); err == nil {
 					cl.workspaces[cmd.WorkspaceID] = struct{}{}
+					_ = h.presence.SetSessionState(ctx, cmd.WorkspaceID, cl.principal.UserID, true, 1)
 				}
 			}
 			if cmd.ConversationID != "" {
@@ -257,27 +254,33 @@ func (h *Hub) readLoop(ctx context.Context, cl *client) {
 				}
 			}
 		case "typing.started", "typing.stopped":
-			if cmd.ConversationID == "" || cl.principal.WorkspaceID == "" {
+			if cmd.ConversationID == "" || cmd.WorkspaceID == "" {
+				continue
+			}
+			if _, ok := cl.workspaces[cmd.WorkspaceID]; !ok {
 				continue
 			}
 			_ = h.bus.Publish(ctx, interfaces.Event{
 				ID:             utils.NewID(),
-				Topic:          "workspace." + cl.principal.WorkspaceID,
+				Topic:          "workspace." + cmd.WorkspaceID,
 				Type:           cmd.Type,
-				WorkspaceID:    cl.principal.WorkspaceID,
+				WorkspaceID:    cmd.WorkspaceID,
 				ConversationID: cmd.ConversationID,
 				ActorID:        cl.principal.UserID,
 				Timestamp:      time.Now().UTC().Format(time.RFC3339),
 			})
 		case "call_invitation":
-			if cmd.ConversationID == "" || cl.principal.WorkspaceID == "" {
+			if cmd.ConversationID == "" || cmd.WorkspaceID == "" {
+				continue
+			}
+			if _, ok := cl.workspaces[cmd.WorkspaceID]; !ok {
 				continue
 			}
 			_ = h.bus.Publish(ctx, interfaces.Event{
 				ID:             utils.NewID(),
-				Topic:          "workspace." + cl.principal.WorkspaceID,
+				Topic:          "workspace." + cmd.WorkspaceID,
 				Type:           cmd.Type,
-				WorkspaceID:    cl.principal.WorkspaceID,
+				WorkspaceID:    cmd.WorkspaceID,
 				ConversationID: cmd.ConversationID,
 				ActorID:        cl.principal.UserID,
 				Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -302,6 +305,9 @@ func (h *Hub) writeLoop(cl *client) {
 				return
 			}
 		case <-ticker.C:
+			for workspaceID := range cl.workspaces {
+				_ = h.presence.SetSessionState(context.Background(), workspaceID, cl.principal.UserID, true, 1)
+			}
 			_ = cl.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := cl.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				h.removeClient(cl)

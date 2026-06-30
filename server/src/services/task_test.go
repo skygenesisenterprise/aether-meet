@@ -78,7 +78,7 @@ func TestTaskServiceCreate(t *testing.T) {
 	}
 
 	repos := NewRepositories(db)
-	workspaceService := NewWorkspaceService(taskTestDatabase{db: db}, config.AuthConfig{}, repos.Users(), repos, nil, nil)
+	workspaceService := NewWorkspaceService(taskTestDatabase{db: db}, config.AuthConfig{}, repos.Users(), repos, nil, nil, nil)
 	service := NewTaskService(repos.Tasks(), repos.Users(), workspaceService)
 
 	item, err := service.Create(

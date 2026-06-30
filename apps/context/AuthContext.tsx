@@ -12,6 +12,7 @@ type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 interface AuthContextValue {
   user: User | null;
   accessToken: string | null;
+  hasActiveSession: boolean;
   status: AuthStatus;
   isAuthenticated: boolean;
   isLoading: boolean;
@@ -112,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       accessToken,
+      hasActiveSession: Boolean(accessToken),
       status,
       isAuthenticated: status === "authenticated",
       isLoading: status === "loading",
