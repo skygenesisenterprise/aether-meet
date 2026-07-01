@@ -3,10 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AppWindow, MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { platformNavItems } from "@/lib/platform-data";
+import { defaultAetherMeetApplicationLinks, type ApplicationSidebarLink } from "@/lib/applications";
 import { useChatStore } from "@/lib/chat-store";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -23,11 +23,12 @@ function DesktopNavLink({
 }: {
   href: string;
   label: string;
-  icon: (typeof platformNavItems)[number]["icon"];
+  icon: ApplicationSidebarLink["icon"];
   badge?: number;
   pathname: string;
+  source?: ApplicationSidebarLink["source"];
 }) {
-  const active = isActiveRoute(pathname, href);
+  const active = !href.includes("#") && isActiveRoute(pathname, href);
 
   return (
     <Tooltip>
@@ -73,15 +74,16 @@ export function AdminSidebar() {
   }, [conversations, customConversations]);
   const navItems = React.useMemo(
     () =>
-      platformNavItems.map((item) =>
+      defaultAetherMeetApplicationLinks.map((item) =>
         item.href === "/chat" ? { ...item, badge: chatUnreadCount || undefined } : item
       ),
     [chatUnreadCount]
   );
   const settingsItem = navItems.find((item) => item.href === "/settings");
-  const mainItems = navItems.filter((item) => item.href !== "/settings");
+  const applicationsItem = navItems.find((item) => item.href === "/applications");
+  const mainItems = navItems.filter((item) => !["/settings", "/applications"].includes(item.href));
   const mobileItems = navItems.filter((item) =>
-    ["/home", "/chat", "/tasks", "/calendar", "/drive", "/settings"].includes(item.href)
+    ["/notifications", "/chat", "/tasks", "/calendar", "/drive", "/settings"].includes(item.href)
   );
 
   return (
@@ -104,16 +106,7 @@ export function AdminSidebar() {
 
           {settingsItem ? <DesktopNavLink {...settingsItem} pathname={pathname} /> : null}
 
-          <button
-            type="button"
-            className="flex h-13 w-full flex-col items-center justify-center gap-1 text-[#b6b7ba] transition-colors hover:bg-white/4 hover:text-white"
-            aria-label="Applications"
-          >
-            <span className="flex size-7 items-center justify-center rounded-[5px] border border-current">
-              <AppWindow className="size-4.25" strokeWidth={1.7} />
-            </span>
-            <span className="text-[9px] leading-3">Applications</span>
-          </button>
+          {applicationsItem ? <DesktopNavLink {...applicationsItem} pathname={pathname} /> : null}
         </div>
       </aside>
 

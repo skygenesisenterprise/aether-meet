@@ -96,9 +96,7 @@ export const platformNavItems: PlatformNavItem[] = [
   { label: "Calendrier", href: "/calendar", icon: CalendarDays },
   { label: "Appels", href: "/calls", icon: Phone, badge: 2 },
   { label: "Drive", href: "/drive", icon: Cloud },
-  { label: "Documents", href: "/documents", icon: FileText },
   { label: "Contacts", href: "/contacts", icon: ContactRound },
-  { label: "Ressources", href: "/resources", icon: BookOpenText },
   { label: "Réglages", href: "/settings", icon: Settings2 },
 ];
 

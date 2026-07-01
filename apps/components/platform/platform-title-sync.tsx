@@ -14,6 +14,7 @@ const PLATFORM_TITLES: Record<string, string> = {
   "/drive": "Drive",
   "/documents": "Documents",
   "/contacts": "Contacts",
+  "/applications": "Applications",
   "/resources": "Ressources",
   "/settings": "Réglages",
 };

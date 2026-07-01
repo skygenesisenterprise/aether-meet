@@ -5,14 +5,18 @@ import { motion } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Check,
+  CircleOff,
   ChevronDown,
   ChevronRight,
+  Clock3,
   ExternalLink,
   HelpCircle,
   Keyboard,
   MapPinPlus,
   MessageSquareMore,
+  Minus,
   MoreHorizontal,
+  RotateCcw,
   Settings,
   Signature,
   Smartphone,
@@ -27,13 +31,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { updateMe } from "@/lib/api/me";
@@ -52,11 +52,60 @@ interface HeaderSearchItem {
   keywords: string[];
 }
 
-const PRESENCE_OPTIONS: Array<{ value: PresenceStatus; label: string }> = [
-  { value: "online", label: "Connecté" },
-  { value: "busy", label: "Occupé" },
-  { value: "away", label: "Absent" },
-  { value: "offline", label: "Hors ligne" },
+interface PresenceOption {
+  value: PresenceStatus;
+  label: string;
+}
+
+interface PresencePreviewItem {
+  id: string;
+  label: string;
+  tone: "online" | "busy" | "away" | "offline";
+  icon: "check" | "busy" | "brb" | "away" | "offline";
+  value?: PresenceStatus;
+}
+
+interface WorkLocationOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
+interface StatusMessageOption {
+  id: string;
+  label: string;
+}
+
+const PRESENCE_OPTIONS: PresenceOption[] = [
+  { value: "online", label: "Disponible" },
+  { value: "busy", label: "Occupé(e)" },
+  { value: "away", label: "Apparaître absent" },
+  { value: "offline", label: "Apparaître hors ligne" },
+];
+
+const PRESENCE_MENU_ITEMS: PresencePreviewItem[] = [
+  { id: "online", label: "Disponible", tone: "online", icon: "check", value: "online" },
+  { id: "busy", label: "Occupé(e)", tone: "busy", icon: "busy", value: "busy" },
+  { id: "dnd", label: "Ne pas déranger", tone: "busy", icon: "busy" },
+  { id: "brb", label: "De retour bientôt", tone: "away", icon: "brb" },
+  { id: "away", label: "Apparaître absent", tone: "away", icon: "away", value: "away" },
+  { id: "offline", label: "Apparaître hors ligne", tone: "offline", icon: "offline", value: "offline" },
+];
+
+const WORK_LOCATION_OPTIONS: WorkLocationOption[] = [
+  { id: "office", label: "Au bureau", description: "Présence sur site aujourd'hui" },
+  { id: "home", label: "En télétravail", description: "Travail à distance" },
+  { id: "travel", label: "En déplacement", description: "Rendez-vous ou visite externe" },
+  { id: "client", label: "Chez un client", description: "Intervention ou réunion" },
+];
+
+const STATUS_MESSAGE_OPTIONS: StatusMessageOption[] = [
+  { id: "focus", label: "En focus, réponses différées" },
+  { id: "meeting", label: "En réunion" },
+  { id: "call", label: "En appel" },
+  { id: "back-soon", label: "De retour bientôt" },
+  { id: "available", label: "Disponible pour échanger" },
+  { id: "clear", label: "Aucun message de statut" },
 ];
 
 function getInitials(name?: string) {
@@ -70,6 +119,41 @@ function getInitials(name?: string) {
     .slice(0, 2);
 }
 
+function PresenceGlyph({ icon, tone }: Pick<PresencePreviewItem, "icon" | "tone">) {
+  const toneClasses: Record<PresencePreviewItem["tone"], string> = {
+    online: "bg-[#4cd137] text-[#143800]",
+    busy: "bg-[#eb4d4b] text-white",
+    away: "bg-[#ffb900] text-[#2d2200]",
+    offline: "bg-[#595959] text-[#dadada]",
+  };
+
+  if (icon === "offline") {
+    return (
+      <span className={cn("flex size-4 items-center justify-center rounded-full", toneClasses[tone])}>
+        <CircleOff className="size-3" strokeWidth={2.4} />
+      </span>
+    );
+  }
+
+  if (icon === "busy") {
+    return <span className={cn("size-4 rounded-full", toneClasses[tone])} aria-hidden="true" />;
+  }
+
+  if (icon === "brb" || icon === "away") {
+    return (
+      <span className={cn("flex size-4 items-center justify-center rounded-full", toneClasses[tone])}>
+        <Minus className="size-3.5" strokeWidth={2.8} />
+      </span>
+    );
+  }
+
+  return (
+    <span className={cn("flex size-4 items-center justify-center rounded-full", toneClasses[tone])}>
+      <Check className="size-3" strokeWidth={3} />
+    </span>
+  );
+}
+
 export function AdminHeader({ className }: AdminHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -79,6 +163,8 @@ export function AdminHeader({ className }: AdminHeaderProps) {
   const [profileMenuOpen, setProfileMenuOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [searchOpen, setSearchOpen] = React.useState(false);
+  const [workLocation, setWorkLocation] = React.useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const searchContainerRef = React.useRef<HTMLDivElement | null>(null);
   const resolvedUser = currentUser ?? user;
@@ -91,7 +177,10 @@ export function AdminHeader({ className }: AdminHeaderProps) {
       "offline"
     : "offline";
   const manualPresenceStatus = normalizePresenceStatus(resolvedUser?.status ?? resolvedUser?.presenceStatus) ?? "offline";
-  const currentPresenceLabel = PRESENCE_OPTIONS.find((option) => option.value === manualPresenceStatus)?.label ?? "Inconnu";
+  const effectivePresenceStatus = presenceStatus ?? manualPresenceStatus;
+  const currentPresenceLabel = PRESENCE_OPTIONS.find((option) => option.value === effectivePresenceStatus)?.label ?? "Inconnu";
+  const currentWorkLocation = WORK_LOCATION_OPTIONS.find((option) => option.id === workLocation);
+  const currentStatusMessage = statusMessage ?? null;
   const searchItems = React.useMemo<HeaderSearchItem[]>(
     () => [
       {
@@ -225,6 +314,28 @@ export function AdminHeader({ className }: AdminHeaderProps) {
     }
   }
 
+  function handlePresencePreviewAction(item: PresencePreviewItem) {
+    if (item.value) {
+      void handlePresenceChange(item.value);
+      return;
+    }
+
+    toast.info("Ce statut n'est pas encore pris en charge.");
+  }
+
+  function handleWorkLocationSelect(option: WorkLocationOption) {
+    setWorkLocation(option.id);
+    toast.success(`Lieu de travail défini: ${option.label}`);
+  }
+
+  function handleStatusMessageSelect(option: StatusMessageOption) {
+    const nextValue = option.id === "clear" ? null : option.label;
+    setStatusMessage(nextValue);
+    toast.success(
+      nextValue ? `Message de statut défini: ${nextValue}` : "Message de statut supprimé."
+    );
+  }
+
   return (
     <header
       className={cn(
@@ -343,7 +454,7 @@ export function AdminHeader({ className }: AdminHeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="h-9 gap-1 rounded-md px-1 text-zinc-300 hover:bg-white/6 hover:text-white"
+              className="h-9 gap-1 rounded-md border-0 px-1 text-zinc-300 shadow-none ring-0 hover:bg-white/6 hover:text-white focus-visible:border-transparent focus-visible:ring-0"
               aria-label="Ouvrir le menu du compte"
             >
               <span className="relative">
@@ -412,64 +523,190 @@ export function AdminHeader({ className }: AdminHeaderProps) {
                         <p className="truncate text-[13px] leading-5 text-zinc-100">
                           {resolvedUser?.email || "connecte a Aether Identity"}
                         </p>
-                        <button
-                          type="button"
+                        <a
+                          href="https://account.skygenesisenterprise.com/"
+                          target="_blank"
+                          rel="noreferrer"
                           className="mt-0.5 inline-flex items-center gap-1 text-[13px] text-zinc-300 transition-colors hover:text-white"
                         >
                           Afficher le compte
                           <ExternalLink className="size-3" />
-                        </button>
+                        </a>
 
                         <div className="mt-3 min-w-0 space-y-0.5">
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger
-                              disabled={!resolvedUser || isUpdatingStatus}
-                              className="rounded-none px-0 py-2 text-[15px] font-normal hover:bg-transparent focus:bg-transparent data-[state=open]:bg-transparent"
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                disabled={!resolvedUser || isUpdatingStatus}
+                                className="flex w-full items-center gap-2 rounded-none px-0 py-2 text-left text-[15px] font-normal text-zinc-100 transition-colors hover:text-white focus:outline-hidden disabled:pointer-events-none disabled:opacity-50"
+                              >
+                                <PresenceGlyph
+                                  icon={
+                                    effectivePresenceStatus === "online"
+                                      ? "check"
+                                      : effectivePresenceStatus === "busy"
+                                        ? "busy"
+                                        : effectivePresenceStatus === "away"
+                                          ? "away"
+                                          : "offline"
+                                  }
+                                  tone={effectivePresenceStatus}
+                                />
+                                <span>{currentPresenceLabel}</span>
+                                <span className="sr-only">
+                                  {isUpdatingStatus ? "Mise a jour..." : currentPresenceLabel}
+                                </span>
+                                <ChevronRight className="ml-auto size-4 text-zinc-500" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="start"
+                              side="bottom"
+                              sideOffset={6}
+                              className="w-57.5 rounded-md border-[#3a3a3a] bg-[#2d2d2d] p-0 text-zinc-100 shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
                             >
-                              <span className="flex size-4 items-center justify-center rounded-full bg-[#4ccf48] text-black">
-                                <Check className="size-3" strokeWidth={3} />
-                              </span>
-                              {currentPresenceLabel}
-                              <span className="sr-only">
-                                {isUpdatingStatus ? "Mise a jour..." : currentPresenceLabel}
-                              </span>
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="w-48 border-white/10 bg-[#2d2d2d] text-zinc-100">
-                              <DropdownMenuLabel className="text-xs font-normal text-zinc-400">
-                                Choisir un statut
-                              </DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuRadioGroup value={manualPresenceStatus} onValueChange={(value) => void handlePresenceChange(value)}>
-                                {PRESENCE_OPTIONS.map((option) => (
-                                  <DropdownMenuRadioItem key={option.value} value={option.value} disabled={isUpdatingStatus}>
-                                    <span
-                                      className={cn("size-2 rounded-full", presenceStatusClasses[option.value])}
-                                      aria-hidden="true"
-                                    />
-                                    {option.label}
-                                  </DropdownMenuRadioItem>
-                                ))}
+                              <DropdownMenuRadioGroup value={effectivePresenceStatus} onValueChange={(value) => void handlePresenceChange(value)}>
+                                <div className="p-2">
+                                  {PRESENCE_MENU_ITEMS.map((item) =>
+                                    item.value ? (
+                                      <DropdownMenuRadioItem
+                                        key={item.id}
+                                        value={item.value}
+                                        disabled={isUpdatingStatus}
+                                        className="min-h-10 rounded-md px-5 py-2.5 text-[15px] text-zinc-100 focus:bg-[#3a3a3a] focus:text-white data-[state=checked]:bg-transparent"
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <PresenceGlyph icon={item.icon} tone={item.tone} />
+                                          <span>{item.label}</span>
+                                        </div>
+                                      </DropdownMenuRadioItem>
+                                    ) : (
+                                      <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => handlePresencePreviewAction(item)}
+                                        className="flex min-h-10 w-full items-center gap-3 rounded-md px-5 py-2.5 text-left text-[15px] text-zinc-100 transition-colors hover:bg-[#3a3a3a] focus:bg-[#3a3a3a] focus:outline-hidden"
+                                      >
+                                        <PresenceGlyph icon={item.icon} tone={item.tone} />
+                                        <span>{item.label}</span>
+                                      </button>
+                                    )
+                                  )}
+                                </div>
                               </DropdownMenuRadioGroup>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
+                              <DropdownMenuSeparator className="mx-0 my-0 bg-[#4a4a4a]" />
+                              <DropdownMenuItem
+                                className="min-h-11 rounded-none px-5 py-3 text-[15px] text-zinc-100 focus:bg-[#3a3a3a] focus:text-white"
+                                onSelect={() => toast.info("La durée du statut n'est pas encore configurable.")}
+                              >
+                                <Clock3 className="size-4 text-zinc-300" />
+                                <span className="flex-1">Durée</span>
+                                <ChevronRight className="size-4 text-zinc-500" />
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator className="mx-0 my-0 bg-[#4a4a4a]" />
+                              <DropdownMenuItem
+                                className="min-h-11 rounded-none px-5 py-3 text-[15px] text-zinc-100 focus:bg-[#3a3a3a] focus:text-white"
+                                onSelect={() => void handlePresenceChange("online")}
+                              >
+                                <RotateCcw className="size-4 text-zinc-300" />
+                                <span>Réinitialiser le statut</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator className="mx-0 my-0 bg-[#4a4a4a]" />
+                              <DropdownMenuItem
+                                className="min-h-11 rounded-none px-5 py-3 text-[15px] text-zinc-100 focus:bg-[#3a3a3a] focus:text-white"
+                                onSelect={() => router.push("/settings")}
+                              >
+                                <Settings className="size-4 text-zinc-300" />
+                                <span>Gérer le statut de présence</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
 
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-3 px-0 py-2 text-left text-[15px] text-zinc-200 transition-colors hover:text-white"
-                          >
-                            <MapPinPlus className="size-4 shrink-0 text-zinc-300" />
-                            <span className="flex-1">Definir un lieu de travail</span>
-                            <ChevronRight className="size-4 text-zinc-500" />
-                          </button>
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-3 px-0 py-2 text-left text-[15px] text-zinc-200 transition-colors hover:text-white focus:outline-hidden"
+                              >
+                                <MapPinPlus className="size-4 shrink-0 text-zinc-300" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block">Definir un lieu de travail</span>
+                                  {currentWorkLocation ? (
+                                    <span className="block truncate text-[12px] text-zinc-400">
+                                      {currentWorkLocation.label}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <ChevronRight className="size-4 text-zinc-500" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="start"
+                              side="bottom"
+                              sideOffset={6}
+                              className="w-64 rounded-md border-[#3a3a3a] bg-[#2d2d2d] p-2 text-zinc-100 shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
+                            >
+                              {WORK_LOCATION_OPTIONS.map((option) => (
+                                <DropdownMenuItem
+                                  key={option.id}
+                                  className="min-h-11 rounded-md px-3 py-2 text-zinc-100 focus:bg-[#3a3a3a] focus:text-white"
+                                  onSelect={() => handleWorkLocationSelect(option)}
+                                >
+                                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                                    <MapPinPlus className="mt-0.5 size-4 shrink-0 text-zinc-300" />
+                                    <span className="min-w-0">
+                                      <span className="block text-[14px]">{option.label}</span>
+                                      <span className="block text-[12px] text-zinc-400">{option.description}</span>
+                                    </span>
+                                  </div>
+                                  {currentWorkLocation?.id === option.id ? <Check className="ml-auto size-4 text-zinc-200" /> : null}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
 
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-3 px-0 py-2 text-left text-[15px] text-zinc-200 transition-colors hover:text-white"
-                          >
-                            <Signature className="size-4 shrink-0 text-zinc-300" />
-                            <span className="flex-1">Definir le message de statut</span>
-                            <ChevronRight className="size-4 text-zinc-500" />
-                          </button>
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-3 px-0 py-2 text-left text-[15px] text-zinc-200 transition-colors hover:text-white focus:outline-hidden"
+                              >
+                                <Signature className="size-4 shrink-0 text-zinc-300" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block">Definir le message de statut</span>
+                                  {currentStatusMessage ? (
+                                    <span className="block truncate text-[12px] text-zinc-400">
+                                      {currentStatusMessage}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <ChevronRight className="size-4 text-zinc-500" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="start"
+                              side="bottom"
+                              sideOffset={6}
+                              className="w-72 rounded-md border-[#3a3a3a] bg-[#2d2d2d] p-2 text-zinc-100 shadow-[0_16px_40px_rgba(0,0,0,0.45)]"
+                            >
+                              {STATUS_MESSAGE_OPTIONS.map((option) => (
+                                <DropdownMenuItem
+                                  key={option.id}
+                                  className="min-h-11 rounded-md px-3 py-2 text-zinc-100 focus:bg-[#3a3a3a] focus:text-white"
+                                  onSelect={() => handleStatusMessageSelect(option)}
+                                >
+                                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                                    <Signature className="size-4 shrink-0 text-zinc-300" />
+                                    <span className="truncate text-[14px]">{option.label}</span>
+                                  </div>
+                                  {(option.id === "clear" && !currentStatusMessage) || option.label === currentStatusMessage ? (
+                                    <Check className="ml-auto size-4 text-zinc-200" />
+                                  ) : null}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
                     </div>

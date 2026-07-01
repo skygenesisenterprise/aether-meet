@@ -34,9 +34,6 @@ const PROTECTED_PATHS = ["/dashboard", "/user"];
 const REFRESH_COOKIE_NAME = process.env.AUTH_REFRESH_COOKIE_NAME ?? "aether_meet_refresh";
 const PLATFORM_PATHS = [
   "/contacts",
-  "/dashboard",
-  "/documents",
-  "/home",
   "/projects",
   "/resources",
   "/tasks",
@@ -47,6 +44,7 @@ const PLATFORM_PATHS = [
   "/notifications",
   "/settings",
   "/teams",
+  "/applications",
 ];
 const NO_LOCALE_PATHS = ["/pgp", "/discord", "/dashboard", "/user", ...PLATFORM_PATHS];
 
