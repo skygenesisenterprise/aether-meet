@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AtSign, FileText, ImagePlus, Paperclip, Send, Smile, Sparkles, X } from "lucide-react";
+import { AtSign, FileText, ImagePlus, Paperclip, Plus, Send, Smile, Sparkles, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -162,10 +162,12 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
     submitMessage();
   }
 
+  const isSendDisabled = !message.trim() && attachments.length === 0;
+
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-md border border-zinc-600/80 bg-[#292a2c] p-2 shadow-sm shadow-black/10"
+      className="rounded-md border border-zinc-600/80 bg-[#2a2a2b] px-3 py-2 shadow-sm shadow-black/10"
     >
       <input
         ref={fileInputRef}
@@ -184,7 +186,7 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
       />
 
       {attachments.length > 0 ? (
-        <div className="mb-2 flex flex-wrap gap-2 px-2 pt-1">
+        <div className="mb-2 flex flex-wrap gap-2 pt-1">
           {attachments.map((attachment) => (
             <span
               key={attachment.id}
@@ -208,32 +210,33 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
       <label htmlFor="message" className="sr-only">
         Écrire un message
       </label>
-      <textarea
-        ref={textareaRef}
-        id="message"
-        value={message}
-        onChange={(event) => {
-          setMessage(event.target.value);
-          handleTyping();
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" || event.shiftKey) return;
-          event.preventDefault();
-          submitMessage();
-        }}
-        placeholder={placeholder}
-        rows={2}
-        className="max-h-40 min-h-14 w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center">
+      <div className="flex items-end gap-2">
+        <textarea
+          ref={textareaRef}
+          id="message"
+          value={message}
+          onChange={(event) => {
+            setMessage(event.target.value);
+            handleTyping();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.shiftKey) return;
+            event.preventDefault();
+            submitMessage();
+          }}
+          placeholder={placeholder}
+          rows={1}
+          className="max-h-32 min-h-8 flex-1 resize-none bg-transparent py-1 text-sm outline-none placeholder:text-[#a7a7ad]"
+        />
+
+        <div className="flex shrink-0 items-center gap-0.5 text-zinc-300">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="rounded-md"
+                className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
                 aria-label="Mise en forme"
               >
                 <FileText className="size-4" />
@@ -250,55 +253,13 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="rounded-md"
-            aria-label="Joindre un fichier"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Paperclip className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="hidden rounded-md sm:inline-flex"
-            aria-label="Joindre une image"
-            onClick={() => imageInputRef.current?.click()}
-          >
-            <ImagePlus className="size-4" />
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="rounded-md"
-                aria-label="Mentionner une personne"
-              >
-                <AtSign className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="border-white/10 bg-[#2b2d31] text-zinc-100">
-              {quickMentions.map((mention) => (
-                <DropdownMenuItem key={mention} onClick={() => appendText(mention)}>
-                  {mention}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="rounded-md"
+                className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
                 aria-label="Ajouter un emoji"
               >
                 <Smile className="size-4" />
@@ -324,26 +285,77 @@ export const MessageComposer = React.forwardRef<MessageComposerHandle, MessageCo
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="hidden rounded-md sm:inline-flex"
-            aria-label="Améliorer avec Aether AI"
-            onClick={() => {
-              if (!message.trim()) return;
-              setMessage((current) => `Peux-tu reformuler ce message de manière claire et concise ?\n\n${current}`);
-              focusTextarea();
-            }}
+            className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+            aria-label="Joindre un fichier"
+            onClick={() => fileInputRef.current?.click()}
           >
-            <Sparkles className="size-4" />
+            <Paperclip className="size-4" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+                aria-label="Ajouter une mention"
+              >
+                <AtSign className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="border-white/10 bg-[#2b2d31] text-zinc-100">
+              {quickMentions.map((mention) => (
+                <DropdownMenuItem key={mention} onClick={() => appendText(mention)}>
+                  {mention}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+                aria-label="Ajouter du contenu"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="border-white/10 bg-[#2b2d31] text-zinc-100">
+              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+                <ImagePlus className="mr-2 size-4" />
+                Ajouter une image
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  if (!message.trim()) return;
+                  setMessage((current) => `Peux-tu reformuler ce message de manière claire et concise ?\n\n${current}`);
+                  focusTextarea();
+                }}
+              >
+                <Sparkles className="mr-2 size-4" />
+                Réécrire avec Aether AI
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <span className="mx-1 h-5 w-px bg-white/12" aria-hidden="true" />
+
+          <Button
+            type="submit"
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 rounded-md text-zinc-300 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-40"
+            disabled={isSendDisabled}
+            aria-label="Envoyer le message"
+          >
+            <Send className="size-4" />
           </Button>
         </div>
-        <Button
-          type="submit"
-          size="icon-sm"
-          className="rounded-md"
-          disabled={!message.trim() && attachments.length === 0}
-          aria-label="Envoyer le message"
-        >
-          <Send className="size-4" />
-        </Button>
       </div>
     </form>
   );

@@ -52,7 +52,7 @@ import {
 import { usePlatform } from "@/context/PlatformContext";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { listWorkspaceMembers } from "@/lib/api/members";
-import { normalizePresenceStatus, resolvePresenceStatus, resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
+import { normalizePresenceStatus, resolvePresenceStatus ,type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
 import {
   createOrGetMeetingJoinCredentials,
@@ -846,13 +846,13 @@ export default function ChatPage() {
               </div>
             </header>
 
-            <div ref={scrollAreaRef} className="min-h-0 flex-1">
+            <div ref={scrollAreaRef} className="min-h-0 flex-1 bg-[#232426]">
               <ScrollArea key={activeConversationId} className="h-full bg-[#232426]">
-                <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 lg:px-8">
+                <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6 lg:px-8">
                   {datedConversationItems.length > 0 ? datedConversationItems.map((item) => {
                     if (item.type === "separator") {
                       return (
-                        <div key={item.key} className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <div key={item.key} className="flex items-center gap-3 text-xs text-zinc-500">
                           <span className="h-px flex-1 bg-white/10" />
                           {item.label}
                           <span className="h-px flex-1 bg-white/10" />
@@ -884,22 +884,7 @@ export default function ChatPage() {
                             isOwnMessage && "flex flex-col items-end"
                           )}
                         >
-                          <div
-                            className={cn(
-                              "flex items-center gap-2",
-                              isOwnMessage && "justify-end"
-                            )}
-                          >
-                            {!isOwnMessage && <h2 className="text-sm font-semibold">{message.author}</h2>}
-                            <time className="font-mono text-[10px] text-muted-foreground">
-                              {message.time}
-                            </time>
-                            {message.editedAt && (
-                              <span className="font-mono text-[10px] text-muted-foreground/60">
-                                (modifié)
-                              </span>
-                            )}
-                            {isOwnMessage && <h2 className="text-sm font-semibold">Vous</h2>}
+                          <div className={cn("flex items-center gap-2", isOwnMessage && "justify-end")}>
                             {isOwnMessage && (
                               <div className="relative">
                                 <Button
@@ -974,28 +959,53 @@ export default function ChatPage() {
                               </div>
                             </div>
                           ) : (
-                            <div
-                              className={cn(
-                                "mt-1 w-fit max-w-full rounded-2xl px-4 py-3 wrap-break-words",
-                                isOwnMessage
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-[#2b2d31] text-foreground/90"
-                              )}
-                            >
+                            <>
+                              <div
+                                className={cn(
+                                  "w-fit max-w-full rounded-2xl border px-4 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.14)] wrap-break-words",
+                                  isOwnMessage
+                                    ? "border-primary/20 bg-primary/90 text-primary-foreground"
+                                    : "border-white/10 bg-[#2b2d31] text-zinc-100"
+                                )}
+                              >
+                              <div
+                                className={cn(
+                                  "mb-1.5 flex items-center gap-1.5 text-[10px] leading-none",
+                                  isOwnMessage
+                                    ? "justify-end text-primary-foreground/70"
+                                    : "text-zinc-500"
+                                )}
+                              >
+                                {!isOwnMessage && (
+                                  <span className="max-w-48 truncate text-[10px] font-medium text-zinc-300">
+                                    {message.author}
+                                  </span>
+                                )}
+                                <time>{message.time}</time>
+                                {message.editedAt && <span>Modifie</span>}
+                              </div>
                               {parseContent(message.content).map((segment, i) =>
                                 segment.type === "text" ? (
-                                  <p key={i} className="text-sm leading-6">{segment.value}</p>
+                                  <p
+                                    key={i}
+                                    className={cn(
+                                      "text-[13px] leading-6",
+                                      isOwnMessage ? "text-primary-foreground" : "text-zinc-100"
+                                    )}
+                                  >
+                                    {segment.value}
+                                  </p>
                                 ) : (
                                   <div
                                     key={i}
                                     className={cn(
                                       "mt-2 flex items-center gap-3 rounded-xl border px-4 py-3",
                                       isOwnMessage
-                                        ? "border-white/15 bg-white/8"
+                                        ? "border-white/15 bg-white/10"
                                         : "border-white/10 bg-black/15"
                                     )}
                                   >
-                                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-black/20">
+                                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-black/20 text-zinc-200">
                                       {segment.type === "image" ? (
                                         <Image className="size-5" />
                                       ) : (
@@ -1003,7 +1013,7 @@ export default function ChatPage() {
                                       )}
                                     </span>
                                     <div className="min-w-0 flex-1">
-                                      <p className="truncate text-sm font-medium">{segment.value}</p>
+                                      <p className="truncate text-sm font-medium text-current">{segment.value}</p>
                                       <p className="mt-0.5 text-xs text-zinc-400">
                                         {segment.type === "image" ? "Image" : "Fichier"}
                                       </p>
@@ -1022,7 +1032,7 @@ export default function ChatPage() {
                                         a.click();
                                         URL.revokeObjectURL(url);
                                       }}
-                                      className="flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+                                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-current transition-colors hover:bg-white/10"
                                       aria-label={`Télécharger ${segment.value}`}
                                     >
                                       <Paperclip className="size-4" />
@@ -1030,13 +1040,14 @@ export default function ChatPage() {
                                   </div>
                                 )
                               )}
-                            </div>
+                              </div>
+                            </>
                           )}
                         </div>
                       </article>
                     );
                   }) : (
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
                       <span className="h-px flex-1 bg-white/10" />
                       Aucun message
                       <span className="h-px flex-1 bg-white/10" />
@@ -1085,7 +1096,7 @@ export default function ChatPage() {
                         />
                       )}
                       <div className="min-w-0 max-w-[min(100%,42rem)]">
-                        <div className="w-fit max-w-full rounded-2xl bg-[#2b2d31] px-4 py-4">
+                        <div className="w-fit max-w-full rounded-2xl border border-white/10 bg-[#2b2d31] px-4 py-4">
                           <span className="flex items-center gap-1">
                             {[0, 1, 2].map((index) => (
                               <span

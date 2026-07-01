@@ -6,19 +6,22 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   CalendarDays,
   CalendarPlus,
+  CheckCheck,
   UserRound, 
   Bell,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
+  ChevronLeft,
   Folder,
   Hash,
   Home,
   Image,
   Inbox,
+  MessageSquarePlus,
   MessageSquareText,
   MoreHorizontal,
-  Pencil,
+  PanelsTopLeft,
+  SquarePen,
   PhoneIncoming,
   PhoneOff,
   Plus,
@@ -26,6 +29,7 @@ import {
   Share2,
   Settings2,
   Star,
+  UserPlus,
   UsersRound,
   Trash2,
   Video,
@@ -33,6 +37,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -44,6 +49,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { currentUser, people, teams } from "@/lib/platform-data";
 import { notifications } from "@/lib/platform-notifications";
@@ -53,7 +65,7 @@ import { usePlatform } from "@/context/PlatformContext";
 import { getSharedRealtimeClient } from "@/lib/api/realtime/client";
 import { getMembers } from "@/lib/api/chat-service";
 import type { ChatServiceDeps } from "@/lib/api/chat-service";
-import { normalizePresenceStatus, resolvePresenceStatus } from "@/lib/presence";
+import { normalizePresenceStatus, resolvePresenceStatus, type PresenceStatus } from "@/lib/presence";
 
 interface PanelTitleProps {
   title: string;
@@ -61,6 +73,13 @@ interface PanelTitleProps {
   onEdit?: () => void;
   editActive?: boolean;
   editLabel?: string;
+}
+
+interface CollapsibleSectionProps {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children?: React.ReactNode;
 }
 
 function PanelTitle({ title, onCreate, onEdit, editActive = false, editLabel }: PanelTitleProps) {
@@ -79,7 +98,7 @@ function PanelTitle({ title, onCreate, onEdit, editActive = false, editLabel }: 
             onClick={onEdit}
             aria-label={editLabel ?? "Sélectionner des conversations"}
           >
-            <Pencil className="size-4" />
+            <SquarePen className="size-4" />
             <span className="sr-only">{editLabel ?? "Sélectionner des conversations"}</span>
           </Button>
         ) : (
@@ -95,6 +114,28 @@ function PanelTitle({ title, onCreate, onEdit, editActive = false, editLabel }: 
       </div>
     </div>
   );
+}
+
+function CollapsibleSection({ title, open, onToggle, children }: CollapsibleSectionProps) {
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[13px] text-zinc-300 transition-colors hover:text-zinc-100"
+      >
+        <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", !open && "-rotate-90")} />
+        <span>{title}</span>
+      </button>
+      {open ? <div className="mt-1">{children}</div> : null}
+    </section>
+  );
+}
+
+interface ConversationIdentity {
+  label: string;
+  initials: string;
+  status?: PresenceStatus;
 }
 
 function formatPresenceLabel(status?: string): string {
@@ -121,9 +162,15 @@ function ChatPanel() {
   const createConversation = useChatStore((s) => s.createConversation);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const typingByConversation = useChatStore((s) => s.typingByConversation);
-  const [activeFilter, setActiveFilter] = React.useState<"unread" | "channel" | "dm">("dm");
+  const [activeFilter, setActiveFilter] = React.useState<"dm" | "unread" | "channel">("dm");
   const [createOpen, setCreateOpen] = React.useState(false);
   const [isSelectionMode, setIsSelectionMode] = React.useState(false);
+  const [quickViewsOpen, setQuickViewsOpen] = React.useState(true);
+  const [favoritesOpen, setFavoritesOpen] = React.useState(true);
+  const [conversationsOpen, setConversationsOpen] = React.useState(true);
+  const [teamsOpen, setTeamsOpen] = React.useState(true);
+  const [optionsViewOpen, setOptionsViewOpen] = React.useState(false);
+  const [optionsTeamsOpen, setOptionsTeamsOpen] = React.useState(false);
   const [selectedConversationIds, setSelectedConversationIds] = React.useState<string[]>([]);
   const [pendingDeleteConversations, setPendingDeleteConversations] = React.useState<Array<{
     id: string;
@@ -225,9 +272,9 @@ function ChatPanel() {
   const membersById = React.useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
 
   const getConversationIdentity = React.useCallback(
-    (conversation: { type: "dm" | "channel"; name: string; initials: string; memberIds: string[] }) => {
+    (conversation: { type: "dm" | "channel"; name: string; initials: string; memberIds: string[] }): ConversationIdentity => {
       if (conversation.type !== "dm") {
-        return { label: conversation.name, initials: conversation.initials, status: undefined as string | undefined };
+        return { label: conversation.name, initials: conversation.initials };
       }
 
       const currentUserId = currentUser?.id ?? "";
@@ -235,7 +282,7 @@ function ChatPanel() {
       const isSelf = !otherMemberId;
       const otherMember = otherMemberId ? membersById.get(otherMemberId) : null;
 
-      let status: string | undefined;
+      let status: PresenceStatus | undefined;
       if (otherMemberId && realtimePresence[otherMemberId]) {
         status = normalizePresenceStatus(realtimePresence[otherMemberId]);
       } else if (isSelf && currentUser) {
@@ -301,7 +348,15 @@ function ChatPanel() {
         getLatestActivity(right.id, right.lastActivityAt) - getLatestActivity(left.id, left.lastActivityAt)
     );
   }, [conversations, customConversations, messages, customMessages]);
-  const filteredConversations = React.useMemo(() => {
+  const favoriteConversations = React.useMemo(
+    () => conversationList.filter((conversation) => (conversation.unread ?? 0) > 0).slice(0, 3),
+    [conversationList]
+  );
+  const visibleConversations = React.useMemo(() => {
+    if (activeFilter === "dm") {
+      return conversationList.filter((conversation) => conversation.type === "dm");
+    }
+
     if (activeFilter === "unread") {
       return conversationList.filter((conversation) => (conversation.unread ?? 0) > 0);
     }
@@ -310,7 +365,7 @@ function ChatPanel() {
       return conversationList.filter((conversation) => conversation.type === "channel");
     }
 
-    return conversationList.filter((conversation) => conversation.type === "dm");
+    return conversationList;
   }, [activeFilter, conversationList]);
   function toggleMember(memberId: string) {
     setSelectedMemberIds((current) =>
@@ -332,6 +387,158 @@ function ChatPanel() {
     setSelectedMemberIds([]);
     setMemberSearch("");
   }
+
+  function openConversationDraft(type: "dm" | "channel") {
+    resetDraft();
+    setConversationType(type);
+    setCreateOpen(true);
+  }
+
+  const conversationOptionsMenu = (
+    <div className="py-1">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-white/6"
+      >
+        <CheckCheck className="size-4 text-zinc-300" />
+        Tout marquer comme lu
+      </button>
+
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-white/6"
+        onClick={() => {
+          setQuickViewsOpen(false);
+          setFavoritesOpen(false);
+          setConversationsOpen(false);
+          setTeamsOpen(false);
+        }}
+      >
+        <ChevronDown className="size-4 -rotate-90 text-zinc-300" />
+        <span className="flex-1">Reduire toutes les sections</span>
+        <span className="text-[11px] text-zinc-500">Alt+Q</span>
+      </button>
+
+      <div className="my-1 h-px bg-white/10" />
+
+      <Collapsible open={optionsViewOpen} onOpenChange={setOptionsViewOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-white/6"
+          >
+            <Settings2 className="size-4 text-zinc-300" />
+            <span className="flex-1">Personnaliser la vue</span>
+            <ChevronDown className={cn("size-4 text-zinc-500 transition-transform", optionsViewOpen && "rotate-180")} />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-0.5 px-2 pb-2">
+          <button
+            type="button"
+            onClick={() => setQuickViewsOpen((current) => !current)}
+            className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/6 hover:text-zinc-100"
+          >
+            Vues rapides
+            <span className="text-xs text-zinc-500">{quickViewsOpen ? "Visible" : "Masquee"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFavoritesOpen((current) => !current)}
+            className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/6 hover:text-zinc-100"
+          >
+            Favoris
+            <span className="text-xs text-zinc-500">{favoritesOpen ? "Visible" : "Masquee"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setConversationsOpen((current) => !current)}
+            className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/6 hover:text-zinc-100"
+          >
+            Conversations
+            <span className="text-xs text-zinc-500">{conversationsOpen ? "Visible" : "Masquee"}</span>
+          </button>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="my-1 h-px bg-white/10" />
+
+      <Collapsible open={optionsTeamsOpen} onOpenChange={setOptionsTeamsOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-white/6"
+          >
+            <UsersRound className="size-4 text-zinc-300" />
+            <span className="flex-1">Vos equipes et canaux</span>
+            <ChevronDown className={cn("size-4 text-zinc-500 transition-transform", optionsTeamsOpen && "rotate-180")} />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-0.5 px-2 pb-2">
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/teams?view=all")}
+            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/6 hover:text-zinc-100"
+          >
+            Toutes les equipes
+          </button>
+          <button
+            type="button"
+            onClick={() => (window.location.href = "/teams?view=favorites")}
+            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/6 hover:text-zinc-100"
+          >
+            Equipes favorites
+          </button>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+
+  const conversationHeaderMenu = (
+    <>
+      <DropdownMenuItem
+        className="gap-2 rounded-none px-3 py-2.5 text-[13px]"
+        onClick={() => openConversationDraft("dm")}
+      >
+        <SquarePen className="size-3.5" />
+        Nouveau message
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="gap-2 rounded-none px-3 py-2.5 text-[13px]"
+        onClick={() => openConversationDraft("channel")}
+      >
+        <MessageSquarePlus className="size-3.5" />
+        Nouveau canal
+      </DropdownMenuItem>
+      <DropdownMenuSeparator className="my-0 bg-white/10" />
+      <DropdownMenuItem
+        className="gap-2 rounded-none px-3 py-2.5 text-[13px]"
+        onClick={() => (window.location.href = "/teams?view=all")}
+      >
+        <UserPlus className="size-3.5" />
+        Rejoindre l&apos;équipe
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="gap-2 rounded-none px-3 py-2.5 text-[13px]"
+        onClick={() => (window.location.href = "/teams?view=all")}
+      >
+        <UsersRound className="size-3.5" />
+        Nouvelle équipe
+      </DropdownMenuItem>
+      <DropdownMenuSeparator className="my-0 bg-white/10" />
+      <DropdownMenuItem
+        className="gap-2 rounded-none px-3 py-2.5 text-[13px]"
+        onClick={() => {
+          setQuickViewsOpen(true);
+          setFavoritesOpen(true);
+          setConversationsOpen(true);
+          setTeamsOpen(true);
+        }}
+      >
+        <PanelsTopLeft className="size-3.5" />
+        Nouvelle section
+      </DropdownMenuItem>
+    </>
+  );
 
   async function handleCreateConversation() {
     if (conversationType === "dm" && selectedMemberIds.length !== 1) return;
@@ -367,184 +574,305 @@ function ChatPanel() {
 
   return (
     <>
-      <PanelTitle
-        title="Conversations"
-        onEdit={() => {
-          if (isSelectionMode) {
-            exitSelectionMode();
-            return;
-          }
-          setIsSelectionMode(true);
-        }}
-        editActive={isSelectionMode}
-        editLabel={isSelectionMode ? "Quitter la sélection" : "Sélectionner des conversations"}
-        onCreate={() => {
-          resetDraft();
-          setCreateOpen(true);
-        }}
-      />
-      <div className="px-4 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 rounded-md border-white/10 bg-[#242628] pl-9 text-xs"
-            placeholder="Filtrer"
-          />
-        </div>
-        <div className="mt-3 flex gap-1.5">
-          {([
-            { label: "Messages", value: "dm" },
-            { label: "Canaux", value: "channel" },
-            { label: "Non lus", value: "unread" },
-          ] as const).map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              onClick={() => setActiveFilter(filter.value)}
+      <div className="border-b border-white/7 px-4 pb-3 pt-5">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="min-w-0 flex-1 truncate pr-3 text-[17px] font-semibold tracking-tight text-zinc-100">
+            Conversation
+          </h2>
+          <div className="ml-auto flex shrink-0 items-center gap-0 text-zinc-400">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className="size-6.5 rounded-sm px-0 hover:text-zinc-100">
+                  <MoreHorizontal className="size-3.5" />
+                  <span className="sr-only">Plus d’options</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-64 border-white/10 bg-[#2b2d31] p-0 text-zinc-100"
+              >
+                {conversationOptionsMenu}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="icon-sm" className="size-6.5 rounded-sm px-0 hover:text-zinc-100">
+              <Search className="size-3.5" />
+              <span className="sr-only">Rechercher</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               className={cn(
-                "rounded-full border border-white/15 px-2.5 py-1 text-[11px] text-zinc-400",
-                activeFilter === filter.value && "border-primary/30 bg-primary/10 text-primary"
+                "size-6.5 rounded-sm px-0 hover:text-zinc-100",
+                isSelectionMode && "bg-violet-500/15 text-violet-200 hover:text-violet-100"
               )}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-        {isSelectionMode ? (
-          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-violet-500/20 bg-violet-500/8 px-3 py-2">
-            <p className="text-[11px] text-zinc-300">
-              {selectedConversationIds.length > 0
-                ? `${selectedConversationIds.length} conversation${selectedConversationIds.length > 1 ? "s" : ""} sélectionnée${selectedConversationIds.length > 1 ? "s" : ""}`
-                : "Sélectionnez les conversations à supprimer"}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 rounded-md px-2 text-[11px] text-zinc-300"
-                onClick={exitSelectionMode}
-              >
-                Annuler
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                className="h-7 rounded-md px-2 text-[11px]"
-                disabled={selectedConversationIds.length === 0}
-                onClick={() =>
-                  setPendingDeleteConversations(
-                    filteredConversations
-                      .filter((conversation) => selectedConversationIds.includes(conversation.id))
-                      .map((conversation) => ({
-                        id: conversation.id,
-                        name: getConversationIdentity(conversation).label,
-                      }))
-                  )
+              onClick={() => {
+                if (isSelectionMode) {
+                  exitSelectionMode();
+                  return;
                 }
+                setIsSelectionMode(true);
+              }}
+            >
+              <SquarePen className="size-3.5" />
+              <span className="sr-only">
+                {isSelectionMode ? "Quitter la sélection" : "Sélectionner des conversations"}
+              </span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-6.5 rounded-sm px-0 hover:text-zinc-100"
+                >
+                  <ChevronDown className="size-3.5" />
+                  <span className="sr-only">Ouvrir le menu des conversations</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-44 border-white/10 bg-[#2b2d31] p-0 text-zinc-100"
               >
-                Supprimer
-              </Button>
-            </div>
+                {conversationHeaderMenu}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        ) : null}
-      </div>
-      <Separator className="bg-white/7" />
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
+        </div>
+
+        <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          >
-            <ChevronDown className="size-3.5" />
-            <span className="font-medium">Messages récents</span>
-          </button>
-          <div className="mt-1 space-y-1">
-            {filteredConversations.length > 0 ? (
-              filteredConversations.map((conversation) => {
-                const conversationIdentity = getConversationIdentity(conversation);
-                const isSelected = selectedConversationIds.includes(conversation.id);
-
-                return (
-                  <div
-                    key={conversation.id}
-                    className={cn(
-                      "flex w-full items-center rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
-                      !isSelectionMode && activeConversationId === conversation.id && "bg-violet-500/10",
-                      isSelectionMode && isSelected && "bg-violet-500/10"
-                    )}
-                  >
-                    {isSelectionMode ? (
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleConversationSelection(conversation.id)}
-                        className={cn(
-                          "mr-3 shrink-0 border-white/20 data-[state=checked]:border-violet-400 data-[state=checked]:bg-violet-500/20",
-                          isSelected && "border-violet-400"
-                        )}
-                        aria-label={`Sélectionner ${conversationIdentity.label}`}
-                      />
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isSelectionMode) {
-                          toggleConversationSelection(conversation.id);
-                          return;
-                        }
-
-                        setActiveConversation(
-                          activeConversationId === conversation.id ? null : conversation.id
-                        );
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                    >
-                      <PresenceAvatar
-                        initials={conversationIdentity.initials}
-                        status={conversationIdentity.status}
-                        className="size-9"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="truncate text-sm font-medium">{conversationIdentity.label}</span>
-                          <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
-                        </span>
-                        <span className="mt-0.5 flex items-start gap-2">
-                          {typingByConversation[conversation.id]?.length > 0 ? (
-                            <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-emerald-400">
-                              {typingByConversation[conversation.id][0].name}
-                              <span className="text-zinc-500">écrit</span>
-                              {[0, 1].map((index) => (
-                                <span
-                                  key={index}
-                                  className="inline-block size-1 rounded-full bg-emerald-400 animate-bounce"
-                                  style={{ animationDelay: `${index * 200}ms`, animationDuration: "1s" }}
-                                />
-                              ))}
-                            </span>
-                          ) : (
-                            <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
-                              {conversation.preview}
-                            </span>
-                          )}
-                          {conversation.unread ? (
-                            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
-                              {conversation.unread}
-                            </span>
-                          ) : null}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="rounded-md border border-dashed border-white/10 bg-black/10 px-3 py-4 text-sm text-zinc-400">
-                Aucun résultat pour ce filtre.
-              </div>
+            onClick={() => setActiveFilter("dm")}
+            className={cn(
+              "inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-medium tracking-tight transition-colors",
+              activeFilter === "dm"
+                ? "border-[#5a5d63] bg-[#2a2c30] text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                : "border-[#3a3d42] bg-transparent text-zinc-300 hover:border-[#4a4d53] hover:bg-white/3 hover:text-zinc-100"
             )}
-          </div>
+          >
+            Messages
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFilter("channel")}
+            className={cn(
+              "inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-medium tracking-tight transition-colors",
+              activeFilter === "channel"
+                ? "border-[#5a5d63] bg-[#2a2c30] text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                : "border-[#3a3d42] bg-transparent text-zinc-300 hover:border-[#4a4d53] hover:bg-white/3 hover:text-zinc-100"
+            )}
+          >
+            Canaux
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveFilter("unread")}
+            className={cn(
+              "inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-medium tracking-tight transition-colors",
+              activeFilter === "unread"
+                ? "border-[#5a5d63] bg-[#2a2c30] text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                : "border-[#3a3d42] bg-transparent text-zinc-300 hover:border-[#4a4d53] hover:bg-white/3 hover:text-zinc-100"
+            )}
+          >
+            Non lu(e)s
+          </button>
+        </div>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-3 p-3">
+          <CollapsibleSection
+            title="Vues rapides"
+            open={quickViewsOpen}
+            onToggle={() => setQuickViewsOpen((current) => !current)}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-6 py-2 text-sm text-zinc-300 transition-colors hover:bg-white/5 hover:text-zinc-100"
+            >
+              <SquarePen className="size-4 text-zinc-400" />
+              Brouillons
+            </button>
+          </CollapsibleSection>
+
+          <Separator className="bg-white/7" />
+
+          <CollapsibleSection
+            title="Favoris"
+            open={favoritesOpen}
+            onToggle={() => setFavoritesOpen((current) => !current)}
+          >
+            {favoriteConversations.length > 0 ? (
+              <div className="space-y-1 px-2">
+                {favoriteConversations.map((conversation) => {
+                  const conversationIdentity = getConversationIdentity(conversation);
+
+                  return (
+                    <button
+                      key={conversation.id}
+                      type="button"
+                      onClick={() => setActiveConversation(conversation.id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-white/5",
+                        activeConversationId === conversation.id && "bg-violet-500/10"
+                      )}
+                    >
+                      <Star className="size-3.5 shrink-0 text-zinc-500" />
+                      <span className="truncate">{conversationIdentity.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Conversations"
+            open={conversationsOpen}
+            onToggle={() => setConversationsOpen((current) => !current)}
+          >
+            <div className="space-y-2 px-2">
+              {isSelectionMode ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/20 bg-violet-500/8 px-3 py-2">
+                  <p className="text-[11px] text-zinc-300">
+                    {selectedConversationIds.length > 0
+                      ? `${selectedConversationIds.length} conversation${selectedConversationIds.length > 1 ? "s" : ""} sélectionnée${selectedConversationIds.length > 1 ? "s" : ""}`
+                      : "Sélectionnez les conversations à supprimer"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-md px-2 text-[11px] text-zinc-300"
+                      onClick={exitSelectionMode}
+                    >
+                      Annuler
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 rounded-md px-2 text-[11px]"
+                      disabled={selectedConversationIds.length === 0}
+                      onClick={() =>
+                        setPendingDeleteConversations(
+                          visibleConversations
+                            .filter((conversation) => selectedConversationIds.includes(conversation.id))
+                            .map((conversation) => ({
+                              id: conversation.id,
+                              name: getConversationIdentity(conversation).label,
+                            }))
+                        )
+                      }
+                    >
+                      Supprimer
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-1">
+                {visibleConversations.length > 0 ? (
+                  visibleConversations.map((conversation) => {
+                    const conversationIdentity = getConversationIdentity(conversation);
+                    const isSelected = selectedConversationIds.includes(conversation.id);
+
+                    return (
+                      <div
+                        key={conversation.id}
+                        className={cn(
+                          "flex w-full items-center rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-white/5",
+                          !isSelectionMode && activeConversationId === conversation.id && "bg-violet-500/10",
+                          isSelectionMode && isSelected && "bg-violet-500/10"
+                        )}
+                      >
+                        {isSelectionMode ? (
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleConversationSelection(conversation.id)}
+                            className={cn(
+                              "mr-3 shrink-0 border-white/20 data-[state=checked]:border-violet-400 data-[state=checked]:bg-violet-500/20",
+                              isSelected && "border-violet-400"
+                            )}
+                            aria-label={`Sélectionner ${conversationIdentity.label}`}
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isSelectionMode) {
+                              toggleConversationSelection(conversation.id);
+                              return;
+                            }
+
+                            setActiveConversation(
+                              activeConversationId === conversation.id ? null : conversation.id
+                            );
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <PresenceAvatar
+                            initials={conversationIdentity.initials}
+                            status={conversationIdentity.status}
+                            className="size-9"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sm font-medium">{conversationIdentity.label}</span>
+                              <span className="text-[10px] text-muted-foreground">{conversation.time}</span>
+                            </span>
+                            <span className="mt-0.5 flex items-start gap-2">
+                              {typingByConversation[conversation.id]?.length > 0 ? (
+                                <span className="flex min-w-0 flex-1 items-center gap-1 text-xs text-emerald-400">
+                                  {typingByConversation[conversation.id][0].name}
+                                  <span className="text-zinc-500">écrit</span>
+                                  {[0, 1].map((index) => (
+                                    <span
+                                      key={index}
+                                      className="inline-block size-1 rounded-full bg-emerald-400 animate-bounce"
+                                      style={{ animationDelay: `${index * 200}ms`, animationDuration: "1s" }}
+                                    />
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
+                                  {conversation.preview}
+                                </span>
+                              )}
+                              {conversation.unread ? (
+                                <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground">
+                                  {conversation.unread}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-md border border-dashed border-white/10 bg-black/10 px-3 py-4 text-sm text-zinc-400">
+                    Aucun resultat pour ce filtre.
+                  </div>
+                )}
+              </div>
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Teams et canaux"
+            open={teamsOpen}
+            onToggle={() => setTeamsOpen((current) => !current)}
+          >
+            <div className="px-6 pb-1">
+              <Link
+                href="/teams?view=all"
+                className="text-sm text-indigo-400 transition-colors hover:text-indigo-300"
+              >
+                Voir toutes vos équipes
+              </Link>
+            </div>
+          </CollapsibleSection>
         </div>
       </ScrollArea>
 
