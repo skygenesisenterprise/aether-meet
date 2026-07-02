@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/context/AuthContext";
+import { DEFAULT_PLATFORM_ROUTE } from "@/lib/routes";
 
 export function PublicAuthRedirect({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -11,7 +12,7 @@ export function PublicAuthRedirect({ children }: { children: React.ReactNode }) 
 
   React.useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace("/chat");
+      router.replace(DEFAULT_PLATFORM_ROUTE);
     }
   }, [isAuthenticated, isLoading, router]);
 

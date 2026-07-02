@@ -1,8 +1,6 @@
 import path from "node:path";
 import type { NextConfig } from "next";
-import createNextIntlPlugin from "next-intl/plugin";
 
-const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const isProduction = process.env.NODE_ENV === "production";
 const isStaticWebBuild = process.env.BUILD_WEB_STATIC === "true";
 const apiProxyTarget = (process.env.API_INTERNAL_URL || "http://localhost:8080/api/v1").replace(/\/$/, "");
@@ -82,6 +80,4 @@ const nextConfig: NextConfig = {
   }),
 };
 
-let configWithPlugins: NextConfig = nextConfig;
-
-export default withNextIntl(configWithPlugins);
+export default nextConfig;

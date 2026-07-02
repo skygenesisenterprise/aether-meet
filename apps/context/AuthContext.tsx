@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { authApi } from "@/lib/api/auth";
 import type { RegisterPayload } from "@/lib/api/auth";
+import { DEFAULT_PLATFORM_ROUTE, LOGIN_ROUTE } from "@/lib/routes";
 import type { User } from "@/lib/api/types";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -77,10 +78,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(response.user);
       setStatus("authenticated");
       if (typeof window !== "undefined") {
-        window.location.assign("/chat");
+        window.location.assign(DEFAULT_PLATFORM_ROUTE);
         return;
       }
-      router.replace("/chat");
+      router.replace(DEFAULT_PLATFORM_ROUTE);
     },
     [router]
   );
@@ -92,10 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(response.user);
       setStatus("authenticated");
       if (typeof window !== "undefined") {
-        window.location.assign("/chat");
+        window.location.assign(DEFAULT_PLATFORM_ROUTE);
         return;
       }
-      router.replace("/chat");
+      router.replace(DEFAULT_PLATFORM_ROUTE);
     },
     [router]
   );
@@ -105,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(null);
     setUser(null);
     setStatus("unauthenticated");
-    router.push("/login");
+    router.push(LOGIN_ROUTE);
     router.refresh();
   }, [router]);
 

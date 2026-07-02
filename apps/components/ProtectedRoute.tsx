@@ -1,16 +1,17 @@
 "use client";
 
+import * as React from "react";
 import { useAuth } from "@/context/AuthContext";
+import { LOGIN_ROUTE } from "@/lib/routes";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push("/login");
+      router.push(LOGIN_ROUTE);
     }
   }, [isAuthenticated, isLoading, router]);
 

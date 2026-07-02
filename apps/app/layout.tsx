@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     default: "Aether Meet",
   },
   description:
-    "The Official Sky Genesis Enterprise website. Learn about our products, services, and how we can help your business thrive in the digital age.",
+    " modern enterprise collaboration platform for secure communication, meetings, and team productivity.",
   icons: {
     icon: [
       {
