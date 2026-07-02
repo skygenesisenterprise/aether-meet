@@ -26,6 +26,7 @@ import { WorkspaceDangerSettings } from "@/components/settings/workspace-danger-
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings";
 import { WorkspaceMembersSettings } from "@/components/settings/workspace-members-settings";
 import { WorkspaceRolesSettings } from "@/components/settings/workspace-roles-settings";
+import { WorkspaceSsoSettings } from "@/components/settings/workspace-sso-settings";
 import { useAuth } from "@/context/AuthContext";
 import { usePlatform } from "@/context/PlatformContext";
 import { ApiError, getUserFacingError } from "@/lib/api/errors";
@@ -59,7 +60,7 @@ export default function SettingsPage() {
   const [members, setMembers] = React.useState<WorkspaceMember[]>([]);
   const [contentLoading, setContentLoading] = React.useState(true);
   const [contentError, setContentError] = React.useState<string | null>(null);
-  const isWorkspaceSection = section === "workspace" || section === "members" || section === "roles" || section === "audit" || section === "danger";
+  const isWorkspaceSection = section === "workspace" || section === "sso" || section === "members" || section === "roles" || section === "audit" || section === "danger";
   const requiresWorkspaceMembers = section === "members" || section === "audit";
 
   React.useEffect(() => {
@@ -183,6 +184,12 @@ export default function SettingsPage() {
           members={members}
           canEdit={canEditWorkspace}
           onWorkspaceChange={setWorkspaceState}
+        />
+      ) : null}
+      {section === "sso" ? (
+        <WorkspaceSsoSettings
+          workspace={workspaceState ?? activeWorkspace}
+          canEdit={canEditWorkspace}
         />
       ) : null}
       {section === "members" ? (

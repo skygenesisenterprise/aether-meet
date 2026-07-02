@@ -61,6 +61,7 @@ func (s *DatabaseService) AutoMigrate() error {
 		&models.AuthAuditEvent{},
 		&models.Workspace{},
 		&models.WorkspaceMember{},
+		&models.WorkspaceSSOConfig{},
 		&models.Team{},
 		&models.Channel{},
 		&models.Conversation{},

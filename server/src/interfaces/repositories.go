@@ -86,6 +86,11 @@ type WorkspaceMemberRepository interface {
 	Delete(ctx context.Context, workspaceID, userID string) error
 }
 
+type WorkspaceSSOConfigRepository interface {
+	GetByWorkspaceID(ctx context.Context, workspaceID string) (*models.WorkspaceSSOConfig, error)
+	Upsert(ctx context.Context, config *models.WorkspaceSSOConfig) error
+}
+
 type TeamRepository interface {
 	Create(ctx context.Context, team *models.Team) error
 	GetByID(ctx context.Context, id string) (*models.Team, error)
@@ -243,6 +248,7 @@ type RepositorySet interface {
 	AuthAuditEvents() AuthAuditEventRepository
 	Workspaces() WorkspaceRepository
 	WorkspaceMembers() WorkspaceMemberRepository
+	WorkspaceSSOConfigs() WorkspaceSSOConfigRepository
 	Teams() TeamRepository
 	Channels() ChannelRepository
 	Conversations() ConversationRepository

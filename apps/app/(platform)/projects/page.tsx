@@ -91,12 +91,13 @@ export default function ProjectsPage() {
       setLoading(false);
       return;
     }
+    const workspaceId = activeWorkspaceId;
     let cancelled = false;
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const response = await listProjects(activeWorkspaceId);
+        const response = await listProjects(workspaceId);
         if (cancelled) {
           return;
         }

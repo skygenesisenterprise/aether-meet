@@ -88,6 +88,8 @@ func SetupRoutes(router *gin.Engine, deps Dependencies) {
 		protected.GET("/workspaces/:workspaceId", handler.getWorkspace)
 		protected.PATCH("/workspaces/:workspaceId", handler.updateWorkspace)
 		protected.DELETE("/workspaces/:workspaceId", handler.deleteWorkspace)
+		protected.GET("/workspaces/:workspaceId/sso", handler.getWorkspaceSSO)
+		protected.PATCH("/workspaces/:workspaceId/sso", handler.updateWorkspaceSSO)
 
 		protected.GET("/workspaces/:workspaceId/members", handler.listWorkspaceMembers)
 		protected.POST("/workspaces/:workspaceId/members", handler.createWorkspaceMember)
@@ -420,6 +422,10 @@ func (h *apiHandler) createWorkspace(c *gin.Context) {
 func (h *apiHandler) getWorkspace(c *gin.Context)    { h.workspaceResource(c, "get") }
 func (h *apiHandler) updateWorkspace(c *gin.Context) { h.workspaceResource(c, "update") }
 func (h *apiHandler) deleteWorkspace(c *gin.Context) { h.workspaceResource(c, "delete") }
+func (h *apiHandler) getWorkspaceSSO(c *gin.Context) { h.workspaceSSOResource(c, "get") }
+func (h *apiHandler) updateWorkspaceSSO(c *gin.Context) {
+	h.workspaceSSOResource(c, "update")
+}
 
 func (h *apiHandler) workspaceResource(c *gin.Context, action string) {
 	principal, _ := h.principal(c)
@@ -450,6 +456,68 @@ func (h *apiHandler) workspaceResource(c *gin.Context, action string) {
 			return
 		}
 		utils.Success(c, http.StatusOK, gin.H{"deleted": true})
+	}
+}
+
+func (h *apiHandler) workspaceSSOResource(c *gin.Context, action string) {
+	principal, _ := h.principal(c)
+	workspaceID := c.Param("workspaceId")
+	switch action {
+	case "get":
+		item, err := h.deps.WorkspaceService.GetSSOConfig(c.Request.Context(), principal, workspaceID)
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
+	case "update":
+		var req struct {
+			Provider           string            `json:"provider"`
+			Enabled            bool              `json:"enabled"`
+			EnforceSSO         bool              `json:"enforceSso"`
+			AllowPasswordAuth  bool              `json:"allowPasswordAuth"`
+			AllowAutoProvision bool              `json:"allowAutoProvision"`
+			AllowIDPInitiated  bool              `json:"allowIdpInitiated"`
+			DomainHint         string            `json:"domainHint"`
+			IssuerURL          string            `json:"issuerUrl"`
+			SSOURL             string            `json:"ssoUrl"`
+			EntityID           string            `json:"entityId"`
+			ClientID           string            `json:"clientId"`
+			ClientSecret       *string           `json:"clientSecret"`
+			ClearClientSecret  bool              `json:"clearClientSecret"`
+			Certificate        string            `json:"certificate"`
+			AllowedDomains     []string          `json:"allowedDomains"`
+			DefaultRole        string            `json:"defaultRole"`
+			AttributeMapping   map[string]string `json:"attributeMapping"`
+		}
+		if c.ShouldBindJSON(&req) != nil {
+			utils.Error(c, utils.ErrValidationFailed)
+			return
+		}
+		item, err := h.deps.WorkspaceService.UpdateSSOConfig(c.Request.Context(), principal, workspaceID, services.UpdateWorkspaceSSOInput{
+			Provider:           req.Provider,
+			Enabled:            req.Enabled,
+			EnforceSSO:         req.EnforceSSO,
+			AllowPasswordAuth:  req.AllowPasswordAuth,
+			AllowAutoProvision: req.AllowAutoProvision,
+			AllowIDPInitiated:  req.AllowIDPInitiated,
+			DomainHint:         req.DomainHint,
+			IssuerURL:          req.IssuerURL,
+			SSOURL:             req.SSOURL,
+			EntityID:           req.EntityID,
+			ClientID:           req.ClientID,
+			ClientSecret:       req.ClientSecret,
+			ClearClientSecret:  req.ClearClientSecret,
+			Certificate:        req.Certificate,
+			AllowedDomains:     req.AllowedDomains,
+			DefaultRole:        req.DefaultRole,
+			AttributeMapping:   req.AttributeMapping,
+		}, requestMetadata(c))
+		if err != nil {
+			utils.Error(c, err)
+			return
+		}
+		utils.Success(c, http.StatusOK, item)
 	}
 }
 

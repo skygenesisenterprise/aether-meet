@@ -62,6 +62,51 @@ export interface Workspace {
   archivedAt?: string;
 }
 
+export type WorkspaceSsoProvider = "oidc" | "saml";
+
+export interface WorkspaceSsoConfig {
+  id?: string;
+  workspaceId: string;
+  provider: WorkspaceSsoProvider;
+  enabled: boolean;
+  enforceSso: boolean;
+  allowPasswordAuth: boolean;
+  allowAutoProvision: boolean;
+  allowIdpInitiated: boolean;
+  domainHint?: string;
+  issuerUrl?: string;
+  ssoUrl?: string;
+  entityId?: string;
+  clientId?: string;
+  clientSecretConfigured: boolean;
+  certificate?: string;
+  allowedDomains: string[];
+  defaultRole: WorkspaceMemberRole;
+  attributeMapping: Record<string, string>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UpdateWorkspaceSsoInput {
+  provider: WorkspaceSsoProvider;
+  enabled: boolean;
+  enforceSso: boolean;
+  allowPasswordAuth: boolean;
+  allowAutoProvision: boolean;
+  allowIdpInitiated: boolean;
+  domainHint?: string;
+  issuerUrl?: string;
+  ssoUrl?: string;
+  entityId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  clearClientSecret?: boolean;
+  certificate?: string;
+  allowedDomains: string[];
+  defaultRole: WorkspaceMemberRole;
+  attributeMapping: Record<string, string>;
+}
+
 export interface WorkspaceMember {
   id: string;
   workspaceId: string;

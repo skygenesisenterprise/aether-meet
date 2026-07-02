@@ -51,6 +51,9 @@ func (r *Repositories) Workspaces() interfaces.WorkspaceRepository {
 func (r *Repositories) WorkspaceMembers() interfaces.WorkspaceMemberRepository {
 	return &workspaceMemberRepository{db: r.db}
 }
+func (r *Repositories) WorkspaceSSOConfigs() interfaces.WorkspaceSSOConfigRepository {
+	return &workspaceSSOConfigRepository{db: r.db}
+}
 func (r *Repositories) Teams() interfaces.TeamRepository       { return &teamRepository{db: r.db} }
 func (r *Repositories) Channels() interfaces.ChannelRepository { return &channelRepository{db: r.db} }
 func (r *Repositories) Conversations() interfaces.ConversationRepository {
@@ -365,6 +368,21 @@ func (r *workspaceMemberRepository) Update(ctx context.Context, member *models.W
 }
 func (r *workspaceMemberRepository) Delete(ctx context.Context, workspaceID, userID string) error {
 	return r.db.WithContext(ctx).Delete(&models.WorkspaceMember{}, "workspace_id = ? AND user_id = ?", workspaceID, userID).Error
+}
+
+type workspaceSSOConfigRepository struct{ db *gorm.DB }
+
+func (r *workspaceSSOConfigRepository) GetByWorkspaceID(ctx context.Context, workspaceID string) (*models.WorkspaceSSOConfig, error) {
+	var item models.WorkspaceSSOConfig
+	err := r.db.WithContext(ctx).First(&item, "workspace_id = ?", workspaceID).Error
+	return &item, normalizeNotFound(err, utils.NewError(404, "WORKSPACE_SSO_NOT_FOUND", "The workspace SSO configuration was not found.", nil))
+}
+
+func (r *workspaceSSOConfigRepository) Upsert(ctx context.Context, item *models.WorkspaceSSOConfig) error {
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "workspace_id"}},
+		UpdateAll: true,
+	}).Create(item).Error
 }
 
 type teamRepository struct{ db *gorm.DB }

@@ -141,6 +141,7 @@ model Workspace {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   owner            User           @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members          WorkspaceMember[]
+  ssoConfig        WorkspaceSSOConfig?
   teams            Team[]
   channels         Channel[]
   conversations    Conversation[]
@@ -168,6 +169,32 @@ model Workspace {
   @@index([ownerId])
   @@index([archivedAt])
   @@map("workspaces")
+}
+
+model WorkspaceSSOConfig {
+  id                 String    @id @default(uuid())
+  workspaceId        String    @unique @map("workspace_id")
+  provider           String    @default("oidc")
+  enabled            Boolean   @default(false)
+  enforceSso         Boolean   @default(false) @map("enforce_sso")
+  allowPasswordAuth  Boolean   @default(true) @map("allow_password_auth")
+  autoProvision      Boolean   @default(true) @map("auto_provision")
+  allowIdpInitiated  Boolean   @default(false) @map("allow_idp_initiated")
+  domainHint         String?   @map("domain_hint")
+  issuerUrl          String?   @map("issuer_url")
+  ssoUrl             String?   @map("sso_url")
+  entityId           String?   @map("entity_id")
+  clientId           String?   @map("client_id")
+  clientSecret       String?   @map("client_secret")
+  certificate        String?
+  allowedDomains     Json?     @map("allowed_domains")
+  defaultRole        String    @default("member") @map("default_role")
+  attributeMapping   Json?     @map("attribute_mapping")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_sso_configs")
 }
 
 model WorkspaceMember {

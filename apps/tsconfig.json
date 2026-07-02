@@ -31,6 +31,7 @@
       "@/types/*": ["./types/*"],
       "@/config/*": ["./config/*"],
       "@/content/*": ["./content/*"],
+      "@/constants/*": ["./constants/*"],
       "@/data/*": ["./data/*"],
       "@/utils/*": ["./utils/*"],
     },

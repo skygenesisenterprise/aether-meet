@@ -10,6 +10,7 @@ export type SettingsSection =
   | "security"
   | "sessions"
   | "workspace"
+  | "sso"
   | "members"
   | "roles"
   | "audit"
@@ -38,6 +39,7 @@ export const settingsNavigation: SettingsNavGroup[] = [
     label: "Workspace",
     items: [
       { id: "workspace", label: "Général", description: "Nom, slug et visibilité" },
+      { id: "sso", label: "SSO", description: "Authentification externe du workspace" },
       { id: "members", label: "Membres", description: "Accès et provisioning" },
       { id: "roles", label: "Rôles", description: "Permissions effectives" },
       { id: "audit", label: "Audit", description: "Journal du workspace" },
