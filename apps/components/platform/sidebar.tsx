@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
 
+import { usePlatform } from "@/context/PlatformContext";
+import { canAccessSettings } from "@/components/settings/settings-utils";
 import { cn } from "@/lib/utils";
 import { defaultAetherMeetApplicationLinks, type ApplicationSidebarLink } from "@/lib/applications";
 import { useChatStore } from "@/lib/chat-store";
@@ -61,6 +63,7 @@ function DesktopNavLink({
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const { activeWorkspace, currentUser } = usePlatform();
   const customConversations = useChatStore((s) => s.customConversations);
   const conversations = useChatStore((s) => s.conversations);
   const chatUnreadCount = React.useMemo(() => {
@@ -79,11 +82,13 @@ export function AdminSidebar() {
       ),
     [chatUnreadCount]
   );
+  const canSeeSettings = canAccessSettings(currentUser, activeWorkspace);
   const settingsItem = navItems.find((item) => item.href === "/settings");
   const applicationsItem = navItems.find((item) => item.href === "/applications");
   const mainItems = navItems.filter((item) => !["/settings", "/applications"].includes(item.href));
   const mobileItems = navItems.filter((item) =>
-    ["/notifications", "/chat", "/tasks", "/calendar", "/drive", "/settings"].includes(item.href)
+    ["/notifications", "/chat", "/tasks", "/calendar", "/drive"].includes(item.href) ||
+    (item.href === "/settings" && canSeeSettings)
   );
 
   return (
@@ -104,7 +109,7 @@ export function AdminSidebar() {
             <MoreHorizontal className="size-4.5" />
           </button>
 
-          {settingsItem ? <DesktopNavLink {...settingsItem} pathname={pathname} /> : null}
+          {settingsItem && canSeeSettings ? <DesktopNavLink {...settingsItem} pathname={pathname} /> : null}
 
           {applicationsItem ? <DesktopNavLink {...applicationsItem} pathname={pathname} /> : null}
         </div>

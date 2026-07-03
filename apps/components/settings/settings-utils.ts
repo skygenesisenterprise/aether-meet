@@ -118,6 +118,19 @@ export function canManageWorkspace(user: User | null, membership: WorkspaceMembe
   return Boolean(user?.permissions?.includes("workspace:write") || membership?.role === "owner" || membership?.role === "admin");
 }
 
+export function canAccessSettings(user: User | null, workspace: Workspace | null): boolean {
+  if (!user) {
+    return false;
+  }
+
+  return Boolean(
+    user.permissions?.includes("workspace:write") ||
+      user.roles?.includes("owner") ||
+      user.roles?.includes("admin") ||
+      workspace?.ownerId === user.id
+  );
+}
+
 export function canManageMembers(user: User | null, membership: WorkspaceMember | null): boolean {
   return canManageWorkspace(user, membership);
 }

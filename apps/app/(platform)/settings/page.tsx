@@ -12,6 +12,7 @@ import { SecuritySettings } from "@/components/settings/security-settings";
 import { SessionSettings } from "@/components/settings/session-settings";
 import {
   buildSettingsHref,
+  canAccessSettings,
   canDeleteWorkspace,
   canManageMembers,
   canManageWorkspace,
@@ -137,10 +138,18 @@ export default function SettingsPage() {
     () => getWorkspaceMembership(userState, members, workspaceState ?? activeWorkspace),
     [activeWorkspace, members, userState, workspaceState]
   );
+  const resolvedUser = userState ?? currentUser;
   const canEditWorkspace = canManageWorkspace(userState, membership);
   const canEditMembers = canManageMembers(userState, membership);
   const canReadAudit = canReadAuditLogs(userState, membership);
   const canDelete = canDeleteWorkspace(userState, membership);
+  const canViewSettings = canAccessSettings(resolvedUser, activeWorkspace);
+
+  React.useEffect(() => {
+    if (!isLoading && !error && !canViewSettings) {
+      router.replace("/notifications");
+    }
+  }, [canViewSettings, error, isLoading, router]);
 
   function handleSectionChange(nextSection: SettingsSection) {
     router.replace(buildSettingsHref(nextSection, searchParams));
@@ -164,6 +173,10 @@ export default function SettingsPage() {
 
   if (contentLoading) {
     return <GlobalState message="Chargement des données settings…" />;
+  }
+
+  if (!canViewSettings) {
+    return <GlobalState message="Accès refusé à la console de réglages." />;
   }
 
   if (isWorkspaceSection && !activeWorkspace) {

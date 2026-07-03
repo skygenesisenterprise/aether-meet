@@ -1,0 +1,207 @@
+### Aether Meet API - Local Development
+@baseUrl = http://meet.skygenesisenterprise.localhost/api/v1
+@email = test@skygenesisenterprise.com
+@password = ChangeMe-123456!
+@accessToken =
+@workspaceId =
+@conversationId =
+@meetingId =
+@userId =
+@sessionId =
+
+### Health
+GET {{baseUrl}}/health
+
+### Ready
+GET {{baseUrl}}/ready
+
+### Register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "displayName": "Liam",
+  "workspaceName": "Sky Genesis Enterprise"
+}
+
+### Login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Refresh token
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+Origin: http://meet.skygenesisenterprise.localhost
+
+{}
+
+### Auth me
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### App me
+GET {{baseUrl}}/me
+Authorization: Bearer {{accessToken}}
+
+### Update me
+PATCH {{baseUrl}}/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "displayName": "Liam Von Astoria",
+  "avatarUrl": "",
+  "status": "available"
+}
+
+### List workspaces
+GET {{baseUrl}}/workspaces
+Authorization: Bearer {{accessToken}}
+
+### Create workspace
+POST {{baseUrl}}/workspaces
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Aether Meet Development",
+  "slug": "aether-meet-development",
+  "description": "Local development workspace for Aether Meet"
+}
+
+### Get workspace
+GET {{baseUrl}}/workspaces/{{workspaceId}}
+Authorization: Bearer {{accessToken}}
+
+### Update workspace
+PATCH {{baseUrl}}/workspaces/{{workspaceId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Aether Meet Dev",
+  "description": "Updated local development workspace"
+}
+
+### List workspace members
+GET {{baseUrl}}/workspaces/{{workspaceId}}/members
+Authorization: Bearer {{accessToken}}
+
+### Create channel
+POST {{baseUrl}}/workspaces/{{workspaceId}}/channels
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "teamId": null,
+  "name": "Development",
+  "slug": "development",
+  "description": "Aether Meet development channel",
+  "type": "standard",
+  "visibility": "public"
+}
+
+### List channels
+GET {{baseUrl}}/workspaces/{{workspaceId}}/channels
+Authorization: Bearer {{accessToken}}
+
+### Create conversation
+POST {{baseUrl}}/workspaces/{{workspaceId}}/conversations
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "type": "group",
+  "name": "Aether Meet Core",
+  "memberIds": []
+}
+
+### List conversations
+GET {{baseUrl}}/workspaces/{{workspaceId}}/conversations
+Authorization: Bearer {{accessToken}}
+
+### Send message
+POST {{baseUrl}}/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "type": "text",
+  "content": "Message sent from requests.http",
+  "metadata": {
+    "source": "requests.http",
+    "environment": "local"
+  }
+}
+
+### List messages
+GET {{baseUrl}}/conversations/{{conversationId}}/messages?limit=50
+Authorization: Bearer {{accessToken}}
+
+### Create meeting
+POST {{baseUrl}}/workspaces/{{workspaceId}}/meetings
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Aether Meet Local Test",
+  "conversationId": "{{conversationId}}"
+}
+
+### Get meeting
+GET {{baseUrl}}/meetings/{{meetingId}}
+Authorization: Bearer {{accessToken}}
+
+### Start meeting
+POST {{baseUrl}}/meetings/{{meetingId}}/start
+Authorization: Bearer {{accessToken}}
+
+### End meeting
+POST {{baseUrl}}/meetings/{{meetingId}}/end
+Authorization: Bearer {{accessToken}}
+
+### Cancel meeting
+POST {{baseUrl}}/meetings/{{meetingId}}/cancel
+Authorization: Bearer {{accessToken}}
+
+### List meeting participants
+GET {{baseUrl}}/meetings/{{meetingId}}/participants
+Authorization: Bearer {{accessToken}}
+
+### Add meeting participant
+POST {{baseUrl}}/meetings/{{meetingId}}/participants
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "userId": "{{userId}}",
+  "role": "participant"
+}
+
+### Meeting join token
+POST {{baseUrl}}/meetings/{{meetingId}}/join-token
+Authorization: Bearer {{accessToken}}
+
+### List auth sessions
+GET {{baseUrl}}/auth/sessions
+Authorization: Bearer {{accessToken}}
+
+### Delete auth session
+DELETE {{baseUrl}}/auth/sessions/{{sessionId}}
+Authorization: Bearer {{accessToken}}
+
+### Logout
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+Origin: http://meet.skygenesisenterprise.localhost
+
+{}

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildSettingsHref,
+  canAccessSettings,
   canAssignRole,
   canDeleteWorkspace,
   canManageMembers,
@@ -25,10 +26,15 @@ test("buildSettingsHref preserves existing query params", () => {
 
 test("workspace permission helpers follow expected role rules", () => {
   const ownerUser = { permissions: ["workspace:write"], roles: ["owner"] } as const;
+  const adminUser = { permissions: [], roles: ["admin"], id: "user_admin" } as const;
+  const plainUser = { permissions: [], roles: ["member"], id: "user_member" } as const;
   const member = { role: "member" };
   const owner = { role: "owner" };
+  const workspace = { ownerId: "user_owner" };
 
   assert.equal(canManageWorkspace(ownerUser as never, member as never), true);
+  assert.equal(canAccessSettings(adminUser as never, workspace as never), true);
+  assert.equal(canAccessSettings(plainUser as never, workspace as never), false);
   assert.equal(canManageMembers(null, member as never), false);
   assert.equal(canReadAuditLogs(null, owner as never), true);
   assert.equal(canDeleteWorkspace(null, owner as never), true);
