@@ -8,8 +8,8 @@ const apiProxyTarget = (process.env.API_INTERNAL_URL || "http://localhost:8080/a
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "meet.skygenesisenterprise.com",
-    "meet.localhost",
-    "api.meet.localhost",
+    "meet.skygenesisenterprise.localhost",
+    "api.meet.skygenesisenterprise.localhost",
     "meet.skygenesisenterprise.lan",
     "api.meet.skygenesisenterprise.lan",
     "192.168.1.3",
