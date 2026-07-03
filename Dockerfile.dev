@@ -82,11 +82,8 @@ COPY apps/components.json      ./apps/
 COPY apps/eslint.config.mjs    ./apps/
 COPY apps/app/                 ./apps/app/
 COPY apps/components/          ./apps/components/
-COPY apps/config/              ./apps/config/
 COPY apps/context/             ./apps/context/
 COPY apps/hooks/               ./apps/hooks/
-COPY apps/i18n/                ./apps/i18n/
-COPY apps/messages/            ./apps/messages/
 COPY apps/lib/                 ./apps/lib/
 COPY apps/public/              ./apps/public/
 COPY apps/styles/              ./apps/styles/

@@ -6,7 +6,14 @@ const isStaticWebBuild = process.env.BUILD_WEB_STATIC === "true";
 const apiProxyTarget = (process.env.API_INTERNAL_URL || "http://localhost:8080/api/v1").replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["meet.skygenesisenterprise.com", "192.168.1.3"],
+  allowedDevOrigins: [
+    "meet.skygenesisenterprise.com",
+    "meet.localhost",
+    "api.meet.localhost",
+    "meet.skygenesisenterprise.lan",
+    "api.meet.skygenesisenterprise.lan",
+    "192.168.1.3",
+  ],
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },

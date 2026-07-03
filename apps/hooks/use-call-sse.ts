@@ -67,11 +67,14 @@ export function useCallSSE() {
   const { currentUser } = usePlatform();
   const { addIncomingCall, removeIncomingCall, removeOutgoingCall } = useCallStore();
   const eventSourceRef = useRef<EventSource | null>(null);
+  const intentionalCloseRef = useRef(false);
 
   useEffect(() => {
     if (!currentUser?.id) {
       return;
     }
+
+    intentionalCloseRef.current = false;
 
     // Construire l'URL SSE
     const sseUrl = `${window.location.origin}/api/v1/calls/events?userId=${currentUser.id}`;
@@ -79,6 +82,10 @@ export function useCallSSE() {
     // Créer la connexion EventSource
     const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      console.log("SSE connected for calls");
+    };
 
     // Gérer les différents types d'événements
     eventSource.onmessage = (event) => {
@@ -132,8 +139,7 @@ export function useCallSSE() {
             break;
 
           case "connected":
-            // Connexion SSE établie
-            console.log("SSE connected for calls");
+            // Handshake SSE reçu
             break;
 
           default:
@@ -145,18 +151,23 @@ export function useCallSSE() {
     };
 
     eventSource.onerror = (error) => {
-      console.error("SSE error:", error);
-      // Tentative de reconnexion après une erreur
-      setTimeout(() => {
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-        // La reconnexion sera gérée par le prochain useEffect
-      }, 5000);
+      if (intentionalCloseRef.current) {
+        return;
+      }
+
+      // EventSource gère lui-meme la reconnexion. En dev, un close/reconnect
+      // transitoire ne doit pas polluer la console comme une erreur applicative.
+      if (eventSource.readyState === EventSource.CONNECTING) {
+        console.warn("SSE reconnecting for calls");
+        return;
+      }
+
+      console.warn("SSE closed for calls", error);
     };
 
     // Nettoyer à la déconnexion
     return () => {
+      intentionalCloseRef.current = true;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
