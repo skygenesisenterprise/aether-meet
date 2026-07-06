@@ -229,8 +229,8 @@ importers:
         specifier: ~14.0.12
         version: 14.0.12(expo@54.0.35)(react-native@0.81.5)(react@19.1.0)
       expo-glass-effect:
-        specifier: ~0.1.10
-        version: 0.1.10(expo@54.0.35)(react-native@0.81.5)(react@19.1.0)
+        specifier: ~57.0.0
+        version: 57.0.0(expo@54.0.35)(react-native@0.81.5)(react@19.1.0)
       expo-haptics:
         specifier: ^57.0.0
         version: 57.0.0(expo@54.0.35)
@@ -9566,8 +9566,8 @@ packages:
       react-native: 0.81.5(@babel/core@7.29.7)(@types/react@19.1.17)(react@19.1.0)
     dev: false
 
-  /expo-glass-effect@0.1.10(expo@54.0.35)(react-native@0.81.5)(react@19.1.0):
-    resolution: {integrity: sha512-R0OrsMbs2TxFQZp26rRDl1Wxu5PaBXM7qAxiT0Bfyb1bojr3eI90bMKry9lBM3aKbq7DOBXYT7ePrE3vUaf41g==}
+  /expo-glass-effect@57.0.0(expo@54.0.35)(react-native@0.81.5)(react@19.1.0):
+    resolution: {integrity: sha512-QadzKSKpjXOlkIEnkX7SqHwCgUJZLjhWUvg1AauaUgKVnz35Ror41juM4y+KNr9pFxnukSDUz8L+UvdZVCNu6Q==}
     peerDependencies:
       expo: '*'
       react: '*'
