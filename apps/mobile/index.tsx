@@ -1,3 +1,5 @@
+import * as React from "react";
+
 import { Redirect } from "expo-router";
 
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
@@ -9,5 +11,5 @@ export default function Index() {
     return null;
   }
 
-  return <Redirect href={isAuthenticated ? (isLocked ? "/unlock" : "/home") : "/login"} />;
+  return <Redirect href={(isAuthenticated ? (isLocked ? "/unlock" : "/activity") : "/login") as never} />;
 }

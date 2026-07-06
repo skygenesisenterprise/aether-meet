@@ -1,5 +1,6 @@
 const DEFAULT_PUBLIC_API_PATH = "/api/v1";
 const DEFAULT_PUBLIC_REALTIME_PATH = "/api/v1/realtime/ws";
+const DEFAULT_EXPO_DEV_API_URL = "http://meet.skygenesisenterprise.localhost/api/v1";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DOCKER_HOST_PATTERN = /(^|\.)((server|worker|webrtc|livekit|postgresql|redis))$/i;
 const PRIVATE_IPV4_PATTERN = /^(?:10|127|169\.254|172\.(?:1[6-9]|2\d|3[0-1])|192\.168)\./;
@@ -15,6 +16,35 @@ function normalizeBaseUrl(value: string, fallback: string): string {
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === "production";
+}
+
+function isExpoRuntime(): boolean {
+  return Boolean(process.env.EXPO_OS || process.env.EXPO_ROUTER_APP_ROOT);
+}
+
+export function getApiClientSupport(): string {
+  if (process.env.EXPO_OS) {
+    return `expo-${process.env.EXPO_OS}`;
+  }
+
+  if (isExpoRuntime()) {
+    return "expo";
+  }
+
+  if (typeof window !== "undefined") {
+    return "web";
+  }
+
+  return "server";
+}
+
+export function getApiClientHeaders(): HeadersInit {
+  const support = getApiClientSupport();
+
+  return {
+    "X-Aether-Client": support.startsWith("expo") ? "mobile" : support,
+    "X-Aether-Client-Support": support,
+  };
 }
 
 function isPrivateHostname(hostname: string): boolean {
@@ -39,12 +69,20 @@ function parseUrl(value: string): URL | null {
 export function getApiBaseUrl(): string {
   if (typeof window === "undefined") {
     return normalizeBaseUrl(
-      process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_PUBLIC_API_PATH,
+      process.env.API_INTERNAL_URL ??
+        process.env.EXPO_PUBLIC_API_URL ??
+        process.env.NEXT_PUBLIC_API_URL ??
+        (isExpoRuntime() && !isProductionRuntime() ? DEFAULT_EXPO_DEV_API_URL : DEFAULT_PUBLIC_API_PATH),
       DEFAULT_PUBLIC_API_PATH
     );
   }
 
-  return normalizeBaseUrl(process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_PUBLIC_API_PATH, DEFAULT_PUBLIC_API_PATH);
+  return normalizeBaseUrl(
+    process.env.EXPO_PUBLIC_API_URL ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      (isExpoRuntime() && !isProductionRuntime() ? DEFAULT_EXPO_DEV_API_URL : DEFAULT_PUBLIC_API_PATH),
+    DEFAULT_PUBLIC_API_PATH
+  );
 }
 
 export function getRealtimeUrl(): string {

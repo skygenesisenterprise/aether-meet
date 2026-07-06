@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { MaterialIcons } from "@expo/vector-icons";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +13,20 @@ import {
 
 import { usePhoneSafeAreaInsets } from "@/components/mobile/use-phone-safe-area";
 import type { IconName } from "@/data/developer";
+
+const cardShadow =
+  Platform.select({
+    web: {
+      boxShadow: "0 8px 16px rgba(17, 24, 39, 0.08)",
+    },
+    default: {
+      shadowColor: "#111827",
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 4,
+    },
+  }) ?? {};
 
 interface AuthScreenProps {
   children: React.ReactNode;
@@ -184,11 +199,7 @@ const styles = StyleSheet.create({
     padding: 22,
     gap: 16,
     backgroundColor: "#FFFFFF",
-    shadowColor: "#111827",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    ...cardShadow,
   },
   brandBlock: {
     alignItems: "center",

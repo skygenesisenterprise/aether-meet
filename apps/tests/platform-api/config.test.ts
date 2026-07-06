@@ -10,14 +10,33 @@ import {
 
 test("getApiBaseUrl uses internal URL on the server", () => {
   const previousInternal = process.env.API_INTERNAL_URL;
+  const previousExpoPublic = process.env.EXPO_PUBLIC_API_URL;
   const previousPublic = process.env.NEXT_PUBLIC_API_URL;
 
   process.env.API_INTERNAL_URL = "http://server:8080/api/v1";
+  process.env.EXPO_PUBLIC_API_URL = "http://meet.skygenesisenterprise.localhost/api/v1";
   process.env.NEXT_PUBLIC_API_URL = "/api/v1";
 
   assert.equal(getApiBaseUrl(), "http://server:8080/api/v1");
 
   process.env.API_INTERNAL_URL = previousInternal;
+  process.env.EXPO_PUBLIC_API_URL = previousExpoPublic;
+  process.env.NEXT_PUBLIC_API_URL = previousPublic;
+});
+
+test("getApiBaseUrl uses Expo public URL when no internal URL is configured", () => {
+  const previousInternal = process.env.API_INTERNAL_URL;
+  const previousExpoPublic = process.env.EXPO_PUBLIC_API_URL;
+  const previousPublic = process.env.NEXT_PUBLIC_API_URL;
+
+  delete process.env.API_INTERNAL_URL;
+  process.env.EXPO_PUBLIC_API_URL = "http://meet.skygenesisenterprise.localhost/api/v1";
+  process.env.NEXT_PUBLIC_API_URL = "/api/v1";
+
+  assert.equal(getApiBaseUrl(), "http://meet.skygenesisenterprise.localhost/api/v1");
+
+  process.env.API_INTERNAL_URL = previousInternal;
+  process.env.EXPO_PUBLIC_API_URL = previousExpoPublic;
   process.env.NEXT_PUBLIC_API_URL = previousPublic;
 });
 

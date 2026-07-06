@@ -7,6 +7,9 @@ import {
   getMobileBiometricStatus,
   type MobileBiometricStatus,
 } from "@/components/mobile/mobile-biometrics";
+import { authApi } from "@/lib/api/auth";
+import { getMockModeEnabled } from "@/lib/api/config";
+import type { User } from "@/lib/api/types";
 
 interface MobileSessionUser {
   email: string;
@@ -92,6 +95,26 @@ function persistSnapshot(snapshot: MobileAuthSnapshot) {
   }
 }
 
+function splitDisplayName(displayName?: string): Pick<MobileSessionUser, "firstName" | "lastName"> {
+  const parts = displayName?.trim().split(/\s+/).filter(Boolean) ?? [];
+  const [firstName, ...lastNameParts] = parts;
+
+  return {
+    firstName,
+    lastName: lastNameParts.join(" ") || undefined,
+  };
+}
+
+function createSessionFromApiUser(user: User): MobileSession {
+  return {
+    user: {
+      email: user.email,
+      ...splitDisplayName(user.displayName || user.name),
+    },
+    authenticatedAt: new Date().toISOString(),
+  };
+}
+
 export function MobileAuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = React.useState<MobileSession | null>(null);
   const [isHydrating, setIsHydrating] = React.useState(true);
@@ -106,12 +129,55 @@ export function MobileAuthProvider({ children }: { children: React.ReactNode }) 
   const appStateRef = React.useRef(AppState.currentState);
 
   React.useEffect(() => {
-    const snapshot = readStoredSnapshot();
+    let isMounted = true;
 
-    setSession(snapshot.session);
-    setBiometricEnabled(snapshot.biometricsEnabled);
-    setIsLocked(!!snapshot.session && snapshot.biometricsEnabled);
-    setIsHydrating(false);
+    async function hydrateSession() {
+      const snapshot = readStoredSnapshot();
+      setBiometricEnabled(snapshot.biometricsEnabled);
+
+      try {
+        const apiUser = await authApi.bootstrap();
+        if (!isMounted) {
+          return;
+        }
+
+        if (apiUser) {
+          const apiSession = createSessionFromApiUser(apiUser);
+          persistSnapshot({
+            session: apiSession,
+            biometricsEnabled: snapshot.biometricsEnabled,
+          });
+          setSession(apiSession);
+          setIsLocked(snapshot.biometricsEnabled);
+          setIsHydrating(false);
+          return;
+        }
+      } catch {
+        // In real mode, an API session is required. Mock mode may still use the local mobile snapshot.
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      const fallbackSession = getMockModeEnabled() ? snapshot.session : null;
+      if (!fallbackSession) {
+        persistSnapshot({
+          session: null,
+          biometricsEnabled: snapshot.biometricsEnabled,
+        });
+        authApi.clearTokens();
+      }
+      setSession(fallbackSession);
+      setIsLocked(!!fallbackSession && snapshot.biometricsEnabled);
+      setIsHydrating(false);
+    }
+
+    void hydrateSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   React.useEffect(() => {
@@ -178,6 +244,9 @@ export function MobileAuthProvider({ children }: { children: React.ReactNode }) 
   }, [biometricEnabled, persistCurrentSnapshot]);
 
   const signOut = React.useCallback(() => {
+    void authApi.logout().catch(() => {
+      authApi.clearTokens();
+    });
     persistCurrentSnapshot(null, biometricEnabled);
     setSession(null);
     setIsLocked(false);

@@ -1,6 +1,6 @@
-import { getAccessTokenProvider } from "@/lib/api/auth";
-import { getApiBaseUrl, getRequestTimeoutMs, joinApiPath } from "@/lib/api/config";
+import { getApiBaseUrl, getApiClientHeaders, getRequestTimeoutMs, joinApiPath } from "@/lib/api/config";
 import { ApiError, classifyApiError } from "@/lib/api/errors";
+import { getAccessTokenProvider } from "@/lib/api/token-provider";
 import type { ApiFailureEnvelope, ApiListEnvelope, ApiMeta, ApiSuccessEnvelope, PaginatedResponse } from "@/lib/api/types";
 
 export interface ApiRequestOptions<TBody = unknown> {
@@ -18,7 +18,7 @@ export interface ApiRequestOptions<TBody = unknown> {
 
 function mergeSignals(signal?: AbortSignal, timeoutMs = getRequestTimeoutMs()): AbortSignal {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new DOMException("Request timed out.", "AbortError")), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(createAbortError("Request timed out.")), timeoutMs);
 
   if (signal) {
     signal.addEventListener(
@@ -42,12 +42,22 @@ function mergeSignals(signal?: AbortSignal, timeoutMs = getRequestTimeoutMs()): 
   return controller.signal;
 }
 
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function isTransientStatus(status: number): boolean {
   return status === 408 || status === 429 || status === 502 || status === 503 || status === 504;
 }
 
 function isRetriableNetworkError(error: unknown): boolean {
-  return error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError");
+  return error instanceof TypeError || isAbortError(error);
 }
 
 function toJsonBody(body: unknown): BodyInit | undefined {
@@ -105,7 +115,10 @@ async function fetchWithAuth<TResponse, TBody>(
   const token = options.skipAuth ? null : await provider.getAccessToken();
   const signal = mergeSignals(options.signal, options.timeoutMs);
   const body = toJsonBody(options.body);
-  const headers = new Headers(options.headers ?? {});
+  const headers = new Headers(getApiClientHeaders());
+  new Headers(options.headers ?? {}).forEach((value, key) => {
+    headers.set(key, value);
+  });
 
   if (body && !(body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -195,7 +208,10 @@ export async function apiListRequest<TItem, TBody = never>(
   const provider = getAccessTokenProvider();
   const token = options.skipAuth ? null : await provider.getAccessToken();
   const signal = mergeSignals(options.signal, options.timeoutMs);
-  const headers = new Headers(options.headers ?? {});
+  const headers = new Headers(getApiClientHeaders());
+  new Headers(options.headers ?? {}).forEach((value, key) => {
+    headers.set(key, value);
+  });
 
   headers.set("Accept", "application/json");
   if (token) {

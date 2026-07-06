@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,23 +23,56 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"],
-      "@/assets/*": ["./assets"],
-      "@/components/*": ["./components/*"],
-      "@/context/*": ["./context/*"],
-      "@/lib/*": ["./lib/*"],
-      "@/styles/*": ["./styles/*"],
-      "@/hooks/*": ["./hooks/*"],
-      "@/services/*": ["./services"],
-      "@/i18n/*": ["./i18n/*"],
-      "@/types/*": ["./types/*"],
-      "@/config/*": ["./config/*"],
-      "@/content/*": ["./content/*"],
-      "@/constants/*": ["./constants/*"],
-      "@/data/*": ["./data/*"],
-      "@/utils/*": ["./utils/*"],
+      "@/*": [
+        "./*"
+      ],
+      "@/assets/*": [
+        "./assets"
+      ],
+      "@/components/*": [
+        "./components/*"
+      ],
+      "@/context/*": [
+        "./context/*"
+      ],
+      "@/lib/*": [
+        "./lib/*"
+      ],
+      "@/styles/*": [
+        "./styles/*"
+      ],
+      "@/hooks/*": [
+        "./hooks/*"
+      ],
+      "@/services/*": [
+        "./services"
+      ],
+      "@/i18n/*": [
+        "./i18n/*"
+      ],
+      "@/types/*": [
+        "./types/*"
+      ],
+      "@/config/*": [
+        "./config/*"
+      ],
+      "@/content/*": [
+        "./content/*"
+      ],
+      "@/constants/*": [
+        "./constants/*"
+      ],
+      "@/data/*": [
+        "./data/*"
+      ],
+      "@/utils/*": [
+        "./utils/*"
+      ]
     },
-    "types": ["next", "node"],
+    "types": [
+      "next",
+      "node"
+    ],
     "allowImportingTsExtensions": true
   },
   "include": [
@@ -44,13 +81,19 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "test/**"],
+  "exclude": [
+    "node_modules",
+    "test/**"
+  ],
   "ts-node": {
     "esm": true,
     "compilerOptions": {
       "module": "esnext"
     }
-  }
+  },
+  "extends": "expo/tsconfig.base"
 }

@@ -3,16 +3,39 @@ import * as React from "react";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Redirect, Tabs, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Platform, StyleSheet, useColorScheme, View, ViewStyle } from "react-native";
+import { LogBox, Platform, StyleSheet, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import "@/styles/globals.css";
 
 import { MobileAuthProvider, useMobileAuth } from "@/components/mobile/mobile-auth-provider";
-import { PaymentAuthorizationListener } from "@/components/mobile/payment-authorization-listener";
 import { PortalProvider, usePortal } from "@/components/mobile/portal-provider";
 import { emitTabScrollToTop } from "@/components/mobile/tab-scroll-to-top";
-import { Colors } from "@/constants/theme";
+
+const ignoredWebWarnings = [
+  "props.pointerEvents is deprecated. Use style.pointerEvents",
+];
+
+if (process.env.NODE_ENV !== "production" && Platform.OS === "web") {
+  LogBox.ignoreLogs(ignoredWebWarnings);
+
+  const consoleWithAetherFilter = console as Console & {
+    __aetherMobileWebWarningFilter?: boolean;
+  };
+
+  if (!consoleWithAetherFilter.__aetherMobileWebWarningFilter) {
+    const originalWarn = console.warn.bind(console);
+
+    consoleWithAetherFilter.warn = (...args: unknown[]) => {
+      const message = typeof args[0] === "string" ? args[0] : "";
+      if (ignoredWebWarnings.some((warning) => message.includes(warning))) {
+        return;
+      }
+      originalWarn(...args);
+    };
+    consoleWithAetherFilter.__aetherMobileWebWarningFilter = true;
+  }
+}
 
 interface TabIconProps {
   color: React.ComponentProps<typeof MaterialIcons>["color"];
@@ -20,20 +43,16 @@ interface TabIconProps {
   name: React.ComponentProps<typeof MaterialIcons>["name"];
 }
 
-interface WebPhoneFrameProps {
-  children: React.ReactNode;
-}
-
-function WebPhoneFrame({ children }: WebPhoneFrameProps) {
+function WebPhoneFrame({ children }: { children: React.ReactNode }) {
   if (Platform.OS !== "web") {
     return <>{children}</>;
   }
 
   return (
-    <View style={styles.browserStage as ViewStyle}>
-      <View style={styles.phoneShell as ViewStyle}>
-        <View style={[styles.dynamicIsland as ViewStyle, { pointerEvents: "none" as const }]} />
-        <View style={styles.phoneScreen as ViewStyle}>{children}</View>
+    <View style={styles.browserStage}>
+      <View style={styles.phoneShell}>
+        <View style={styles.dynamicIsland} />
+        <View style={styles.phoneScreen}>{children}</View>
       </View>
     </View>
   );
@@ -41,16 +60,8 @@ function WebPhoneFrame({ children }: WebPhoneFrameProps) {
 
 function TabIcon({ color, focused, name }: TabIconProps) {
   return (
-    <View style={[styles.tabIconWrap as ViewStyle, focused && styles.tabIconWrapActive as ViewStyle]}>
-      <MaterialIcons
-        name={name}
-        size={24}
-        color={color}
-        style={{
-          opacity: focused ? 1 : 0.96,
-          transform: [{ scale: focused ? 1.04 : 1 }],
-        }}
-      />
+    <View style={[styles.tabIconWrap, focused ? styles.tabIconWrapActive : null]}>
+      <MaterialIcons color={color} name={name} size={24} />
     </View>
   );
 }
@@ -58,11 +69,8 @@ function TabIcon({ color, focused, name }: TabIconProps) {
 function MobileLayoutTabs() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const scheme = useColorScheme();
-  const theme = Colors[scheme === "dark" ? "dark" : "light"];
-  const { isAuthenticated, isHydrating, isLocked } = useMobileAuth();
   const { hasPortalContent } = usePortal();
-
+  const { isAuthenticated, isHydrating, isLocked } = useMobileAuth();
   const isPublicRoute = pathname === "/" || pathname === "/login" || pathname === "/register" || pathname === "/unlock";
 
   if (isHydrating) {
@@ -78,7 +86,7 @@ function MobileLayoutTabs() {
   }
 
   if (isAuthenticated && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
-    return <Redirect href="/home" />;
+    return <Redirect href={"/activity" as never} />;
   }
 
   return (
@@ -86,269 +94,165 @@ function MobileLayoutTabs() {
       screenOptions={{
         headerShown: false,
         sceneStyle: {
-          backgroundColor: theme.background,
+          backgroundColor: "#F6F6FB",
         },
-        tabBarActiveTintColor: "#007AFF",
-        tabBarInactiveTintColor: "#6B7280",
+        tabBarActiveTintColor: "#5B5FC7",
+        tabBarInactiveTintColor: "#111827",
         tabBarLabelStyle: {
-          fontSize: 10,
-          lineHeight: 12,
-          fontWeight: "600",
-          marginTop: 0,
+          fontSize: 11,
+          fontWeight: "700",
+          lineHeight: 13,
           marginBottom: 4,
         },
         tabBarStyle: {
-          display: hasPortalContent ? "none" : "flex",
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: 74,
-          paddingTop: 6,
-          paddingBottom: insets.bottom + 8,
+          backgroundColor: "rgba(255,255,255,0.98)",
+          borderTopColor: "#D7DBE7",
           borderTopWidth: 1,
-          borderTopColor: "#D1D5DB",
-          borderRadius: 0,
-          backgroundColor: "rgba(255, 255, 255, 0.96)",
+          bottom: 0,
+          display: hasPortalContent ? "none" : "flex",
+          height: 72 + insets.bottom,
+          left: 0,
+          paddingBottom: insets.bottom + 7,
+          paddingTop: 6,
+          position: "absolute",
+          right: 0,
         },
         tabBarItemStyle: {
-          borderRadius: 0,
-          flex: 1,
-          paddingHorizontal: 4,
+          paddingHorizontal: 2,
         },
       }}
     >
-      {/* Home screen */}
       <Tabs.Screen name="index" options={{ href: null }} />
+      <Tabs.Screen name="login" options={{ href: null, tabBarStyle: { display: "none" } }} />
+      <Tabs.Screen name="register" options={{ href: null, tabBarStyle: { display: "none" } }} />
+      <Tabs.Screen name="unlock" options={{ href: null, tabBarStyle: { display: "none" } }} />
+      <Tabs.Screen name="chat-viewer" options={{ href: null, tabBarStyle: { display: "none" } }} />
       <Tabs.Screen
-        name="home"
         listeners={{
           tabPress: () => {
-            if (pathname === "/home") {
-              emitTabScrollToTop("home");
-            }
+            if (pathname === "/activity") emitTabScrollToTop("activity");
           },
         }}
+        name="activity"
         options={{
-          href: "/home",
-          title: "Home",
-          tabBarLabel: "Home",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="home-filled" color={color} focused={focused} />
-          ),
+          title: "Activités",
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="notifications-none" />,
+          tabBarLabel: "Activités",
         }}
       />
       <Tabs.Screen
-        name="invest"
         listeners={{
           tabPress: () => {
-            if (pathname === "/invest") {
-              emitTabScrollToTop("invest");
-            }
+            if (pathname === "/chat") emitTabScrollToTop("chat");
           },
         }}
+        name="chat"
         options={{
-          title: "Investir",
-          tabBarLabel: "Investir",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="trending-up" color={color} focused={focused} />
-          ),
+          title: "Conversation",
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="chat-bubble-outline" />,
+          tabBarLabel: "Conversation",
         }}
       />
       <Tabs.Screen
-        name="transferts"
         listeners={{
           tabPress: () => {
-            if (pathname === "/transferts") {
-              emitTabScrollToTop("transferts");
-            }
+            if (pathname === "/teams") emitTabScrollToTop("teams");
           },
         }}
+        name="teams"
         options={{
-          title: "Virements",
-          tabBarLabel: "Virements",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="swap-horiz" color={color} focused={focused} />
-          ),
+          title: "Équipes",
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="groups-2" />,
+          tabBarLabel: "Équipes",
         }}
       />
       <Tabs.Screen
-        name="vault"
         listeners={{
           tabPress: () => {
-            if (pathname === "/vault") {
-              emitTabScrollToTop("vault");
-            }
+            if (pathname === "/calendar") emitTabScrollToTop("calendar");
           },
         }}
+        name="calendar"
         options={{
-          title: "Vault",
-          tabBarLabel: "Vault",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="account-balance" color={color} focused={focused} />
-          ),
+          title: "Calendrier",
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="calendar-today" />,
+          tabBarLabel: "Calendrier",
         }}
       />
-      <Tabs.Screen name="vault-fund" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="vault-create" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="vault-workflows" options={{ href: null, tabBarStyle: { display: "none" } }} />
       <Tabs.Screen
-        name="hub"
         listeners={{
           tabPress: () => {
-            if (pathname === "/hub") {
-              emitTabScrollToTop("hub");
-            }
+            if (pathname === "/calls") emitTabScrollToTop("calls");
           },
         }}
+        name="calls"
         options={{
-          title: "Hub",
-          tabBarLabel: "Hub",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon name="widgets" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{ href: null, tabBarStyle: { display: "none" } }}
-      />
-      <Tabs.Screen name="profile-notifications" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-infos" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-bank" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-security" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-document" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-org" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-financial" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-ledger" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-ledger-terminal" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-support" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="profile-settings" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="cards" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-partner" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-partner-scan" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-detail" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-detail-settings" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-create" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="cards-create-option" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="account" options={{ href: null }} />
-      <Tabs.Screen name="account-detail" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="account-sepa" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="account-wero" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="account-enterprise" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="account-vault" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="account-settings" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="analytics" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="qr-scan" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="qr-scan-confirm" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="widget-create" options={{ href: null, tabBarStyle: { display: "none" } }} />
-
-      <Tabs.Screen name="authorize-payment" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="transaction-detail" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen name="transactions" options={{ href: null, tabBarStyle: { display: "none" } }} />
-      <Tabs.Screen
-        name="login"
-        options={{
-          href: null,
-          tabBarStyle: {
-            display: "none",
-          },
-        }}
-      />
-      <Tabs.Screen
-        name="register"
-        options={{
-          href: null,
-          tabBarStyle: {
-            display: "none",
-          },
-        }}
-      />
-      <Tabs.Screen
-        name="unlock"
-        options={{
-          href: null,
-          tabBarStyle: {
-            display: "none",
-          },
+          title: "Appels",
+          tabBarIcon: ({ color, focused }) => <TabIcon color={color} focused={focused} name="call" />,
+          tabBarLabel: "Appels",
         }}
       />
     </Tabs>
   );
 }
 
-const phoneInitialMetrics = Platform.OS === "web"
-  ? { insets: { top: 50, bottom: 34, left: 0, right: 0 }, frame: { x: 0, y: 0, width: 393, height: 852 } }
-  : undefined;
-
-export default function MobileLayout() {
+export default function MobileRootLayout() {
   return (
-    <SafeAreaProvider initialMetrics={phoneInitialMetrics}>
-      <StatusBar style="dark" />
-      <WebPhoneFrame>
-        <MobileAuthProvider>
-          <PortalProvider>
-            <PaymentAuthorizationListener />
+    <SafeAreaProvider>
+      <MobileAuthProvider>
+        <PortalProvider>
+          <StatusBar style="dark" />
+          <WebPhoneFrame>
             <MobileLayoutTabs />
-          </PortalProvider>
-        </MobileAuthProvider>
-      </WebPhoneFrame>
+          </WebPhoneFrame>
+        </PortalProvider>
+      </MobileAuthProvider>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   browserStage: {
-    flex: 1,
-    minHeight: "100vh" as any,
     alignItems: "center",
+    backgroundColor: "#E9EDF5",
+    flex: 1,
     justifyContent: "center",
     padding: 24,
-    backgroundColor: "#E8ECF3",
   },
   phoneShell: {
-    width: "min(393px, calc(100vw - 32px))" as any,
-    height: "min(852px, calc(100vh - 32px))" as any,
-    minHeight: 640,
-    padding: 10,
-    borderRadius: 54,
-    backgroundColor: "#111318",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    shadowColor: "#111827",
-    shadowOpacity: 0.28,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 24 },
-  },
-  phoneScreen: {
-    flex: 1,
+    backgroundColor: "#0B1020",
+    borderRadius: 48,
+    height: "100%",
+    maxHeight: 900,
+    maxWidth: 430,
     overflow: "hidden",
-    borderRadius: 44,
-    backgroundColor: "#F8F7F4",
+    padding: 10,
+    width: "100%",
   },
   dynamicIsland: {
-    position: "absolute",
-    top: 22,
     alignSelf: "center",
-    zIndex: 10,
-    width: 126,
-    height: 36,
+    backgroundColor: "#09090B",
     borderRadius: 999,
-    backgroundColor: "#050608",
+    height: 24,
+    marginTop: 8,
+    position: "absolute",
+    width: 92,
+    zIndex: 5,
+  },
+  phoneScreen: {
+    backgroundColor: "#F6F6FB",
+    borderRadius: 38,
+    flex: 1,
+    overflow: "hidden",
   },
   tabIconWrap: {
-    width: 34,
-    height: 30,
-    borderRadius: 10,
     alignItems: "center",
+    borderRadius: 999,
+    height: 30,
     justifyContent: "center",
+    width: 42,
   },
   tabIconWrapActive: {
-    backgroundColor: "transparent",
+    backgroundColor: "#E6E7FF",
   },
 });

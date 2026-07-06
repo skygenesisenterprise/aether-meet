@@ -7,46 +7,47 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
 import { ScreenTransition } from "@/components/mobile/screen-transition";
 import { usePhoneSafeAreaInsets } from "@/components/mobile/use-phone-safe-area";
-
-// TODO: Connect registration endpoint
-// TODO: Connect Aether Identity user creation
-// TODO: Connect KYC onboarding later
-// TODO: Connect privacy consent flow
-
-const regions = ["Europe", "North America", "Asia-Pacific"];
+import { authApi } from "@/lib/api/auth";
 
 export default function RegisterScreen() {
   const insets = usePhoneSafeAreaInsets();
   const { signIn } = useMobileAuth();
-  const [prenom, setPrenom] = React.useState("");
-  const [nom, setNom] = React.useState("");
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [confirm, setConfirm] = React.useState("");
-  const [region, setRegion] = React.useState(0);
-  const [showRegion, setShowRegion] = React.useState(false);
-  const [error, setError] = React.useState("");
-  const [success, setSuccess] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [submitting, setSubmitting] = React.useState(false);
 
-  function handleSubmit() {
-    setError("");
-    setSuccess(false);
-
-    if (!prenom || !nom || !email || !password || !confirm) {
-      setError("Veuillez remplir tous les champs.");
-      return;
-    }
-    if (password !== confirm) {
-      setError("Les mots de passe ne correspondent pas.");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caractères.");
+  async function handleSubmit() {
+    if (submitting) {
       return;
     }
 
-    setSuccess(true);
-    signIn({ email, firstName: prenom, lastName: nom });
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await authApi.register({
+        displayName: [firstName, lastName].filter(Boolean).join(" ").trim() || "Membre Aether",
+        email: email || "member@aethermeet.local",
+        password,
+        workspaceName: "Aether Meet",
+      });
+      const displayName = response.user.displayName?.trim() || firstName || "Membre";
+      const [resolvedFirstName, ...resolvedLastNameParts] = displayName.split(" ");
+
+      signIn({
+        email: response.user.email,
+        firstName: resolvedFirstName,
+        lastName: resolvedLastNameParts.join(" ") || lastName,
+      });
+      router.replace("/activity" as never);
+    } catch {
+      setError("Création impossible. Vérifiez l'API locale ou utilisez un compte existant.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -54,73 +55,38 @@ export default function RegisterScreen() {
       <View style={styles.safeArea}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 40 }]}
-          showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.brandBlock}>
-            <Text style={styles.brandName}>Aether Bank</Text>
+            <Text style={styles.brandName}>Aether Meet</Text>
+            <Text style={styles.brandTagline}>Configurer votre accès mobile workspace.</Text>
           </View>
 
           <View style={styles.formCard}>
-            {error ? (
-              <View style={styles.notice}>
-                <MaterialIcons name="error-outline" size={18} color="#C2410C" />
-                <Text style={styles.noticeText}>{error}</Text>
-              </View>
-            ) : null}
-            {success ? (
-              <View style={[styles.notice, { borderColor: "#BBF7D0", backgroundColor: "#F0FDF4" }]}>
-                <MaterialIcons name="check-circle" size={18} color="#168A45" />
-                <Text style={[styles.noticeText, { color: "#166534" }]}>
-                  Compte créé. Redirection...
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.nameRow}>
-              <View style={[styles.fieldBlock, { flex: 1 }]}>
+            <View style={styles.row}>
+              <View style={[styles.fieldBlock, styles.rowItem]}>
                 <Text style={styles.label}>Prénom</Text>
-                <View style={styles.inputWrap}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Liam"
-                    placeholderTextColor="#9CA3AF"
-                    value={prenom}
-                    onChangeText={setPrenom}
-                    autoCapitalize="words"
-                    textContentType="givenName"
-                  />
-                </View>
+                <TextInput onChangeText={setFirstName} placeholder="Liam" placeholderTextColor="#94A3B8" style={styles.inputBox} value={firstName} />
               </View>
-              <View style={[styles.fieldBlock, { flex: 1 }]}>
+              <View style={[styles.fieldBlock, styles.rowItem]}>
                 <Text style={styles.label}>Nom</Text>
-                <View style={styles.inputWrap}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Dispa"
-                    placeholderTextColor="#9CA3AF"
-                    value={nom}
-                    onChangeText={setNom}
-                    autoCapitalize="words"
-                    textContentType="familyName"
-                  />
-                </View>
+                <TextInput onChangeText={setLastName} placeholder="Dispa" placeholderTextColor="#94A3B8" style={styles.inputBox} value={lastName} />
               </View>
             </View>
 
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Email professionnel</Text>
               <View style={styles.inputWrap}>
-                <MaterialIcons name="mail-outline" size={18} color="#6B7280" />
+                <MaterialIcons color="#64748B" name="mail-outline" size={18} />
                 <TextInput
-                  style={styles.input}
-                  placeholder="liam@aethermail.me"
-                  placeholderTextColor="#9CA3AF"
-                  value={email}
-                  onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
-                  textContentType="emailAddress"
+                  onChangeText={setEmail}
+                  placeholder="prenom@entreprise.com"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.input}
+                  value={email}
                 />
               </View>
             </View>
@@ -128,80 +94,35 @@ export default function RegisterScreen() {
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>Mot de passe</Text>
               <View style={styles.inputWrap}>
-                <MaterialIcons name="lock-outline" size={18} color="#6B7280" />
+                <MaterialIcons color="#64748B" name="lock-outline" size={18} />
                 <TextInput
-                  style={styles.input}
-                  placeholder="Minimum 8 caractères"
-                  placeholderTextColor="#9CA3AF"
-                  value={password}
                   onChangeText={setPassword}
+                  placeholder="Mot de passe"
+                  placeholderTextColor="#94A3B8"
                   secureTextEntry
-                  textContentType="newPassword"
-                />
-              </View>
-            </View>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Confirmation du mot de passe</Text>
-              <View style={styles.inputWrap}>
-                <MaterialIcons name="lock-outline" size={18} color="#6B7280" />
-                <TextInput
                   style={styles.input}
-                  placeholder="Répétez le mot de passe"
-                  placeholderTextColor="#9CA3AF"
-                  value={confirm}
-                  onChangeText={setConfirm}
-                  secureTextEntry
-                  textContentType="newPassword"
+                  value={password}
                 />
               </View>
             </View>
 
-            <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Région de résidence</Text>
-              <Pressable style={styles.inputWrap} onPress={() => setShowRegion(!showRegion)}>
-                <MaterialIcons name="public" size={18} color="#6B7280" />
-                <Text style={[styles.input, !region ? { color: "#9CA3AF" } : undefined]}>
-                  {regions[region] || "Sélectionnez une région"}
-                </Text>
-                <MaterialIcons name="expand-more" size={18} color="#6B7280" />
-              </Pressable>
-              {showRegion && (
-                <View style={styles.dropdown}>
-                  {regions.map((r, i) => (
-                    <Pressable
-                      key={r}
-                      style={[styles.dropdownItem, i === region && styles.dropdownItemActive]}
-                      onPress={() => {
-                        setRegion(i);
-                        setShowRegion(false);
-                      }}
-                    >
-                      <Text style={[styles.dropdownText, i === region && styles.dropdownTextActive]}>
-                        {r}
-                      </Text>
-                      {i === region && (
-                        <MaterialIcons name="check" size={16} color="#FFFFFF" />
-                      )}
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <Pressable style={styles.primaryButton} onPress={handleSubmit}>
-              <Text style={styles.primaryButtonText}>Créer mon compte</Text>
+            <Pressable onPress={handleSubmit} style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>
+                {submitting ? "Création..." : "Entrer dans Aether Meet"}
+              </Text>
             </Pressable>
+
+            {error ? (
+              <View style={styles.errorBox}>
+                <MaterialIcons color="#B91C1C" name="error-outline" size={18} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
           </View>
 
-          <Pressable style={styles.switchLink} onPress={() => router.push("/login")}>
-            <Text style={styles.switchText}>J'ai déjà un compte</Text>
+          <Pressable onPress={() => router.push("/login")} style={styles.switchLink}>
+            <Text style={styles.switchText}>J'ai déjà un accès</Text>
           </Pressable>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Protected by Aether Identity</Text>
-            <Text style={styles.footerSub}>Powered by Sky Genesis Enterprise</Text>
-          </View>
         </ScrollView>
       </View>
     </ScreenTransition>
@@ -209,174 +130,23 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F5F7FA",
-  },
-  content: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  brandBlock: {
-    alignItems: "center",
-    marginBottom: 28,
-  },
-  brandName: {
-    color: "#05070A",
-    fontSize: 28,
-    lineHeight: 33,
-    fontWeight: "900",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  brandSub: {
-    color: "#6B7280",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  formCard: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 18,
-    padding: 20,
-    gap: 14,
-    backgroundColor: "#FFFFFF",
-  },
-  notice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#FDBA74",
-    borderRadius: 12,
-    padding: 11,
-    backgroundColor: "#FFF7ED",
-  },
-  noticeText: {
-    flex: 1,
-    color: "#9A3412",
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  nameRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  fieldBlock: {
-    gap: 6,
-  },
-  label: {
-    color: "#111827",
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "800",
-  },
-  inputWrap: {
-    height: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 14,
-    paddingHorizontal: 13,
-    backgroundColor: "#FFFFFF",
-  },
-  input: {
-    flex: 1,
-    color: "#111827",
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "600",
-    paddingVertical: 0,
-  },
-  dropdown: {
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  dropdownItemActive: {
-    backgroundColor: "#111827",
-  },
-  dropdownText: {
-    color: "#6B7280",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-  dropdownTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-  },
-  privacyCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: "#F5F7FA",
-  },
-  privacyText: {
-    flex: 1,
-    color: "#6B7280",
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  primaryButton: {
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 999,
-    backgroundColor: "#111827",
-    marginTop: 2,
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "900",
-  },
-  switchLink: {
-    alignItems: "center",
-    marginTop: 20,
-  },
-  switchText: {
-    color: "#111827",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-  },
-  footer: {
-    alignItems: "center",
-    marginTop: 40,
-    gap: 4,
-  },
-  footerText: {
-    color: "#6B7280",
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "700",
-  },
-  footerSub: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-  },
+  safeArea: { backgroundColor: "#F6F6FB", flex: 1 },
+  content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20 },
+  brandBlock: { alignItems: "center", gap: 8, marginBottom: 30 },
+  brandName: { color: "#111827", fontSize: 34, fontWeight: "900", letterSpacing: 0 },
+  brandTagline: { color: "#64748B", fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center" },
+  formCard: { backgroundColor: "#FFFFFF", borderColor: "#E2E8F0", borderRadius: 20, borderWidth: 1, gap: 14, padding: 20 },
+  row: { flexDirection: "row", gap: 10 },
+  rowItem: { flex: 1 },
+  fieldBlock: { gap: 7 },
+  label: { color: "#111827", fontSize: 13, fontWeight: "800" },
+  inputWrap: { alignItems: "center", backgroundColor: "#F8FAFC", borderColor: "#E2E8F0", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 10, height: 48, paddingHorizontal: 13 },
+  input: { color: "#111827", flex: 1, fontSize: 15, fontWeight: "600", paddingVertical: 0 },
+  inputBox: { backgroundColor: "#F8FAFC", borderColor: "#E2E8F0", borderRadius: 14, borderWidth: 1, color: "#111827", fontSize: 15, fontWeight: "600", height: 48, paddingHorizontal: 13 },
+  primaryButton: { alignItems: "center", backgroundColor: "#5B5FC7", borderRadius: 999, height: 50, justifyContent: "center", marginTop: 4 },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
+  errorBox: { alignItems: "center", backgroundColor: "#FEF2F2", borderColor: "#FECACA", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 8, padding: 12 },
+  errorText: { color: "#991B1B", flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  switchLink: { alignItems: "center", marginTop: 22 },
+  switchText: { color: "#5B5FC7", fontSize: 14, fontWeight: "800" },
 });

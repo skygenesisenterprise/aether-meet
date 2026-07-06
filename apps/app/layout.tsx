@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     default: "Aether Meet",
   },
   description:
-    " modern enterprise collaboration platform for secure communication, meetings, and team productivity.",
+    "A modern enterprise collaboration platform for secure communication, meetings, and team productivity.",
   icons: {
     icon: [
       {

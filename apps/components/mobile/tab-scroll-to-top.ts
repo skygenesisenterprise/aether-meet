@@ -2,7 +2,7 @@ import * as React from "react";
 
 import type { ScrollView } from "react-native";
 
-export type MainTabRoute = "home" | "invest" | "transferts" | "vault" | "hub";
+export type MainTabRoute = "activity" | "chat" | "teams" | "calendar" | "calls";
 
 const listeners = new Map<MainTabRoute, Set<() => void>>();
 

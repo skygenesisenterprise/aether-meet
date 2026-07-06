@@ -50,20 +50,32 @@ export const MobileTokens = {
     pill: 999,
   },
   shadow: {
-    card: {
-      shadowColor: "#1D2636",
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 4,
-    },
-    floating: {
-      shadowColor: "#1D2636",
-      shadowOpacity: 0.14,
-      shadowRadius: 18,
-      shadowOffset: { width: 0, height: 10 },
-      elevation: 12,
-    },
+    card:
+      Platform.select({
+        web: {
+          boxShadow: "0 6px 12px rgba(29, 38, 54, 0.08)",
+        },
+        default: {
+          shadowColor: "#1D2636",
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 4,
+        },
+      }) ?? {},
+    floating:
+      Platform.select({
+        web: {
+          boxShadow: "0 10px 18px rgba(29, 38, 54, 0.14)",
+        },
+        default: {
+          shadowColor: "#1D2636",
+          shadowOpacity: 0.14,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 10 },
+          elevation: 12,
+        },
+      }) ?? {},
   },
 } as const;
 

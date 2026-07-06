@@ -1,10 +1,13 @@
 import { apiListRequest, apiRequest } from "@/lib/api/client";
+import {
+  configureAccessTokenProvider,
+  getAccessTokenProvider,
+  type AccessTokenProvider,
+} from "@/lib/api/token-provider";
 import type { AuthSessionInfo, TokenResponse, User } from "@/lib/api/types";
 
-export interface AccessTokenProvider {
-  getAccessToken(): Promise<string | null>;
-  refreshAccessToken?(): Promise<string | null>;
-}
+export { configureAccessTokenProvider, getAccessTokenProvider };
+export type { AccessTokenProvider };
 
 const ACCESS_TOKEN_KEY = "aether.auth.accessToken";
 const REFRESH_TOKEN_KEY = "aether.auth.refreshToken";
@@ -121,7 +124,6 @@ function writeStorageUser(user: User | null): void {
 let accessToken: string | null = null;
 let currentUser: User | null = null;
 let refreshPromise: Promise<string | null> | null = null;
-let accessTokenProvider: AccessTokenProvider | null = null;
 
 const memoryTokenProvider: AccessTokenProvider = {
   async getAccessToken() {
@@ -166,16 +168,7 @@ export interface ResendVerificationPayload {
   email: string;
 }
 
-export function configureAccessTokenProvider(provider: AccessTokenProvider): void {
-  accessTokenProvider = provider;
-}
-
-export function getAccessTokenProvider(): AccessTokenProvider {
-  if (!accessTokenProvider) {
-    accessTokenProvider = memoryTokenProvider;
-  }
-  return accessTokenProvider;
-}
+configureAccessTokenProvider(memoryTokenProvider);
 
 export function getStoredAccessToken(): string | null {
   return accessToken ?? readStorageToken();
