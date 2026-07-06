@@ -104,7 +104,7 @@
     "livekit-client": "1.15.13",
     "fumadocs-mdx": "14.1.0",
     "fumadocs-openapi": "10.1.1",
-    "fumadocs-ui": "16.2.3",
+    "fumadocs-ui": "16.10.7",
     "google": "link:next/fond/google",
     "input-otp": "1.4.2",
     "loglayer": "^9.1.0",
