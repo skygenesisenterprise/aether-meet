@@ -7,7 +7,7 @@ import {
   getMobileBiometricStatus,
   type MobileBiometricStatus,
 } from "@/components/mobile/mobile-biometrics";
-import { authApi } from "@/lib/api/auth";
+import { authApi, subscribeToAuthState } from "@/lib/api/auth";
 import { getMockModeEnabled } from "@/lib/api/config";
 import type { User } from "@/lib/api/types";
 
@@ -181,6 +181,29 @@ export function MobileAuthProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   React.useEffect(() => {
+    return subscribeToAuthState(() => {
+      const storedUser = authApi.getStoredUser();
+
+      if (!storedUser) {
+        persistSnapshot({
+          session: null,
+          biometricsEnabled,
+        });
+        setSession(null);
+        setIsLocked(false);
+        return;
+      }
+
+      const nextSession = createSessionFromApiUser(storedUser);
+      persistSnapshot({
+        session: nextSession,
+        biometricsEnabled,
+      });
+      setSession(nextSession);
+    });
+  }, [biometricEnabled]);
+
+  React.useEffect(() => {
     let isMounted = true;
 
     getMobileBiometricStatus()
@@ -224,6 +247,12 @@ export function MobileAuthProvider({ children }: { children: React.ReactNode }) 
       subscription.remove();
     };
   }, [biometricEnabled, session]);
+
+  React.useEffect(() => {
+    if (!session && isLocked) {
+      setIsLocked(false);
+    }
+  }, [isLocked, session]);
 
   const persistCurrentSnapshot = React.useCallback((nextSession: MobileSession | null, nextBiometricEnabled: boolean) => {
     persistSnapshot({

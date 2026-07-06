@@ -3,7 +3,6 @@ import * as React from "react";
 import { MaterialIcons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,25 +12,12 @@ import {
 } from "react-native";
 
 import { ScreenTransition } from "@/components/mobile/screen-transition";
+import { mobileTheme } from "@/components/mobile/theme";
 import {
   type MainTabRoute,
   useTabScrollToTop,
 } from "@/components/mobile/tab-scroll-to-top";
 import { usePhoneSafeAreaInsets } from "@/components/mobile/use-phone-safe-area";
-
-const floatingButtonShadow =
-  Platform.select({
-    web: {
-      boxShadow: "0 12px 18px rgba(49, 46, 129, 0.23)",
-    },
-    default: {
-      shadowColor: "#312E81",
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.23,
-      shadowRadius: 18,
-      elevation: 8,
-    },
-  }) ?? {};
 
 export interface MobileAction {
   icon: React.ComponentProps<typeof MaterialIcons>["name"];
@@ -45,6 +31,7 @@ export interface MobileFilter {
 }
 
 interface MobilePlatformScreenProps {
+  appearance?: "default" | "chatDark";
   actions?: MobileAction[];
   children: React.ReactNode;
   empty?: React.ReactNode;
@@ -59,6 +46,8 @@ interface MobilePlatformScreenProps {
   subtitle?: string;
   title: string;
   userInitials?: string;
+  profileName?: string;
+  profileSubtitle?: string;
 }
 
 interface MobileListRowProps {
@@ -77,7 +66,22 @@ interface MobileStatPillProps {
   value: string;
 }
 
+interface MobileProfileAction {
+  icon: React.ComponentProps<typeof MaterialIcons>["name"];
+  label: string;
+  subtitle?: string;
+}
+
+const mobileProfileActions: MobileProfileAction[] = [
+  { icon: "check-circle", label: "Disponible" },
+  { icon: "add-circle-outline", label: "Définir un lieu de travail" },
+  { icon: "edit", label: "Définir un message de statut" },
+  { icon: "notifications-none", label: "Notifications", subtitle: "Activé" },
+  { icon: "settings", label: "Paramètres" },
+];
+
 export function MobilePlatformScreen({
+  appearance = "default",
   actions = [],
   children,
   empty,
@@ -91,18 +95,25 @@ export function MobilePlatformScreen({
   showEmpty = false,
   subtitle,
   title,
-  userInitials = "AM",
+  userInitials,
+  profileName,
+  profileSubtitle,
 }: MobilePlatformScreenProps) {
   const insets = usePhoneSafeAreaInsets();
   const scrollRef = React.useRef<ScrollView | null>(null);
   const searchAction: MobileAction = { icon: "search", label: "Rechercher" };
   const headerActions: MobileAction[] = [...actions, searchAction].slice(0, 3);
+  const isChatDark = appearance === "chatDark";
+  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const displayName = profileName ?? "Compte Aether";
+  const resolvedProfileSubtitle = profileSubtitle ?? "Compte";
+  const resolvedUserInitials = userInitials ?? "A";
 
   useTabScrollToTop(route, scrollRef);
 
   return (
     <ScreenTransition direction="up">
-      <View style={styles.screen}>
+      <View style={[styles.screen, isChatDark ? styles.screenChatDark : null]}>
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={[
@@ -114,28 +125,28 @@ export function MobilePlatformScreen({
               <RefreshControl
                 onRefresh={onRefresh}
                 refreshing={refreshing}
-                tintColor="#5B5FC7"
+                tintColor={mobileTheme.color.primary}
               />
             ) : undefined
           }
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <View style={styles.identityRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{userInitials}</Text>
+            <Pressable onPress={() => setIsProfileOpen(true)} style={styles.identityRow}>
+              <View style={[styles.avatar, isChatDark ? styles.avatarChatDark : null]}>
+                <Text style={[styles.avatarText, isChatDark ? styles.avatarTextChatDark : null]}>{resolvedUserInitials}</Text>
               </View>
               <View style={styles.titleBlock}>
-                <Text numberOfLines={1} style={styles.title}>
+                <Text numberOfLines={1} style={[styles.title, isChatDark ? styles.titleChatDark : null]}>
                   {title}
                 </Text>
                 {subtitle ? (
-                  <Text numberOfLines={1} style={styles.subtitle}>
+                  <Text numberOfLines={1} style={[styles.subtitle, isChatDark ? styles.subtitleChatDark : null]}>
                     {subtitle}
                   </Text>
                 ) : null}
               </View>
-            </View>
+            </Pressable>
 
             <View style={styles.headerActions}>
               {headerActions.map((action) => (
@@ -146,7 +157,11 @@ export function MobilePlatformScreen({
                   onPress={action.onPress}
                   style={styles.iconButton}
                 >
-                  <MaterialIcons color="#111827" name={action.icon} size={24} />
+                  <MaterialIcons
+                    color={isChatDark ? mobileTheme.color.popover : mobileTheme.color.foreground}
+                    name={action.icon}
+                    size={24}
+                  />
                 </Pressable>
               ))}
             </View>
@@ -161,14 +176,31 @@ export function MobilePlatformScreen({
               {filters.map((filter, index) => (
                 <Pressable
                   key={filter.label}
-                  style={[styles.filterChip, index === 0 ? styles.filterChipActive : null]}
+                  style={[
+                    styles.filterChip,
+                    isChatDark ? styles.filterChipChatDark : null,
+                    index === 0 ? styles.filterChipActive : null,
+                    index === 0 && isChatDark ? styles.filterChipActiveChatDark : null,
+                  ]}
                 >
                   <MaterialIcons
-                    color={index === 0 ? "#3F43A7" : "#4B5563"}
+                    color={
+                      index === 0
+                        ? mobileTheme.color.primary
+                        : isChatDark
+                          ? "#A7ACB7"
+                          : mobileTheme.color.mutedForeground
+                    }
                     name={filter.icon}
                     size={20}
                   />
-                  <Text style={[styles.filterLabel, index === 0 ? styles.filterLabelActive : null]}>
+                  <Text
+                    style={[
+                      styles.filterLabel,
+                      isChatDark ? styles.filterLabelChatDark : null,
+                      index === 0 ? styles.filterLabelActive : null,
+                    ]}
+                  >
                     {filter.label}
                   </Text>
                 </Pressable>
@@ -177,16 +209,16 @@ export function MobilePlatformScreen({
           ) : null}
 
           {error ? (
-            <View style={styles.notice}>
-              <MaterialIcons color="#B45309" name="error-outline" size={19} />
-              <Text style={styles.noticeText}>{error}</Text>
+            <View style={[styles.notice, isChatDark ? styles.noticeChatDark : null]}>
+              <MaterialIcons color={mobileTheme.color.warning} name="error-outline" size={19} />
+              <Text style={[styles.noticeText, isChatDark ? styles.noticeTextChatDark : null]}>{error}</Text>
             </View>
           ) : null}
 
           {loading ? (
             <View style={styles.loading}>
-              <ActivityIndicator color="#5B5FC7" />
-              <Text style={styles.loadingText}>Chargement</Text>
+              <ActivityIndicator color={mobileTheme.color.primary} />
+              <Text style={[styles.loadingText, isChatDark ? styles.loadingTextChatDark : null]}>Chargement</Text>
             </View>
           ) : showEmpty && empty ? (
             empty
@@ -196,10 +228,66 @@ export function MobilePlatformScreen({
         </ScrollView>
 
         {primaryAction ? (
-          <Pressable onPress={primaryAction.onPress} style={styles.floatingButton}>
-            <MaterialIcons color="#FFFFFF" name={primaryAction.icon} size={22} />
+          <Pressable
+            onPress={primaryAction.onPress}
+            style={[styles.floatingButton, isChatDark ? styles.floatingButtonChatDark : null]}
+          >
+            <MaterialIcons color={mobileTheme.color.primaryForeground} name={primaryAction.icon} size={22} />
             <Text style={styles.floatingButtonText}>{primaryAction.label}</Text>
           </Pressable>
+        ) : null}
+
+        {isProfileOpen ? (
+          <View pointerEvents="box-none" style={styles.profileOverlayRoot}>
+            <Pressable onPress={() => setIsProfileOpen(false)} style={styles.profileOverlayBackdrop} />
+            <View style={[styles.profileSheet, { paddingTop: insets.top + 12 }]}>
+              <View style={styles.profileHeader}>
+                <View style={styles.profileAvatar}>
+                  <Text style={styles.profileAvatarText}>{resolvedUserInitials}</Text>
+                </View>
+                <View style={styles.profileHeaderCopy}>
+                  <View style={styles.profileHeaderLine}>
+                    <Text numberOfLines={1} style={styles.profileName}>
+                      {displayName}
+                    </Text>
+                    <MaterialIcons color="#8E96A6" name="chevron-right" size={18} />
+                  </View>
+                  <Text numberOfLines={1} style={styles.profileRole}>
+                    {resolvedProfileSubtitle}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.profileActions}>
+                {mobileProfileActions.map((action) => (
+                  <Pressable key={action.label} style={styles.profileActionRow}>
+                    <View style={styles.profileActionIcon}>
+                      <MaterialIcons
+                        color={action.label === "Disponible" ? mobileTheme.color.success : mobileTheme.color.popover}
+                        name={action.icon}
+                        size={22}
+                      />
+                    </View>
+                    <View style={styles.profileActionCopy}>
+                      <Text style={styles.profileActionLabel}>{action.label}</Text>
+                      {action.subtitle ? <Text style={styles.profileActionSubtitle}>{action.subtitle}</Text> : null}
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.profileFooter}>
+                <Pressable style={styles.profileActionRow}>
+                  <View style={styles.profileActionIcon}>
+                    <MaterialIcons color={mobileTheme.color.popover} name="add" size={24} />
+                  </View>
+                  <View style={styles.profileActionCopy}>
+                    <Text style={styles.profileActionLabel}>Ajouter un compte</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
+          </View>
         ) : null}
       </View>
     </ScreenTransition>
@@ -222,7 +310,7 @@ export function MobileListSection({
 }
 
 export function MobileListRow({
-  accent = "#5B5FC7",
+  accent = mobileTheme.color.primary,
   badge,
   children,
   icon = "chat-bubble-outline",
@@ -267,18 +355,21 @@ export function MobileStatPill({ label, value }: MobileStatPillProps) {
 }
 
 export function MobileEmptyState({
+  appearance = "default",
   icon,
   label,
 }: {
+  appearance?: "default" | "chatDark";
   icon: React.ComponentProps<typeof MaterialIcons>["name"];
   label: string;
 }) {
+  const isChatDark = appearance === "chatDark";
   return (
     <View style={styles.emptyState}>
-      <View style={styles.emptyArtwork}>
-        <MaterialIcons color="#5B5FC7" name={icon} size={54} />
+      <View style={[styles.emptyArtwork, isChatDark ? styles.emptyArtworkChatDark : null]}>
+        <MaterialIcons color={mobileTheme.color.primary} name={icon} size={54} />
       </View>
-      <Text style={styles.emptyText}>{label}</Text>
+      <Text style={[styles.emptyText, isChatDark ? styles.emptyTextChatDark : null]}>{label}</Text>
     </View>
   );
 }
@@ -286,8 +377,8 @@ export function MobileEmptyState({
 const styles = StyleSheet.create({
   avatar: {
     alignItems: "center",
-    backgroundColor: "#DDE0FF",
-    borderColor: "#FFFFFF",
+    backgroundColor: mobileTheme.color.accent,
+    borderColor: mobileTheme.color.popover,
     borderRadius: 999,
     borderWidth: 2,
     height: 42,
@@ -295,21 +386,28 @@ const styles = StyleSheet.create({
     width: 42,
   },
   avatarText: {
-    color: "#3F43A7",
+    color: mobileTheme.color.primary,
     fontSize: 14,
     fontWeight: "900",
+  },
+  avatarChatDark: {
+    backgroundColor: mobileTheme.color.chatSurface,
+    borderColor: mobileTheme.color.chatBackground,
+  },
+  avatarTextChatDark: {
+    color: mobileTheme.color.popover,
   },
   badge: {
     alignItems: "center",
     alignSelf: "center",
-    backgroundColor: "#5B5FC7",
+    backgroundColor: mobileTheme.color.primary,
     borderRadius: 999,
     minWidth: 24,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
   badgeText: {
-    color: "#FFFFFF",
+    color: mobileTheme.color.primaryForeground,
     fontSize: 12,
     fontWeight: "900",
   },
@@ -319,7 +417,7 @@ const styles = StyleSheet.create({
   },
   emptyArtwork: {
     alignItems: "center",
-    backgroundColor: "#ECEEFF",
+    backgroundColor: mobileTheme.color.accent,
     borderRadius: 999,
     height: 118,
     justifyContent: "center",
@@ -332,45 +430,62 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 15,
     fontWeight: "700",
     lineHeight: 22,
     maxWidth: 270,
     textAlign: "center",
   },
+  emptyArtworkChatDark: {
+    backgroundColor: mobileTheme.color.chatSurface,
+  },
+  emptyTextChatDark: {
+    color: "#A7ACB7",
+  },
   filterChip: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
+    backgroundColor: mobileTheme.color.popover,
+    borderColor: mobileTheme.color.border,
+    borderRadius: mobileTheme.radius.md,
     borderWidth: 1,
-    gap: 8,
-    height: 62,
+    gap: 6,
+    height: 58,
     justifyContent: "center",
-    minWidth: 76,
-    paddingHorizontal: 12,
+    minWidth: 66,
+    paddingHorizontal: 10,
   },
   filterChipActive: {
-    backgroundColor: "#F4F5FF",
-    borderColor: "#D8DAFF",
+    backgroundColor: mobileTheme.color.accent,
+    borderColor: mobileTheme.color.border,
+  },
+  filterChipChatDark: {
+    backgroundColor: mobileTheme.color.chatSurface,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  filterChipActiveChatDark: {
+    backgroundColor: "rgba(73,81,149,0.22)",
+    borderColor: "rgba(73,81,149,0.34)",
   },
   filterLabel: {
-    color: "#4B5563",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 11,
     fontWeight: "800",
   },
   filterLabelActive: {
-    color: "#3F43A7",
+    color: mobileTheme.color.primary,
+  },
+  filterLabelChatDark: {
+    color: "#A7ACB7",
   },
   filters: {
-    gap: 8,
-    paddingRight: 16,
+    gap: 6,
+    paddingRight: 10,
   },
   floatingButton: {
     alignItems: "center",
     alignSelf: "flex-end",
-    backgroundColor: "#5B5FC7",
+    backgroundColor: mobileTheme.color.primary,
     borderRadius: 999,
     bottom: 94,
     flexDirection: "row",
@@ -380,12 +495,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     position: "absolute",
     right: 16,
-    ...floatingButtonShadow,
+    ...mobileTheme.shadow.medium,
   },
   floatingButtonText: {
-    color: "#FFFFFF",
+    color: mobileTheme.color.primaryForeground,
     fontSize: 15,
     fontWeight: "900",
+  },
+  floatingButtonChatDark: {
+    bottom: 90,
   },
   header: {
     alignItems: "center",
@@ -411,11 +529,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   list: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
+    backgroundColor: mobileTheme.color.popover,
+    borderColor: mobileTheme.color.border,
+    borderRadius: mobileTheme.radius.xl,
     borderWidth: 1,
     overflow: "hidden",
+    ...mobileTheme.shadow.subtle,
   },
   loading: {
     alignItems: "center",
@@ -424,14 +543,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   loadingText: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 14,
     fontWeight: "800",
   },
+  loadingTextChatDark: {
+    color: "#A7ACB7",
+  },
   notice: {
     alignItems: "center",
-    backgroundColor: "#FFFBEB",
-    borderColor: "#FDE68A",
+    backgroundColor: mobileTheme.color.warningSurface,
+    borderColor: mobileTheme.color.warning,
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: "row",
@@ -439,15 +561,129 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   noticeText: {
-    color: "#92400E",
+    color: mobileTheme.color.foreground,
     flex: 1,
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
   },
+  noticeChatDark: {
+    backgroundColor: "rgba(199,154,55,0.16)",
+    borderColor: "rgba(199,154,55,0.34)",
+  },
+  noticeTextChatDark: {
+    color: mobileTheme.color.popover,
+  },
+  profileActionCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileActionIcon: {
+    alignItems: "center",
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  profileActionLabel: {
+    color: mobileTheme.color.popover,
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  profileActions: {
+    gap: 2,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+  },
+  profileActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 16,
+    minHeight: 44,
+    paddingVertical: 8,
+  },
+  profileActionSubtitle: {
+    color: "#97A0B1",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 1,
+  },
+  profileAvatar: {
+    alignItems: "center",
+    backgroundColor: mobileTheme.color.chatSurface,
+    borderRadius: 999,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  profileAvatarText: {
+    color: mobileTheme.color.popover,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  profileFooter: {
+    borderTopColor: mobileTheme.color.border,
+    borderTopWidth: 1,
+    marginTop: 12,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  profileHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 12,
+  },
+  profileHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileHeaderLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+  },
+  profileName: {
+    color: mobileTheme.color.popover,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  profileOverlayBackdrop: {
+    backgroundColor: "rgba(0,0,0,0.34)",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  profileOverlayRoot: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  profileRole: {
+    color: "#97A0B1",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  profileSheet: {
+    backgroundColor: mobileTheme.color.chatBackground,
+    borderRightColor: "rgba(255,255,255,0.08)",
+    borderRightWidth: 1,
+    bottom: 0,
+    left: 0,
+    maxWidth: 368,
+    paddingBottom: 18,
+    position: "absolute",
+    top: 0,
+    width: "88%",
+  },
   row: {
     alignItems: "flex-start",
-    borderBottomColor: "#EEF0F4",
+    borderBottomColor: mobileTheme.color.border,
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 12,
@@ -468,19 +704,19 @@ const styles = StyleSheet.create({
     width: 44,
   },
   rowMeta: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 12,
     fontWeight: "800",
     marginLeft: 8,
   },
   rowSubtitle: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 18,
   },
   rowTitle: {
-    color: "#111827",
+    color: mobileTheme.color.foreground,
     flex: 1,
     fontSize: 15,
     fontWeight: "900",
@@ -491,27 +727,30 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   screen: {
-    backgroundColor: "#F6F6FB",
+    backgroundColor: mobileTheme.color.background,
     flex: 1,
+  },
+  screenChatDark: {
+    backgroundColor: mobileTheme.color.chatBackground,
   },
   section: {
     gap: 8,
   },
   sectionTitle: {
-    color: "#374151",
+    color: mobileTheme.color.secondaryForeground,
     fontSize: 13,
     fontWeight: "900",
     paddingHorizontal: 2,
     textTransform: "uppercase",
   },
   statLabel: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 12,
     fontWeight: "800",
   },
   statPill: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E5E7EB",
+    backgroundColor: mobileTheme.color.popover,
+    borderColor: mobileTheme.color.border,
     borderRadius: 14,
     borderWidth: 1,
     flex: 1,
@@ -521,20 +760,26 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   statValue: {
-    color: "#111827",
+    color: mobileTheme.color.foreground,
     fontSize: 18,
     fontWeight: "900",
   },
   subtitle: {
-    color: "#6B7280",
+    color: mobileTheme.color.mutedForeground,
     fontSize: 12,
     fontWeight: "700",
   },
+  subtitleChatDark: {
+    color: "#A7ACB7",
+  },
   title: {
-    color: "#111827",
+    color: mobileTheme.color.foreground,
     fontSize: 27,
     fontWeight: "900",
     letterSpacing: 0,
+  },
+  titleChatDark: {
+    color: mobileTheme.color.popover,
   },
   titleBlock: {
     flex: 1,

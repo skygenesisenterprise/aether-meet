@@ -6,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
 import { ScreenTransition } from "@/components/mobile/screen-transition";
+import { mobileTheme } from "@/components/mobile/theme";
 import { usePhoneSafeAreaInsets } from "@/components/mobile/use-phone-safe-area";
 import { authApi } from "@/lib/api/auth";
 
@@ -42,7 +43,6 @@ export default function RegisterScreen() {
         firstName: resolvedFirstName,
         lastName: resolvedLastNameParts.join(" ") || lastName,
       });
-      router.replace("/activity" as never);
     } catch {
       setError("Création impossible. Vérifiez l'API locale ou utilisez un compte existant.");
     } finally {
@@ -67,24 +67,24 @@ export default function RegisterScreen() {
             <View style={styles.row}>
               <View style={[styles.fieldBlock, styles.rowItem]}>
                 <Text style={styles.label}>Prénom</Text>
-                <TextInput onChangeText={setFirstName} placeholder="Liam" placeholderTextColor="#94A3B8" style={styles.inputBox} value={firstName} />
+                <TextInput onChangeText={setFirstName} placeholder="Liam" placeholderTextColor={mobileTheme.color.mutedForeground} style={styles.inputBox} value={firstName} />
               </View>
               <View style={[styles.fieldBlock, styles.rowItem]}>
                 <Text style={styles.label}>Nom</Text>
-                <TextInput onChangeText={setLastName} placeholder="Dispa" placeholderTextColor="#94A3B8" style={styles.inputBox} value={lastName} />
+                <TextInput onChangeText={setLastName} placeholder="Dispa" placeholderTextColor={mobileTheme.color.mutedForeground} style={styles.inputBox} value={lastName} />
               </View>
             </View>
 
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>Email professionnel</Text>
               <View style={styles.inputWrap}>
-                <MaterialIcons color="#64748B" name="mail-outline" size={18} />
+                <MaterialIcons color={mobileTheme.color.mutedForeground} name="mail-outline" size={18} />
                 <TextInput
                   autoCapitalize="none"
                   keyboardType="email-address"
                   onChangeText={setEmail}
                   placeholder="prenom@entreprise.com"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={mobileTheme.color.mutedForeground}
                   style={styles.input}
                   value={email}
                 />
@@ -94,11 +94,11 @@ export default function RegisterScreen() {
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>Mot de passe</Text>
               <View style={styles.inputWrap}>
-                <MaterialIcons color="#64748B" name="lock-outline" size={18} />
+                <MaterialIcons color={mobileTheme.color.mutedForeground} name="lock-outline" size={18} />
                 <TextInput
                   onChangeText={setPassword}
                   placeholder="Mot de passe"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={mobileTheme.color.mutedForeground}
                   secureTextEntry
                   style={styles.input}
                   value={password}
@@ -114,7 +114,7 @@ export default function RegisterScreen() {
 
             {error ? (
               <View style={styles.errorBox}>
-                <MaterialIcons color="#B91C1C" name="error-outline" size={18} />
+                <MaterialIcons color={mobileTheme.color.destructive} name="error-outline" size={18} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -130,23 +130,23 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: "#F6F6FB", flex: 1 },
+  safeArea: { backgroundColor: mobileTheme.color.background, flex: 1 },
   content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 20 },
   brandBlock: { alignItems: "center", gap: 8, marginBottom: 30 },
-  brandName: { color: "#111827", fontSize: 34, fontWeight: "900", letterSpacing: 0 },
-  brandTagline: { color: "#64748B", fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center" },
-  formCard: { backgroundColor: "#FFFFFF", borderColor: "#E2E8F0", borderRadius: 20, borderWidth: 1, gap: 14, padding: 20 },
+  brandName: { color: mobileTheme.color.foreground, fontSize: 34, fontWeight: "900", letterSpacing: 0 },
+  brandTagline: { color: mobileTheme.color.mutedForeground, fontSize: 15, fontWeight: "600", lineHeight: 22, textAlign: "center" },
+  formCard: { backgroundColor: mobileTheme.color.popover, borderColor: mobileTheme.color.border, borderRadius: 20, borderWidth: 1, gap: 14, padding: 20, ...mobileTheme.shadow.subtle },
   row: { flexDirection: "row", gap: 10 },
   rowItem: { flex: 1 },
   fieldBlock: { gap: 7 },
-  label: { color: "#111827", fontSize: 13, fontWeight: "800" },
-  inputWrap: { alignItems: "center", backgroundColor: "#F8FAFC", borderColor: "#E2E8F0", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 10, height: 48, paddingHorizontal: 13 },
-  input: { color: "#111827", flex: 1, fontSize: 15, fontWeight: "600", paddingVertical: 0 },
-  inputBox: { backgroundColor: "#F8FAFC", borderColor: "#E2E8F0", borderRadius: 14, borderWidth: 1, color: "#111827", fontSize: 15, fontWeight: "600", height: 48, paddingHorizontal: 13 },
-  primaryButton: { alignItems: "center", backgroundColor: "#5B5FC7", borderRadius: 999, height: 50, justifyContent: "center", marginTop: 4 },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
-  errorBox: { alignItems: "center", backgroundColor: "#FEF2F2", borderColor: "#FECACA", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 8, padding: 12 },
-  errorText: { color: "#991B1B", flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  label: { color: mobileTheme.color.foreground, fontSize: 13, fontWeight: "800" },
+  inputWrap: { alignItems: "center", backgroundColor: mobileTheme.color.card, borderColor: mobileTheme.color.input, borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 10, height: 48, paddingHorizontal: 13 },
+  input: { color: mobileTheme.color.foreground, flex: 1, fontSize: 15, fontWeight: "600", paddingVertical: 0 },
+  inputBox: { backgroundColor: mobileTheme.color.card, borderColor: mobileTheme.color.input, borderRadius: 14, borderWidth: 1, color: mobileTheme.color.foreground, fontSize: 15, fontWeight: "600", height: 48, paddingHorizontal: 13 },
+  primaryButton: { alignItems: "center", backgroundColor: mobileTheme.color.primary, borderRadius: 999, height: 50, justifyContent: "center", marginTop: 4 },
+  primaryButtonText: { color: mobileTheme.color.primaryForeground, fontSize: 15, fontWeight: "900" },
+  errorBox: { alignItems: "center", backgroundColor: mobileTheme.color.destructiveSurface, borderColor: mobileTheme.color.destructive, borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 8, padding: 12 },
+  errorText: { color: mobileTheme.color.destructive, flex: 1, fontSize: 13, fontWeight: "700", lineHeight: 18 },
   switchLink: { alignItems: "center", marginTop: 22 },
-  switchText: { color: "#5B5FC7", fontSize: 14, fontWeight: "800" },
+  switchText: { color: mobileTheme.color.primary, fontSize: 14, fontWeight: "800" },
 });

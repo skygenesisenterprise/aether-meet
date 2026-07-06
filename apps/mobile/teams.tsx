@@ -3,6 +3,7 @@ import * as React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
+import { getMobileProfileInitials, getMobileProfileName, getMobileProfileSubtitle } from "@/components/mobile/profile-identity";
 import {
   MobileEmptyState,
   MobileListRow,
@@ -40,6 +41,9 @@ export default function TeamsScreen() {
       showEmpty={!loading && (data?.items.length ?? 0) === 0}
       subtitle={`${data?.items.length ?? 0} espace${(data?.items.length ?? 0) > 1 ? "s" : ""} actif${(data?.items.length ?? 0) > 1 ? "s" : ""}`}
       title="Équipes"
+      userInitials={getMobileProfileInitials(session?.user)}
+      profileName={getMobileProfileName(session?.user)}
+      profileSubtitle={getMobileProfileSubtitle(session?.user)}
     >
       <MobileListSection title="Vos équipes">
         {data?.items.map((item) => (

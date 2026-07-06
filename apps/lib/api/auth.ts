@@ -13,6 +13,33 @@ const ACCESS_TOKEN_KEY = "aether.auth.accessToken";
 const REFRESH_TOKEN_KEY = "aether.auth.refreshToken";
 const USER_KEY = "aether.auth.user";
 let storageMigrated = false;
+let nativeStorageHydrated = false;
+let nativeStorageHydrationPromise: Promise<void> | null = null;
+
+interface SecureStoreModule {
+  getItemAsync(key: string): Promise<string | null>;
+  setItemAsync(key: string, value: string): Promise<void>;
+  deleteItemAsync(key: string): Promise<void>;
+}
+
+function isNativeExpoRuntime(): boolean {
+  return Boolean(process.env.EXPO_OS && process.env.EXPO_OS !== "web");
+}
+
+async function getSecureStore(): Promise<SecureStoreModule | null> {
+  if (!isNativeExpoRuntime()) {
+    return null;
+  }
+
+  try {
+    const loadModule = new Function("moduleName", "return import(moduleName)") as (
+      moduleName: string
+    ) => Promise<SecureStoreModule>;
+    return await loadModule("expo-secure-store");
+  } catch {
+    return null;
+  }
+}
 
 function getBrowserStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -122,8 +149,10 @@ function writeStorageUser(user: User | null): void {
 }
 
 let accessToken: string | null = null;
+let refreshToken: string | null = null;
 let currentUser: User | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+const authStateListeners = new Set<() => void>();
 
 const memoryTokenProvider: AccessTokenProvider = {
   async getAccessToken() {
@@ -176,10 +205,14 @@ export function getStoredAccessToken(): string | null {
 
 export function clearStoredTokens(): void {
   accessToken = null;
+  refreshToken = null;
   currentUser = null;
+  nativeStorageHydrated = true;
+  nativeStorageHydrationPromise = null;
   writeStorageToken(null);
   writeStorageRefreshToken(null);
   writeStorageUser(null);
+  void clearPersistedNativeAuthState();
   try {
     getLegacySessionStorage()?.removeItem(ACCESS_TOKEN_KEY);
     getLegacySessionStorage()?.removeItem(REFRESH_TOKEN_KEY);
@@ -187,11 +220,14 @@ export function clearStoredTokens(): void {
   } catch {
     // ignore legacy cleanup failures
   }
+  notifyAuthStateListeners();
 }
 
 export function setStoredAccessToken(nextToken: string | null): void {
   accessToken = nextToken;
   writeStorageToken(nextToken);
+  void writeNativeAccessToken(nextToken);
+  notifyAuthStateListeners();
 }
 
 export function getStoredUser(): User | null {
@@ -201,9 +237,31 @@ export function getStoredUser(): User | null {
 export function storeUser(user: User | null): void {
   currentUser = user;
   writeStorageUser(user);
+  void writeNativeUser(user);
+  notifyAuthStateListeners();
+}
+
+function notifyAuthStateListeners(): void {
+  for (const listener of authStateListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignore listener failures to avoid breaking auth flows.
+    }
+  }
+}
+
+export function subscribeToAuthState(listener: () => void): () => void {
+  authStateListeners.add(listener);
+
+  return () => {
+    authStateListeners.delete(listener);
+  };
 }
 
 export async function refreshAccessToken(): Promise<string | null> {
+  await hydrateNativeAuthState();
+
   if (!refreshPromise) {
     refreshPromise = doRefresh().finally(() => {
       refreshPromise = null;
@@ -213,7 +271,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 }
 
 async function doRefresh(): Promise<string | null> {
-  const storedRefreshToken = readStorageRefreshToken();
+  const storedRefreshToken = refreshToken ?? readStorageRefreshToken();
   if (storedRefreshToken) {
     try {
       const response = await apiRequest<TokenResponse>("/auth/refresh", {
@@ -222,11 +280,13 @@ async function doRefresh(): Promise<string | null> {
         skipRefresh: true,
         body: { refreshToken: storedRefreshToken },
       });
-      applyRefreshResult(response);
+      await applyRefreshResult(response);
       return response.accessToken;
     } catch {
       // stored refresh token failed – fall through to cookie fallback
+      refreshToken = null;
       writeStorageRefreshToken(null);
+      void writeNativeRefreshToken(null);
     }
   }
   try {
@@ -235,25 +295,153 @@ async function doRefresh(): Promise<string | null> {
       skipAuth: true,
       skipRefresh: true,
     });
-    applyRefreshResult(response);
+    await applyRefreshResult(response);
     return response.accessToken;
   } catch {
     return null;
   }
 }
 
-function applyRefreshResult(response: TokenResponse): void {
+async function applyRefreshResult(response: TokenResponse): Promise<void> {
   accessToken = response.accessToken;
   currentUser = response.user;
+  if (response.refreshToken) {
+    refreshToken = response.refreshToken;
+  }
   writeStorageToken(response.accessToken);
   writeStorageUser(response.user);
   if (response.refreshToken) {
     writeStorageRefreshToken(response.refreshToken);
   }
+  await persistNativeAuthState();
+  notifyAuthStateListeners();
+}
+
+async function hydrateNativeAuthState(): Promise<void> {
+  if (nativeStorageHydrated || !isNativeExpoRuntime()) {
+    return;
+  }
+
+  if (!nativeStorageHydrationPromise) {
+    nativeStorageHydrationPromise = (async () => {
+      const secureStore = await getSecureStore();
+      if (!secureStore) {
+        nativeStorageHydrated = true;
+        return;
+      }
+
+      try {
+        const [storedAccessToken, storedRefreshToken, storedUser] = await Promise.all([
+          secureStore.getItemAsync(ACCESS_TOKEN_KEY),
+          secureStore.getItemAsync(REFRESH_TOKEN_KEY),
+          secureStore.getItemAsync(USER_KEY),
+        ]);
+
+        accessToken = storedAccessToken ?? accessToken;
+        refreshToken = storedRefreshToken ?? refreshToken;
+        currentUser = storedUser ? (JSON.parse(storedUser) as User) : currentUser;
+      } catch {
+        // Ignore native storage read failures and continue with in-memory state.
+      } finally {
+        nativeStorageHydrated = true;
+      }
+    })().finally(() => {
+      nativeStorageHydrationPromise = null;
+    });
+  }
+
+  await nativeStorageHydrationPromise;
+}
+
+async function persistNativeAuthState(): Promise<void> {
+  try {
+    const secureStore = await getSecureStore();
+    if (!secureStore) {
+      return;
+    }
+
+    await Promise.all([
+      writeSecureStoreValue(secureStore, ACCESS_TOKEN_KEY, accessToken),
+      writeSecureStoreValue(secureStore, REFRESH_TOKEN_KEY, refreshToken),
+      writeSecureStoreValue(secureStore, USER_KEY, currentUser ? JSON.stringify(currentUser) : null),
+    ]);
+  } catch {
+    // Ignore native persistence failures and keep the in-memory session alive.
+  }
+}
+
+async function clearPersistedNativeAuthState(): Promise<void> {
+  try {
+    const secureStore = await getSecureStore();
+    if (!secureStore) {
+      return;
+    }
+
+    await Promise.all([
+      secureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
+      secureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+      secureStore.deleteItemAsync(USER_KEY),
+    ]);
+  } catch {
+    // Ignore native persistence cleanup failures.
+  }
+}
+
+async function writeSecureStoreValue(
+  secureStore: SecureStoreModule,
+  key: string,
+  value: string | null,
+): Promise<void> {
+  if (value === null) {
+    await secureStore.deleteItemAsync(key);
+    return;
+  }
+
+  await secureStore.setItemAsync(key, value);
+}
+
+async function writeNativeAccessToken(token: string | null): Promise<void> {
+  try {
+    const secureStore = await getSecureStore();
+    if (!secureStore) {
+      return;
+    }
+
+    await writeSecureStoreValue(secureStore, ACCESS_TOKEN_KEY, token);
+  } catch {
+    // Ignore native persistence failures.
+  }
+}
+
+async function writeNativeRefreshToken(token: string | null): Promise<void> {
+  try {
+    const secureStore = await getSecureStore();
+    if (!secureStore) {
+      return;
+    }
+
+    await writeSecureStoreValue(secureStore, REFRESH_TOKEN_KEY, token);
+  } catch {
+    // Ignore native persistence failures.
+  }
+}
+
+async function writeNativeUser(user: User | null): Promise<void> {
+  try {
+    const secureStore = await getSecureStore();
+    if (!secureStore) {
+      return;
+    }
+
+    await writeSecureStoreValue(secureStore, USER_KEY, user ? JSON.stringify(user) : null);
+  } catch {
+    // Ignore native persistence failures.
+  }
 }
 
 export const authApi = {
   async bootstrap(): Promise<User | null> {
+    await hydrateNativeAuthState();
     const nextToken = await refreshAccessToken();
     if (nextToken) {
       if (currentUser) {
@@ -279,7 +467,7 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    applyRefreshResult(response);
+    await applyRefreshResult(response);
     return response;
   },
   async register(payload: RegisterPayload): Promise<TokenResponse> {
@@ -289,7 +477,7 @@ export const authApi = {
       skipAuth: true,
       skipRefresh: true,
     });
-    applyRefreshResult(response);
+    await applyRefreshResult(response);
     return response;
   },
   async logout(): Promise<void> {

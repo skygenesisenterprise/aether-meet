@@ -1,34 +1,27 @@
 import * as React from "react";
 
-import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
-import {
-  MobileEmptyState,
-  MobileListSection,
-  MobilePlatformScreen,
-} from "@/components/mobile/mobile-platform-shell";
-import {
-  loadChatHub,
-  useMobileResource,
-  type ConversationPreviewItem,
-} from "@/lib/mobile/meet-data";
+import { getMobileProfileInitials, getMobileProfileName, getMobileProfileSubtitle } from "@/components/mobile/profile-identity";
+import { MobileEmptyState, MobilePlatformScreen } from "@/components/mobile/mobile-platform-shell";
+import { mobileTheme } from "@/components/mobile/theme";
+import { loadChatHub, useMobileResource, type ConversationPreviewItem } from "@/lib/mobile/meet-data";
 
 const filters = [
-  { icon: "campaign", label: "S'informer" },
-  { icon: "sort", label: "Récent" },
+  { icon: "chat-bubble-outline", label: "Toutes" },
   { icon: "mark-chat-unread", label: "Non lues" },
   { icon: "alternate-email", label: "Mentions" },
-  { icon: "more-horiz", label: "Autres" },
+  { icon: "groups-2", label: "Groupes" },
+  { icon: "schedule", label: "Récent" },
 ] as const;
 
 const presenceColors: Record<ConversationPreviewItem["presence"], string> = {
-  away: "#F59E0B",
-  busy: "#DC2626",
-  offline: "#94A3B8",
-  online: "#16A34A",
+  away: mobileTheme.color.warning,
+  busy: mobileTheme.color.destructive,
+  offline: mobileTheme.color.mutedForeground,
+  online: mobileTheme.color.success,
 };
 
 function getInitials(value: string): string {
@@ -40,12 +33,6 @@ function getInitials(value: string): string {
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") || "?"
   );
-}
-
-function getKindLabel(kind: ConversationPreviewItem["kind"]) {
-  if (kind === "direct") return "Direct";
-  if (kind === "team") return "Canal";
-  return "Groupe";
 }
 
 export default function ChatScreen() {
@@ -60,13 +47,9 @@ export default function ChatScreen() {
 
   return (
     <MobilePlatformScreen
+      appearance="chatDark"
       actions={[{ icon: "more-horiz", label: "Options" }]}
-      empty={
-        <MobileEmptyState
-          icon="chat-bubble-outline"
-          label="Vos conversations privées en tête à tête ou en groupe."
-        />
-      }
+      empty={<MobileEmptyState appearance="chatDark" icon="chat-bubble-outline" label="Aucune conversation disponible." />}
       error={error}
       filters={[...filters]}
       loading={loading}
@@ -75,21 +58,22 @@ export default function ChatScreen() {
       refreshing={loading}
       route="chat"
       showEmpty={!loading && (data?.items.length ?? 0) === 0}
-      subtitle={`${unreadCount} message${unreadCount > 1 ? "s" : ""} à lire`}
-      title="Conversation"
+      subtitle={`${unreadCount} message${unreadCount > 1 ? "s" : ""} non lu${unreadCount > 1 ? "s" : ""}`}
+      title="Conversations"
+      userInitials={getMobileProfileInitials(session?.user)}
+      profileName={getMobileProfileName(session?.user)}
+      profileSubtitle={getMobileProfileSubtitle(session?.user)}
     >
-      <MobileListSection title="Conversations récentes">
-        {data?.items.map((item) => (
-          <ConversationRow item={item} key={item.id} />
+      <View style={styles.list}>
+        {data?.items.map((item, index) => (
+          <ConversationRow isLast={index === (data.items.length - 1)} item={item} key={item.id} />
         ))}
-      </MobileListSection>
+      </View>
     </MobilePlatformScreen>
   );
 }
 
-function ConversationRow({ item }: { item: ConversationPreviewItem }) {
-  const presenceColor = presenceColors[item.presence];
-
+function ConversationRow({ item, isLast }: { item: ConversationPreviewItem; isLast: boolean }) {
   return (
     <Pressable
       onPress={() => {
@@ -101,13 +85,13 @@ function ConversationRow({ item }: { item: ConversationPreviewItem }) {
           },
         });
       }}
-      style={styles.row}
+      style={[styles.row, isLast ? styles.rowLast : null]}
     >
       <View style={styles.avatarWrap}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{getInitials(item.title)}</Text>
         </View>
-        <View style={[styles.presence, { backgroundColor: presenceColor }]} />
+        <View style={[styles.presence, { backgroundColor: presenceColors[item.presence] }]} />
       </View>
 
       <View style={styles.copy}>
@@ -115,14 +99,8 @@ function ConversationRow({ item }: { item: ConversationPreviewItem }) {
           <Text numberOfLines={1} style={styles.title}>
             {item.title}
           </Text>
-          <Text style={styles.time}>{item.timestampLabel}</Text>
-        </View>
-
-        <View style={styles.metaLine}>
-          <Text style={styles.kind}>{getKindLabel(item.kind)}</Text>
-          <Text style={styles.dot}>•</Text>
-          <Text numberOfLines={1} style={styles.meta}>
-            {item.subtitle || item.participantsLabel}
+          <Text numberOfLines={1} style={styles.time}>
+            {item.timestampLabel}
           </Text>
         </View>
 
@@ -137,8 +115,6 @@ function ConversationRow({ item }: { item: ConversationPreviewItem }) {
           ) : null}
         </View>
       </View>
-
-      <MaterialIcons color="#9CA3AF" name="chevron-right" size={22} />
     </Pressable>
   );
 }
@@ -146,109 +122,101 @@ function ConversationRow({ item }: { item: ConversationPreviewItem }) {
 const styles = StyleSheet.create({
   avatar: {
     alignItems: "center",
-    backgroundColor: "#E6E7FF",
-    borderRadius: 16,
-    height: 48,
+    backgroundColor: mobileTheme.color.chatSurface,
+    borderRadius: 999,
+    height: 38,
     justifyContent: "center",
-    width: 48,
+    width: 38,
   },
   avatarText: {
-    color: "#3F43A7",
-    fontSize: 14,
+    color: mobileTheme.color.popover,
+    fontSize: 12,
     fontWeight: "900",
   },
   avatarWrap: {
-    height: 52,
-    width: 52,
+    height: 40,
+    width: 40,
   },
   badge: {
     alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "#5B5FC7",
+    backgroundColor: mobileTheme.color.primary,
     borderRadius: 999,
-    minWidth: 24,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    height: 16,
+    justifyContent: "center",
+    marginTop: 1,
+    minWidth: 16,
+    paddingHorizontal: 4,
   },
   badgeText: {
-    color: "#FFFFFF",
-    fontSize: 12,
+    color: mobileTheme.color.primaryForeground,
+    fontSize: 9,
     fontWeight: "900",
   },
   copy: {
     flex: 1,
-    gap: 5,
     minWidth: 0,
   },
-  dot: {
-    color: "#CBD5E1",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  kind: {
-    color: "#5B5FC7",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  meta: {
-    color: "#6B7280",
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  metaLine: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
+  list: {
+    backgroundColor: mobileTheme.color.chatBackground,
+    borderColor: "rgba(255,255,255,0.06)",
+    borderRadius: mobileTheme.radius.lg,
+    borderWidth: 1,
+    overflow: "hidden",
+    ...mobileTheme.shadow.subtle,
   },
   presence: {
-    borderColor: "#FFFFFF",
+    borderColor: mobileTheme.color.chatBackground,
     borderRadius: 999,
     borderWidth: 2,
-    bottom: 2,
-    height: 13,
+    bottom: -1,
+    height: 12,
     position: "absolute",
-    right: 2,
-    width: 13,
+    right: -1,
+    width: 12,
   },
   preview: {
-    color: "#6B7280",
+    color: "#A7ACB7",
     flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
   },
   previewLine: {
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 8,
+    marginTop: 2,
   },
   row: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderBottomColor: "#EEF0F4",
+    backgroundColor: mobileTheme.color.chatBackground,
+    borderBottomColor: "rgba(255,255,255,0.06)",
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 12,
-    minHeight: 92,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    minHeight: 74,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  rowLast: {
+    borderBottomWidth: 0,
   },
   time: {
-    color: "#6B7280",
-    fontSize: 12,
-    fontWeight: "800",
-    marginLeft: 8,
+    color: "#7B8190",
+    fontSize: 10,
+    fontWeight: "600",
+    marginLeft: 10,
   },
   title: {
-    color: "#111827",
+    color: mobileTheme.color.popover,
     flex: 1,
-    fontSize: 16,
-    fontWeight: "900",
+    fontSize: 14,
+    fontWeight: "800",
   },
   titleLine: {
     alignItems: "center",
     flexDirection: "row",
+    gap: 8,
     minWidth: 0,
   },
 });

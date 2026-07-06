@@ -11,5 +11,5 @@ export default function Index() {
     return null;
   }
 
-  return <Redirect href={(isAuthenticated ? (isLocked ? "/unlock" : "/activity") : "/login") as never} />;
+  return <Redirect href={(isAuthenticated ? (isLocked ? "/unlock" : "/chat") : "/login") as never} />;
 }

@@ -3,13 +3,14 @@ import * as React from "react";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Redirect, Tabs, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { LogBox, Platform, StyleSheet, View } from "react-native";
+import { LogBox, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import "@/styles/globals.css";
 
 import { MobileAuthProvider, useMobileAuth } from "@/components/mobile/mobile-auth-provider";
 import { PortalProvider, usePortal } from "@/components/mobile/portal-provider";
+import { mobileTheme } from "@/components/mobile/theme";
 import { emitTabScrollToTop } from "@/components/mobile/tab-scroll-to-top";
 
 const ignoredWebWarnings = [
@@ -59,9 +60,69 @@ function WebPhoneFrame({ children }: { children: React.ReactNode }) {
 }
 
 function TabIcon({ color, focused, name }: TabIconProps) {
+  const isDarkIcon = typeof color === "string" && color !== mobileTheme.color.primary;
+
   return (
-    <View style={[styles.tabIconWrap, focused ? styles.tabIconWrapActive : null]}>
+    <View
+      style={[
+        styles.tabIconWrap,
+        focused ? (isDarkIcon ? styles.tabIconWrapActiveDark : styles.tabIconWrapActive) : null,
+      ]}
+    >
       <MaterialIcons color={color} name={name} size={24} />
+    </View>
+  );
+}
+
+interface AppLauncherItem {
+  icon: React.ComponentProps<typeof MaterialIcons>["name"];
+  label: string;
+}
+
+const appLauncherItems: AppLauncherItem[] = [
+  { icon: "add", label: "Add app" },
+  { icon: "call", label: "Appels" },
+  { icon: "description", label: "Fichiers" },
+  { icon: "approval", label: "Approvals" },
+  { icon: "photo-camera", label: "Caméra" },
+  { icon: "cast", label: "Cast" },
+  { icon: "auto-awesome", label: "Clipchamp" },
+  { icon: "school", label: "Éducation" },
+];
+
+function MoreAppsSheet({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  return (
+    <View pointerEvents="box-none" style={styles.overlayRoot}>
+      <Pressable onPress={onClose} style={styles.overlayBackdrop} />
+      <View style={styles.overlaySheet}>
+        <View style={styles.overlayHandle} />
+        <View style={styles.overlayHeader}>
+          <View />
+          <Pressable hitSlop={10} onPress={onClose}>
+            <Text style={styles.overlayAction}>Réorganiser</Text>
+          </Pressable>
+        </View>
+        <View style={styles.appGrid}>
+          {appLauncherItems.map((item) => (
+            <Pressable key={item.label} style={styles.appTile}>
+              <View style={styles.appTileIcon}>
+                <MaterialIcons color={mobileTheme.color.primaryForeground} name={item.icon} size={22} />
+              </View>
+              <Text numberOfLines={2} style={styles.appTileLabel}>
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.appDots}>
+          <View style={[styles.appDot, styles.appDotActive]} />
+          <View style={styles.appDot} />
+        </View>
+      </View>
     </View>
   );
 }
@@ -69,15 +130,28 @@ function TabIcon({ color, focused, name }: TabIconProps) {
 function MobileLayoutTabs() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { hasPortalContent } = usePortal();
+  const { hasPortalContent, setPortalContent } = usePortal();
   const { isAuthenticated, isHydrating, isLocked } = useMobileAuth();
-  const isPublicRoute = pathname === "/" || pathname === "/login" || pathname === "/register" || pathname === "/unlock";
+  const isUnauthenticatedRoute = pathname === "/" || pathname === "/login" || pathname === "/register";
+  const [isMoreOpen, setIsMoreOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setPortalContent(isMoreOpen ? <MoreAppsSheet onClose={() => setIsMoreOpen(false)} /> : null);
+
+    return () => {
+      setPortalContent(null);
+    };
+  }, [isMoreOpen, setPortalContent]);
 
   if (isHydrating) {
     return null;
   }
 
-  if (!isAuthenticated && !isPublicRoute) {
+  if (!isAuthenticated && pathname === "/unlock") {
+    return <Redirect href="/login" />;
+  }
+
+  if (!isAuthenticated && !isUnauthenticatedRoute) {
     return <Redirect href="/login" />;
   }
 
@@ -85,19 +159,24 @@ function MobileLayoutTabs() {
     return <Redirect href="/unlock" />;
   }
 
+  if (isAuthenticated && !isLocked && pathname === "/unlock") {
+    return <Redirect href={"/chat" as never} />;
+  }
+
   if (isAuthenticated && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
-    return <Redirect href={"/activity" as never} />;
+    return <Redirect href={"/chat" as never} />;
   }
 
   return (
     <Tabs
+      initialRouteName="chat"
       screenOptions={{
         headerShown: false,
         sceneStyle: {
-          backgroundColor: "#F6F6FB",
+          backgroundColor: mobileTheme.color.background,
         },
-        tabBarActiveTintColor: "#5B5FC7",
-        tabBarInactiveTintColor: "#111827",
+        tabBarActiveTintColor: mobileTheme.color.primary,
+        tabBarInactiveTintColor: "#C8CDD8",
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "700",
@@ -105,8 +184,8 @@ function MobileLayoutTabs() {
           marginBottom: 4,
         },
         tabBarStyle: {
-          backgroundColor: "rgba(255,255,255,0.98)",
-          borderTopColor: "#D7DBE7",
+          backgroundColor: "rgba(35,36,38,0.98)",
+          borderTopColor: "rgba(255,255,255,0.08)",
           borderTopWidth: 1,
           bottom: 0,
           display: hasPortalContent ? "none" : "flex",
@@ -192,6 +271,30 @@ function MobileLayoutTabs() {
           tabBarLabel: "Appels",
         }}
       />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: "Plus",
+          tabBarButton: ({ accessibilityState }) => {
+            const focused = Boolean(accessibilityState?.selected) || isMoreOpen;
+            const activeColor = mobileTheme.color.primary;
+            const inactiveColor = "#C8CDD8";
+            const color = focused ? activeColor : inactiveColor;
+
+            return (
+              <Pressable
+                accessibilityLabel="Plus"
+                hitSlop={8}
+                onPress={() => setIsMoreOpen(true)}
+                style={styles.moreTabButton}
+              >
+                <TabIcon color={color} focused={focused} name="more-horiz" />
+                <Text style={[styles.moreTabLabel, { color }]}>Plus</Text>
+              </Pressable>
+            );
+          },
+        }}
+      />
     </Tabs>
   );
 }
@@ -200,12 +303,12 @@ export default function MobileRootLayout() {
   return (
     <SafeAreaProvider>
       <MobileAuthProvider>
-        <PortalProvider>
-          <StatusBar style="dark" />
-          <WebPhoneFrame>
+        <StatusBar style="dark" />
+        <WebPhoneFrame>
+          <PortalProvider>
             <MobileLayoutTabs />
-          </WebPhoneFrame>
-        </PortalProvider>
+          </PortalProvider>
+        </WebPhoneFrame>
       </MobileAuthProvider>
     </SafeAreaProvider>
   );
@@ -214,13 +317,13 @@ export default function MobileRootLayout() {
 const styles = StyleSheet.create({
   browserStage: {
     alignItems: "center",
-    backgroundColor: "#E9EDF5",
+    backgroundColor: mobileTheme.color.shell,
     flex: 1,
     justifyContent: "center",
     padding: 24,
   },
   phoneShell: {
-    backgroundColor: "#0B1020",
+    backgroundColor: mobileTheme.color.shellChrome,
     borderRadius: 48,
     height: "100%",
     maxHeight: 900,
@@ -231,7 +334,7 @@ const styles = StyleSheet.create({
   },
   dynamicIsland: {
     alignSelf: "center",
-    backgroundColor: "#09090B",
+    backgroundColor: mobileTheme.color.shellIsland,
     borderRadius: 999,
     height: 24,
     marginTop: 8,
@@ -240,7 +343,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   phoneScreen: {
-    backgroundColor: "#F6F6FB",
+    backgroundColor: mobileTheme.color.background,
     borderRadius: 38,
     flex: 1,
     overflow: "hidden",
@@ -253,6 +356,102 @@ const styles = StyleSheet.create({
     width: 42,
   },
   tabIconWrapActive: {
-    backgroundColor: "#E6E7FF",
+    backgroundColor: mobileTheme.color.accent,
+  },
+  tabIconWrapActiveDark: {
+    backgroundColor: "rgba(73,81,149,0.22)",
+  },
+  moreTabButton: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  moreTabLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 13,
+    marginBottom: 4,
+  },
+  overlayRoot: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+    zIndex: 30,
+  },
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.34)",
+  },
+  overlaySheet: {
+    backgroundColor: mobileTheme.color.chatBackground,
+    borderTopColor: "rgba(255,255,255,0.08)",
+    borderTopWidth: 1,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
+  overlayHandle: {
+    alignSelf: "center",
+    backgroundColor: "#7A7A7A",
+    borderRadius: 999,
+    height: 5,
+    marginBottom: 8,
+    width: 36,
+  },
+  overlayHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    minHeight: 26,
+  },
+  overlayAction: {
+    color: mobileTheme.color.primary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  appGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 18,
+  },
+  appTile: {
+    alignItems: "center",
+    width: "23%",
+  },
+  appTileIcon: {
+    alignItems: "center",
+    backgroundColor: mobileTheme.color.primary,
+    borderRadius: 10,
+    height: 52,
+    justifyContent: "center",
+    marginBottom: 8,
+    width: 52,
+  },
+  appTileLabel: {
+    color: mobileTheme.color.popover,
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  appDots: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: 18,
+  },
+  appDot: {
+    backgroundColor: "#687082",
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  appDotActive: {
+    backgroundColor: mobileTheme.color.primary,
   },
 });

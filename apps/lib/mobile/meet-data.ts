@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { authApi } from "@/lib/api/auth";
 import { getMe } from "@/lib/api/me";
 import { listNotifications } from "@/lib/api/notifications";
 import { listConversations } from "@/lib/api/conversations";
@@ -12,6 +13,7 @@ import { listCallHistory } from "@/lib/api/calls";
 import { listContacts } from "@/lib/api/contacts";
 import { getMockModeEnabled } from "@/lib/api/config";
 import { ApiError, getUserFacingError } from "@/lib/api/errors";
+import { resolveWorkspaceMemberPresenceStatus, type PresenceStatus } from "@/lib/presence";
 import { listWorkspaces } from "@/lib/api/workspaces";
 import type {
   CallHistoryItem,
@@ -71,6 +73,7 @@ export interface ConversationMessageItem {
   authorInitials: string;
   body: string;
   mine: boolean;
+  createdAt?: string;
   timestampLabel: string;
 }
 
@@ -104,6 +107,9 @@ export interface CalendarMeetingItem {
   timeLabel: string;
   status: "live" | "upcoming" | "done";
   location: string;
+  startsAt: string;
+  endsAt?: string;
+  dayOfMonth: number;
 }
 
 export interface CallFeedItem {
@@ -140,6 +146,10 @@ function getWorkspaceContextCacheKey(sessionUser?: MobileSessionUserSeed): strin
 
 function formatMobileApiError(error: unknown): Error {
   if (error instanceof ApiError) {
+    if (error.kind === "unauthenticated") {
+      authApi.clearTokens();
+    }
+
     const suffix = [error.code, error.requestId ? `req ${error.requestId}` : null].filter(Boolean).join(" · ");
     return new Error(`${getUserFacingError(error)}${suffix ? ` (${suffix})` : ""}`);
   }
@@ -189,12 +199,12 @@ function formatRelativeLabel(value?: string): string {
   return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" }).format(date);
 }
 
-function mapPresence(value?: string): "online" | "busy" | "away" | "offline" {
-  const normalized = value?.toLowerCase();
-  if (normalized?.includes("busy") || normalized?.includes("dnd")) return "busy";
-  if (normalized?.includes("away")) return "away";
-  if (normalized?.includes("online") || normalized?.includes("active")) return "online";
-  return "offline";
+function getWorkspaceMemberPresence(member?: WorkspaceMember): PresenceStatus {
+  return resolveWorkspaceMemberPresenceStatus({
+    presenceStatus: member?.presenceStatus,
+    status: member?.status,
+    lastSeenAt: member?.lastSeenAt,
+  }) ?? "offline";
 }
 
 function mapNotificationCategory(notification: Notification): string {
@@ -204,8 +214,33 @@ function mapNotificationCategory(notification: Notification): string {
   return "Système";
 }
 
+function buildConversationParticipantEntries(
+  conversation: Conversation,
+  membersById: Map<string, WorkspaceMember>
+): Array<{ userId?: string; displayName?: string; email?: string }> {
+  if (conversation.participants?.length) {
+    return conversation.participants.map((participant) => ({
+      userId: participant.userId,
+      displayName: participant.displayName,
+      email: participant.email,
+    }));
+  }
+
+  return (
+    conversation.memberIds?.map((memberId) => {
+      const member = membersById.get(memberId);
+      return {
+        userId: memberId,
+        displayName: member?.displayName,
+        email: member?.email,
+      };
+    }) ?? []
+  );
+}
+
 function buildConversationTitle(
   conversation: Conversation,
+  currentUserId: string,
   currentUserEmail: string,
   membersById: Map<string, WorkspaceMember>
 ): string {
@@ -213,12 +248,13 @@ function buildConversationTitle(
     return conversation.name.trim();
   }
 
-  const participantNames =
-    conversation.participants?.map((participant) => participant.displayName || participant.email) ??
-    conversation.memberIds?.map((memberId) => membersById.get(memberId)?.displayName || membersById.get(memberId)?.email || memberId) ??
-    [];
+  const participantNames = buildConversationParticipantEntries(conversation, membersById)
+    .filter((participant) => participant.userId !== currentUserId)
+    .filter((participant) => participant.email?.toLowerCase() !== currentUserEmail.toLowerCase())
+    .map((participant) => participant.displayName?.trim() || participant.email?.trim() || participant.userId || "")
+    .filter(Boolean);
 
-  const filtered = participantNames.filter((name) => name && name !== currentUserEmail);
+  const filtered = [...new Set(participantNames)];
   return filtered.slice(0, 3).join(", ") || "Conversation";
 }
 
@@ -228,13 +264,17 @@ function buildConversationKind(conversation: Conversation): "direct" | "team" | 
   return "group";
 }
 
-function buildConversationPresence(conversation: Conversation, membersById: Map<string, WorkspaceMember>) {
+function buildConversationPresence(
+  conversation: Conversation,
+  currentUserId: string,
+  membersById: Map<string, WorkspaceMember>
+) {
   if (conversation.type !== "dm") {
     return "online" as const;
   }
 
-  const otherParticipantId = conversation.memberIds?.[0];
-  return mapPresence(membersById.get(otherParticipantId ?? "")?.presenceStatus);
+  const otherParticipantId = conversation.memberIds?.find((memberId) => memberId !== currentUserId);
+  return getWorkspaceMemberPresence(membersById.get(otherParticipantId ?? ""));
 }
 
 function getMemberDisplayName(member?: WorkspaceMember): string | undefined {
@@ -252,36 +292,43 @@ function getInitials(value: string): string {
   );
 }
 
-function buildConversationSubtitle(conversation: Conversation, membersById: Map<string, WorkspaceMember>): string {
+function buildConversationSubtitle(
+  conversation: Conversation,
+  currentUserId: string,
+  membersById: Map<string, WorkspaceMember>
+): string {
   if (conversation.type === "dm") {
-    const member = membersById.get(conversation.memberIds?.[0] ?? "");
+    const memberId = conversation.memberIds?.find((id) => id !== currentUserId) ?? conversation.memberIds?.find((id) => membersById.has(id));
+    const member = membersById.get(memberId ?? "");
     return member?.role ?? "Conversation directe";
   }
 
   const memberCount = Math.max(conversation.memberIds?.length ?? conversation.participants?.length ?? 0, 2);
-  const onlineCount = conversation.memberIds?.filter((memberId) => mapPresence(membersById.get(memberId)?.presenceStatus) === "online").length ?? 0;
+  const onlineCount =
+    conversation.memberIds?.filter((memberId) => getWorkspaceMemberPresence(membersById.get(memberId)) === "online").length ?? 0;
   return `${memberCount} membres${onlineCount > 0 ? ` · ${onlineCount} en ligne` : ""}`;
 }
 
 function mapConversationPreview(
   conversation: Conversation,
   membersById: Map<string, WorkspaceMember>,
+  currentUserId: string,
   currentUserEmail: string,
   latestMessage: Message | null,
   index: number
 ): ConversationPreviewItem {
   const kind = buildConversationKind(conversation);
   const memberIds = conversation.memberIds ?? conversation.participants?.map((participant) => participant.userId) ?? [];
-  const subtitle = buildConversationSubtitle(conversation, membersById);
+  const subtitle = buildConversationSubtitle(conversation, currentUserId, membersById);
 
   return {
     id: conversation.id,
-    title: buildConversationTitle(conversation, currentUserEmail, membersById),
+    title: buildConversationTitle(conversation, currentUserId, currentUserEmail, membersById),
     excerpt: latestMessage?.content?.trim() || "Aucun message recent dans cette conversation.",
     timestampLabel: formatRelativeLabel(latestMessage?.createdAt ?? conversation.updatedAt),
     unreadCount: index === 0 ? 3 : index === 1 ? 1 : 0,
     kind,
-    presence: buildConversationPresence(conversation, membersById),
+    presence: buildConversationPresence(conversation, currentUserId, membersById),
     participantsLabel: kind === "direct" ? "Direct" : `${Math.max(memberIds.length, 2)} membres`,
     memberIds,
     subtitle,
@@ -503,6 +550,9 @@ function buildFallbackMeetings(): CalendarMeetingItem[] {
       timeLabel: "09:30 - 09:45",
       status: "live",
       location: "Canal Mobile / LiveKit",
+      startsAt: new Date(new Date().setHours(9, 30, 0, 0)).toISOString(),
+      endsAt: new Date(new Date().setHours(9, 45, 0, 0)).toISOString(),
+      dayOfMonth: new Date().getDate(),
     },
     {
       id: "meeting-2",
@@ -511,6 +561,9 @@ function buildFallbackMeetings(): CalendarMeetingItem[] {
       timeLabel: "14:30 - 15:15",
       status: "upcoming",
       location: "Salle Polaris",
+      startsAt: new Date(new Date().setHours(14, 30, 0, 0)).toISOString(),
+      endsAt: new Date(new Date().setHours(15, 15, 0, 0)).toISOString(),
+      dayOfMonth: new Date().getDate(),
     },
     {
       id: "meeting-3",
@@ -519,6 +572,9 @@ function buildFallbackMeetings(): CalendarMeetingItem[] {
       timeLabel: "11:00 - 12:00",
       status: "upcoming",
       location: "Visio confiance",
+      startsAt: new Date(new Date(Date.now() + 24 * 60 * 60 * 1000).setHours(11, 0, 0, 0)).toISOString(),
+      endsAt: new Date(new Date(Date.now() + 24 * 60 * 60 * 1000).setHours(12, 0, 0, 0)).toISOString(),
+      dayOfMonth: new Date(Date.now() + 24 * 60 * 60 * 1000).getDate(),
     },
   ];
 }
@@ -643,9 +699,8 @@ export async function loadChatHub(sessionUser?: MobileSessionUserSeed): Promise<
     listConversations(context.workspaceId),
   ]);
   const membersById = new Map(members.map((member) => [member.userId, member]));
-  const selectedConversations = conversations.slice(0, 8);
   const messagesByConversation = await Promise.all(
-    selectedConversations.map(async (conversation) => {
+    conversations.map(async (conversation) => {
       try {
         const response = await listMessages(conversation.id, { limit: 1 });
         return [conversation.id, response.data[0] ?? null] as const;
@@ -655,9 +710,23 @@ export async function loadChatHub(sessionUser?: MobileSessionUserSeed): Promise<
     })
   );
   const messageMap = new Map(messagesByConversation);
-  const items = selectedConversations.map((conversation, index) =>
-    mapConversationPreview(conversation, membersById, context.currentUserEmail, messageMap.get(conversation.id) ?? null, index)
-  );
+  const items = [...conversations]
+    .sort((left, right) => {
+      const leftTimestamp = messageMap.get(left.id)?.createdAt ?? left.updatedAt ?? left.createdAt;
+      const rightTimestamp = messageMap.get(right.id)?.createdAt ?? right.updatedAt ?? right.createdAt;
+      return new Date(rightTimestamp).getTime() - new Date(leftTimestamp).getTime();
+    })
+    .slice(0, 8)
+    .map((conversation, index) =>
+      mapConversationPreview(
+        conversation,
+        membersById,
+        context.currentUserId,
+        context.currentUserEmail,
+        messageMap.get(conversation.id) ?? null,
+        index
+      )
+    );
 
   if (items.length === 0 && shouldUseFallbackData()) {
     return { context, items: buildFallbackConversations() };
@@ -687,7 +756,14 @@ export async function loadChatConversation(
     return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
   });
   const latestMessage: Message | null = messages[messages.length - 1] ?? null;
-  const preview = mapConversationPreview(conversation, membersById, context.currentUserEmail, latestMessage, 0);
+  const preview = mapConversationPreview(
+    conversation,
+    membersById,
+    context.currentUserId,
+    context.currentUserEmail,
+    latestMessage,
+    0
+  );
 
   return {
     context,
@@ -700,7 +776,7 @@ export async function loadChatConversation(
         name,
         initials: getInitials(name),
         role: member?.role ?? "Membre",
-        presence: mapPresence(member?.presenceStatus ?? member?.status),
+        presence: getWorkspaceMemberPresence(member),
       };
     }),
     messages: messages.map((message) => {
@@ -713,6 +789,7 @@ export async function loadChatConversation(
         authorInitials: getInitials(authorName),
         body: message.content,
         mine: message.authorId === context.currentUserId,
+        createdAt: message.createdAt,
         timestampLabel: formatRelativeLabel(message.createdAt),
       };
     }),
@@ -767,6 +844,9 @@ export async function loadCalendarHub(sessionUser?: MobileSessionUserSeed): Prom
     timeLabel: formatMeetingTime(meeting),
     status: mapMeetingStatus(meeting.status),
     location: meeting.conversationId ? `Conversation ${meeting.conversationId}` : "Salle Aether",
+    startsAt: meeting.startedAt ?? meeting.createdAt,
+    endsAt: meeting.endedAt,
+    dayOfMonth: new Date(meeting.startedAt ?? meeting.createdAt).getDate(),
   }));
 
   if (items.length === 0 && shouldUseFallbackData()) {

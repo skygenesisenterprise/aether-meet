@@ -4,6 +4,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/components/mobile/mobile-auth-provider";
+import { getMobileProfileInitials, getMobileProfileName, getMobileProfileSubtitle } from "@/components/mobile/profile-identity";
 import {
   MobileEmptyState,
   MobileListRow,
@@ -59,6 +60,9 @@ export default function ActivityScreen() {
       showEmpty={!loading && (data?.items.length ?? 0) === 0}
       subtitle={`${unreadCount} notification${unreadCount > 1 ? "s" : ""} non lue${unreadCount > 1 ? "s" : ""}`}
       title="Activités"
+      userInitials={getMobileProfileInitials(session?.user)}
+      profileName={getMobileProfileName(session?.user)}
+      profileSubtitle={getMobileProfileSubtitle(session?.user)}
     >
       <MobileListSection title="Aujourd'hui">
         {data?.items.map((item) => (
