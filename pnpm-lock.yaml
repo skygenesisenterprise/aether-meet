@@ -268,8 +268,8 @@ importers:
         specifier: ~57.0.2
         version: 57.0.2(expo@54.0.35)(typescript@5.9.3)
       expo-sqlite:
-        specifier: ^56.0.5
-        version: 56.0.5(expo@54.0.35)(react-native@0.81.5)(react@19.1.0)
+        specifier: ^57.0.0
+        version: 57.0.0(expo@54.0.35)(react-native@0.81.5)(react@19.1.0)
       expo-status-bar:
         specifier: ~3.0.9
         version: 3.0.9(react-native@0.81.5)(react@19.1.0)
@@ -9967,8 +9967,8 @@ packages:
       - typescript
     dev: false
 
-  /expo-sqlite@56.0.5(expo@54.0.35)(react-native@0.81.5)(react@19.1.0):
-    resolution: {integrity: sha512-wHYRVLS5nUFEtli45wHaO+RjlRY8sQXyOSgENVk6I4zq7+FgySqjOk3YOYW6IKIMwhj5XzjMJO+pY8xKUy73Kw==}
+  /expo-sqlite@57.0.0(expo@54.0.35)(react-native@0.81.5)(react@19.1.0):
+    resolution: {integrity: sha512-BYTaLjO9+CMaEYIp5fdrO0RGTkaumZrNuDSQgFkeZe1MfKeDjiS1myg66jxJviWaqpycLq7QnRT11+bdO23JHQ==}
     peerDependencies:
       expo: '*'
       react: '*'
