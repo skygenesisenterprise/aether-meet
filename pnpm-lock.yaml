@@ -83,7 +83,7 @@ importers:
         version: 5.2.2(react-hook-form@7.80.0)
       '@livekit/components-react':
         specifier: ^2.6.0
-        version: 2.9.21(livekit-client@1.15.13)(react-dom@19.1.0)(react@19.1.0)(tslib@2.8.1)
+        version: 2.9.21(livekit-client@2.20.1)(react-dom@19.1.0)(react@19.1.0)(tslib@2.8.1)
       '@loglayer/transport-pino':
         specifier: ^3.2.0
         version: 3.2.0(pino@10.3.1)
@@ -304,8 +304,8 @@ importers:
         specifier: 1.4.2
         version: 1.4.2(react-dom@19.1.0)(react@19.1.0)
       livekit-client:
-        specifier: 1.15.13
-        version: 1.15.13
+        specifier: 2.20.1
+        version: 2.20.1(@types/dom-mediacapture-record@1.0.22)
       loglayer:
         specifier: ^9.1.0
         version: 9.1.0
@@ -3291,7 +3291,7 @@ packages:
   /@kurkle/color@0.3.4:
     resolution: {integrity: sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==}
 
-  /@livekit/components-core@0.12.13(livekit-client@1.15.13)(tslib@2.8.1):
+  /@livekit/components-core@0.12.13(livekit-client@2.20.1)(tslib@2.8.1):
     resolution: {integrity: sha512-DQmi84afHoHjZ62wm8y+XPNIDHTwFHAltjd3lmyXj8UZHOY7wcza4vFt1xnghJOD5wLRY58L1dkAgAw59MgWvw==}
     engines: {node: '>=18'}
     peerDependencies:
@@ -3299,13 +3299,13 @@ packages:
       tslib: ^2.6.2
     dependencies:
       '@floating-ui/dom': 1.7.4
-      livekit-client: 1.15.13
+      livekit-client: 2.20.1(@types/dom-mediacapture-record@1.0.22)
       loglevel: 1.9.1
       rxjs: 7.8.2
       tslib: 2.8.1
     dev: false
 
-  /@livekit/components-react@2.9.21(livekit-client@1.15.13)(react-dom@19.1.0)(react@19.1.0)(tslib@2.8.1):
+  /@livekit/components-react@2.9.21(livekit-client@2.20.1)(react-dom@19.1.0)(react@19.1.0)(tslib@2.8.1):
     resolution: {integrity: sha512-6hU9VucJJL+gAhilNGe4MBCDCZVk64qyjP9Ck86krvOIdVU76WeWksddg1MYUP10AlUwwrfD7davz41pJTcMJw==}
     engines: {node: '>=18'}
     peerDependencies:
@@ -3318,15 +3318,25 @@ packages:
       '@livekit/krisp-noise-filter':
         optional: true
     dependencies:
-      '@livekit/components-core': 0.12.13(livekit-client@1.15.13)(tslib@2.8.1)
+      '@livekit/components-core': 0.12.13(livekit-client@2.20.1)(tslib@2.8.1)
       clsx: 2.1.1
       events: 3.3.0
       jose: 6.2.3
-      livekit-client: 1.15.13
+      livekit-client: 2.20.1(@types/dom-mediacapture-record@1.0.22)
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
       tslib: 2.8.1
       usehooks-ts: 3.1.1(react@19.1.0)
+    dev: false
+
+  /@livekit/mutex@1.1.1:
+    resolution: {integrity: sha512-EsshAucklmpuUAfkABPxJNhzj9v2sG7JuzFDL4ML1oJQSV14sqrpTYnsaOudMAw9yOaW53NU3QQTlUQoRs4czw==}
+    dev: false
+
+  /@livekit/protocol@1.46.6:
+    resolution: {integrity: sha512-upzlHP1vi/kZ/QqALZTFskQ0ifqc2f15RKucHYOsIHJsaXvEYanG75mAb7o+Yomfs4XhQ4BaRsdY+TFHXpaqrg==}
+    dependencies:
+      '@bufbuild/protobuf': 1.10.1
     dev: false
 
   /@loglayer/context-manager@2.0.2:
@@ -6855,6 +6865,10 @@ packages:
     resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
     dependencies:
       '@types/ms': 2.1.0
+    dev: false
+
+  /@types/dom-mediacapture-record@1.0.22:
+    resolution: {integrity: sha512-mUMZLK3NvwRLcAAT9qmcK+9p7tpU2FHdDsntR3YI4+GY88XrgG4XiE7u1Q2LAN2/FZOz/tdMDC3GQCR4T8nFuw==}
     dev: false
 
   /@types/emscripten@1.41.5:
@@ -12051,17 +12065,21 @@ packages:
       wrap-ansi: 10.0.0
     dev: true
 
-  /livekit-client@1.15.13:
-    resolution: {integrity: sha512-0oPyZvQ8RK/Gi7Hhmg1hIHM5qpGbkpVtjGC2J1AZlNs41Bp45bU9sgCWRVZ+nd++vDSWEOR/lXiHE8sXPgcFTA==}
+  /livekit-client@2.20.1(@types/dom-mediacapture-record@1.0.22):
+    resolution: {integrity: sha512-JxooxLFMkdwqTo4XLer+DCij6S3//Z/GuHSjqdhlj94Vtbh1Eayd7Lyq47qkIE86+xVJhqxIdYnq53lg4oPH9w==}
+    peerDependencies:
+      '@types/dom-mediacapture-record': ^1
     dependencies:
-      '@bufbuild/protobuf': 1.10.1
+      '@livekit/mutex': 1.1.1
+      '@livekit/protocol': 1.46.6
+      '@types/dom-mediacapture-record': 1.0.22
       events: 3.3.0
+      jose: 6.2.3
       loglevel: 1.9.2
       sdp-transform: 2.15.0
-      ts-debounce: 4.0.0
-      tslib: 2.6.2
+      tslib: 2.8.1
       typed-emitter: 2.1.0
-      webrtc-adapter: 8.2.4
+      webrtc-adapter: 9.0.6
     dev: false
 
   /locate-path@5.0.0:
@@ -16009,10 +16027,6 @@ packages:
       typescript: 5.9.3
     dev: true
 
-  /ts-debounce@4.0.0:
-    resolution: {integrity: sha512-+1iDGY6NmOGidq7i7xZGA4cm8DAa6fqdYcvO5Z6yBevH++Bdo9Qt/mN0TzHUgcCcKv1gmh9+W5dHqz8pMWbCbg==}
-    dev: false
-
   /ts-interface-checker@0.1.13:
     resolution: {integrity: sha512-Y/arvbn+rrz3JCKl9C4kVNfTfSm2/mEp5FSz5EsZSANGPSlQrpRI5M4PKF+mJnE52jOO90PnPSc3Ur3bTQw0gA==}
     dev: false
@@ -16025,10 +16039,6 @@ packages:
       minimist: 1.2.8
       strip-bom: 3.0.0
     dev: true
-
-  /tslib@2.6.2:
-    resolution: {integrity: sha512-AEYxH93jGFPn/a2iVAwW87VuUIkR1FVUKB77NwMF7nBTDkDrrT/Hpt/IrCJ0QXhW27jTBDcf5ZY7w6RiqTMw2Q==}
-    dev: false
 
   /tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
@@ -16534,8 +16544,8 @@ packages:
     engines: {node: '>=8'}
     dev: false
 
-  /webrtc-adapter@8.2.4:
-    resolution: {integrity: sha512-VwtwbYNKnVQW8koB9qb8YcxNwpSVHTvvKEZLzY6uQ3gFrA9E87VPbB5xE+m1AGwUjL1UgN35jRR9hQgteZI5bg==}
+  /webrtc-adapter@9.0.6:
+    resolution: {integrity: sha512-CHbl2ZQbxx164IgWRgzJno4hWtM4tFbRam1QfI3Yxhs3w/DvqluVxVWeXs3oL5/fbGkSNLKo0Ty5MgUWceNhog==}
     engines: {node: '>=6.0.0', npm: '>=3.10.0'}
     dependencies:
       sdp: 3.2.2

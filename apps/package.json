@@ -101,7 +101,7 @@
     "@livekit/components-react": "^2.6.0",
     "framer-motion": "^12.40.0",
     "fumadocs-core": "16.2.3",
-    "livekit-client": "1.15.13",
+    "livekit-client": "2.20.1",
     "fumadocs-mdx": "14.1.0",
     "fumadocs-openapi": "10.1.1",
     "fumadocs-ui": "16.2.3",
